@@ -64,6 +64,8 @@ parser.add_argument('--perturb_hierch', dest='perturb_hierch', default=True,
                     type=bool, help='Applies noise to hierarchical samples')
 
 # Optimization
+parser.add_argument('--ffwd', dest='ffwd', default=False, type=bool,
+                    help='Face forward training')
 parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 parser.add_argument('--mu', dest='mu', default=1e-6, type=float,
@@ -114,7 +116,8 @@ else:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Set output directories
-out_dir = os.path.normpath(os.path.join('out', 'ds_nerf', str(date.today()),
+out_dir = os.path.normpath(os.path.join('out', 'ds_nerf',
+                                        'ffwd_' + str(args.ffwd),
                                         'lrate_' + str(args.lrate),
                                         'm_' + str(args.mu)))
 
@@ -138,7 +141,7 @@ except:
 dataset = DSNerfDataset(basedir='data/bunny/',
                         n_imgs=10,
                         test_idx=49,
-                        f_forward=True,
+                        f_forward=args.ffwd,
                         near=1.2,
                         far=7.)
 

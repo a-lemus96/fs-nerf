@@ -64,6 +64,8 @@ parser.add_argument('--perturb_hierch', dest='perturb_hierch', default=True,
                     type=bool, help='Applies noise to hierarchical samples')
 
 # Optimization
+parser.add_argument('--ffwd', dest='ffwd', default=False, type=bool,
+                    help='Face forward training')
 parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 
@@ -112,13 +114,31 @@ else:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Set output directory
-out_dir = os.path.normpath(os.path.join('out', 'nerf', str(date.today())))
+out_dir = os.path.normpath(os.path.join('out', 'nerf', 
+                                        'ffwd_' + str(args.ffwd),
+                                        'lrate_' + str(args.lrate)))
+
+# Create directories
+try:
+    os.makedirs(os.path.join(out_dir, 'training'))
+except:
+    pass
+
+try:
+    os.makedirs(os.path.join(out_dir, 'video'))
+except:
+    pass
+
+try:
+    os.makedirs(os.path.join(out_dir, 'model'))
+except:
+    pass
 
 # Load dataset
 dataset = NerfDataset(basedir='data/bunny/',
                       n_imgs=10,
                       test_idx=49,
-                      f_forward=True,
+                      f_forward=args.ffwd,
                       near=1.2,
                       far=7.)
 
@@ -362,7 +382,7 @@ def train():
                             z_sample_hierarch = None
                         _ = plot_samples(z_sample_strat, z_sample_hierarch, ax=ax[1,2])
                         ax[1,2].margins(0)
-                        plt.savefig(f"out/training/iteration_{step}.png")
+                        plt.savefig(f"{out_dir}/training/iteration_{step}.png")
                         plt.close(fig)
                         logger.setLevel(base_level)
 
@@ -392,6 +412,8 @@ for k in range(args.n_restarts):
     elif not success and code == 1:
         print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
 
+# Save model
+torch.save(model, out_dir + '/model/nerf')
 
 # Compute camera poses along video rendering path
 render_poses = [pose_from_spherical(3., 45., phi)
@@ -414,5 +436,5 @@ frames = render_path(render_poses=render_poses,
                      chunksize=args.chunksize)
 
 # Now we put together frames and save result into .mp4 file
-render_video(basedir='out/video/',
+render_video(basedir='{out_dir}/video/',
              frames=frames)
