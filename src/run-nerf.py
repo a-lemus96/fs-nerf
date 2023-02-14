@@ -70,11 +70,11 @@ parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 
 # Training 
-parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
+parser.add_argument('--n_iters', dest='n_iters', default=2e4, type=int,
                     help='Number of training iterations')
 parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**12, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 
 # Validation

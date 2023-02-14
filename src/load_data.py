@@ -164,6 +164,9 @@ class NerfDataset(Dataset):
         self.testimg = imgs[test_idx]
         self.testpose = poses[test_idx]
 
+        # Selection indices
+        self.inds = torch.arange(n_imgs - 1)
+
         if f_forward:
             # Set central view arbitrarily
             central = 15
@@ -186,16 +189,16 @@ class NerfDataset(Dataset):
 
         H, W, self.focal = hwf
         self.H, self.W = int(H), int(W)
-        N = imgs.shape[0]
+        N = self.inds.shape[0]
         
         # Get rays
         self.rays = torch.stack([torch.stack(
                                  get_rays(self.H, self.W, self.focal, p), 0)
-                                 for p in poses[:n_imgs]], 0)
+                                 for p in poses[:N]], 0)
 
         # Append RGB supervision and local rays dirs info
         rays_rgb = torch.cat([self.rays,
-                              imgs[:n_imgs, None]], 1) 
+                              imgs[:N, None]], 1) 
 
         # Rearrange data and reshape
         rays_rgb = torch.permute(rays_rgb, [0, 2, 3, 1, 4])
@@ -258,7 +261,7 @@ class DSNerfDataset(NerfDataset):
         depths = torch.cat((t_maps[..., None], backs), 1)
 
         depths = torch.permute(depths, [0, 2, 3, 1, 4])
-        depths = depths.reshape([-1, depths.shape[3], 1]).type(torch.float32) 
+        depths = depths.reshape([-1, depths.shape[3], 1]).type(torch.float32)
         depths = torch.transpose(depths, 0, 1)
         self.depths = depths.type(torch.float32)
 

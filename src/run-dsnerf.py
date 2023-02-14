@@ -139,7 +139,7 @@ except:
 
 # Load dataset
 dataset = DSNerfDataset(basedir='data/bunny/',
-                        n_imgs=10,
+                        n_imgs=50,
                         test_idx=49,
                         f_forward=args.ffwd,
                         near=1.2,
@@ -286,7 +286,7 @@ def train():
         print(f"Epoch {i + 1}")
         model.train()
 
-        for k, batch in enumerate(tqdm(dataloader)): 
+        for k, batch in enumerate(tqdm(dataloader)):
             # Compute step
             step = int(i * steps_per_epoch + k)
 
