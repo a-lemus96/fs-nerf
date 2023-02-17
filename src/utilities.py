@@ -241,7 +241,8 @@ def raw2outputs(raw: torch.Tensor,
         noise = torch.randn(raw[..., 3].shape) * raw_noise_std
 
     # Predict alpha compositing coefficients for each sample. [N, n_samples] 
-    alpha = 1.0 - torch.exp(-nn.functional.relu(raw[..., 3] + noise) * diffs)
+    sigma = nn.functional.relu(raw[..., 3] + noise)
+    alpha = 1.0 - torch.exp(-sigma * diffs)
    
     # Compute weights for each sample. [N, n_samples]
     weights = alpha * cumprod_exclusive(1. - alpha + 1e-10)
@@ -264,7 +265,7 @@ def raw2outputs(raw: torch.Tensor,
     if white_background:
         rgb_map = rgb_map + (1. - acc_map[..., None])
 
-    return rgb_map, depth_map, acc_map, weights
+    return rgb_map, depth_map, weights, sigma
 
 def sample_pdf(bins: torch.Tensor,
                weights: torch.Tensor,
@@ -337,10 +338,12 @@ def sample_hierarchical(
     new_z_samples = new_z_samples.detach()
 
     # Resample points from ray based on PDF
-    z_vals_combined, _ = torch.sort(torch.cat([z_vals, new_z_samples], dim=-1), dim=-1)
-    pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals_combined[..., :, None]  # [N_rays, N_samples + n_samples, 3]
-
-    return pts, z_vals_combined, new_z_samples
+    z_vals_combined, inds = torch.sort(torch.cat([z_vals, new_z_samples], 
+                                                 dim=-1), dim=-1)
+    # [N_rays, N_samples + n_samples, 3]
+    pts = rays_d[..., None, :] * z_vals_combined[..., :, None]  
+    pts += rays_o[..., None, :]
+    return pts, z_vals_combined, inds, new_z_samples
 
 
 # FULL FORWARD PASS
@@ -403,10 +406,7 @@ def nerf_forward(
     far: float,
     encoding_fn: Callable[[torch.Tensor], torch.Tensor],
     coarse_model: nn.Module,
-    mids: torch.Tensor = None,
-    stdevs: torch.Tensor = None,
     kwargs_sample_stratified: dict = None, 
-    kwargs_sample_normal: dict = None,
     n_samples_hierarchical: int = 0,
     kwargs_sample_hierarchical: dict = None,
     fine_model = None,
@@ -420,16 +420,9 @@ def nerf_forward(
     """
 
     # Sample query points along each ray
-    if kwargs_sample_stratified is not None:
-        query_points, z_vals = sample_stratified(rays_o, rays_d, near, far,
-                                             **kwargs_sample_stratified)
+    query_points, z_vals = sample_stratified(rays_o, rays_d, near, far,
+                                     **kwargs_sample_stratified)
 
-    if kwargs_sample_normal is not None: 
-        if mids is not None and stdevs is not None:
-            query_points, z_vals = sample_normal(rays_o, rays_d, z_vals, mids,
-                                                 stdevs, near, far,
-                                                 **kwargs_sample_normal)
-    
     outputs = {'z_vals_stratified': z_vals}
 
     # Prepare batches
@@ -451,18 +444,20 @@ def nerf_forward(
     raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
 
     # Perform differentiable volume rendering
-    rgb_map, depth_map, acc_map, weights = raw2outputs(raw, z_vals, rays_d)
-    
+    data = raw2outputs(raw, z_vals, rays_d)
+    rgb_map, depth_map, weights, sigma = data
+
     if kwargs_sample_hierarchical is not None:
         # Fine model pass
         if n_samples_hierarchical > 0:
             # Save previous outputs to return
-            rgb_map_0, depth_map_0, acc_map_0 = rgb_map, depth_map, acc_map
+            rgb_map_0, depth_map_0, sigma_0 = rgb_map, depth_map, sigma
 
             # Apply hierarchical sampling for fine query points
-            query_points, z_vals_combined, z_hierarch = sample_hierarchical(
-                    rays_o, rays_d, z_vals, weights, n_samples_hierarchical,
-                    **kwargs_sample_hierarchical)
+            hierarch_data = sample_hierarchical(rays_o, rays_d, z_vals, weights, 
+                                                n_samples_hierarchical,
+                                                **kwargs_sample_hierarchical)
+            query_points, z_vals_combined, inds, z_hierarch = hierarch_data 
 
             # Prepare inputs
             batches = prepare_chunks(query_points, encoding_fn, chunksize=chunksize)
@@ -482,20 +477,18 @@ def nerf_forward(
             raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
 
             # Perform differentiable volume rendering on fine predictions
-            rgb_map, depth_map, acc_map, weights = raw2outputs(raw, z_vals_combined,
-                                                               rays_d)
+            rgb_map, depth_map, weights, sigma = raw2outputs(raw, z_vals_combined,
+                                                             rays_d)
 
             # Store outputs.
             outputs['z_vals_hierarchical'] = z_hierarch
             outputs['z_vals_combined'] = z_vals_combined
             outputs['rgb_map_0'] = rgb_map_0
             outputs['depth_map_0'] = depth_map_0
-            outputs['acc_map_0'] = acc_map_0 
 
     outputs['rgb_map'] = rgb_map
     outputs['depth_map'] = depth_map
-    outputs['acc_map'] = acc_map
-    outputs['weights'] = weights
+    outputs['sigma'] = sigma
 
     return outputs
 

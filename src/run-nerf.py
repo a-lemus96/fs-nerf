@@ -28,8 +28,8 @@ parser.add_argument('--d_input', dest='d_input', default=3, type=int,
                     help='Spatial input dimension')
 parser.add_argument('--n_freqs', dest='n_freqs', default=10, type=int,
                     help='Number of encoding functions for spatial coords')
-parser.add_argument('--log_space', dest='log_space', default=True, type=bool,
-                    help='If set, frecuency scale in log space')
+parser.add_argument('--log_space', dest='log_space', action="store_false",
+                    help='If not set, frecuency scale in log space')
 parser.add_argument('--use_viewdirs', dest='use_viewdirs', default=True,
                     type=bool, help='If set, model view dependent effects')
 parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
@@ -42,7 +42,7 @@ parser.add_argument('--n_layers', dest='n_layers', default=8, type=int,
                     help='Number of layers preceding bottleneck')
 parser.add_argument('--skip', dest='skip', default=[4], type=list,
                     help='Layers at which to apply input residual')
-parser.add_argument('--use_fine', dest='use_fine', default=False, type=bool,
+parser.add_argument('--use_fine', dest='use_fine', action="store_true",
                     help='Creates and uses fine NeRF model')
 parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=256,
                     type=int, help='Linear layer filter dim for fine model')
@@ -52,29 +52,29 @@ parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=8,
 # Stratified sampling
 parser.add_argument('--n_samples', dest='n_samples', default=64, type=int,
                     help='Number of stratified samples per ray')
-parser.add_argument('--perturb', dest='perturb', default=True, type=bool,
-                    help='Apply noise to spatial coords')
-parser.add_argument('--inv_depth', dest='inv_depth', default=False, type=bool,
-                    help='Sample points linearly in inverse depth')
+parser.add_argument('--perturb', dest='perturb', action="store_false",
+                    help='If set, do not apply noise to spatial coords')
+parser.add_argument('--inv_depth', dest='inv_depth', action="store_true",
+                    help='If set, sample points linearly in inverse depth')
 
 # Hierarchical sampling
 parser.add_argument('--n_samples_hierch', dest='n_samples_hierch', default=128,
                     type=int, help='Number of hierarchical samples per ray')
-parser.add_argument('--perturb_hierch', dest='perturb_hierch', default=True,
-                    type=bool, help='Applies noise to hierarchical samples')
+parser.add_argument('--perturb_hierch', dest='perturb_hierch', action="store_false", 
+                    help='Applies noise to hierarchical samples')
 
 # Optimization
-parser.add_argument('--ffwd', dest='ffwd', default=False, type=bool,
-                    help='Face forward training')
+parser.add_argument('--ffwd', dest='ffwd', action='store_true',
+                    help='If set, use face forward training scheme')
 parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 
 # Training 
-parser.add_argument('--n_iters', dest='n_iters', default=2e4, type=int,
+parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
                     help='Number of training iterations')
 parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**12, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 
 # Validation
@@ -114,7 +114,7 @@ else:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Set output directory
-out_dir = os.path.normpath(os.path.join('out', 'nerf', 
+out_dir = os.path.normpath(os.path.join('..', 'out', 'nerf', 
                                         'ffwd_' + str(args.ffwd),
                                         'lrate_' + str(args.lrate)))
 
@@ -135,8 +135,8 @@ except:
     pass
 
 # Load dataset
-dataset = NerfDataset(basedir='data/bunny/',
-                      n_imgs=10,
+dataset = NerfDataset(basedir='../data/bunny/',
+                      n_imgs=50,
                       test_idx=49,
                       f_forward=args.ffwd,
                       near=1.2,
@@ -233,19 +233,20 @@ def init_models():
 
     # Models
     model = NeRF(encoder.d_output, n_layers=args.n_layers,
-                 d_filter=args.d_filter, skip=args.skip, d_viewdirs=d_viewdirs)
+                 d_filter=args.d_filter, skip=args.skip,
+                 d_viewdirs=d_viewdirs)
     model.to(device)
     model_params = list(model.parameters())
     if args.use_fine:
         fine_model = NeRF(encoder.d_output, n_layers=args.n_layers, 
-                          d_filter=args.d_filter, skip=args.skip,
+                          d_filter=args.d_filter_fine, skip=args.skip,
                           d_viewdirs=d_viewdirs)
         fine_model.to(device)
         model_params = model_params + list(fine_model.parameters())
     else:
         fine_model = None
     
-    return model, fine_model, encode, encode_viewdirs 
+    return model, fine_model, model_params, encode, encode_viewdirs 
 
 # TRAINING LOOP
 
@@ -263,13 +264,14 @@ def train():
                             num_workers=8)
 
     # Optimizer and scheduler
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate)
+    optimizer = torch.optim.Adam(params, lr=args.lrate)
     scheduler = CustomScheduler(optimizer, args.n_iters, 
                                 n_warmup=args.warmup_iters)
 
     train_psnrs = []
     val_psnrs = []
     iternums = []
+    sigma_curves = []
     
     testimg, testpose = dataset.testimg.to(device), dataset.testpose.to(device)
 
@@ -323,6 +325,11 @@ def train():
                 psnr = -10. * torch.log10(loss)
                 train_psnrs.append(psnr.item())
 
+            # Add coarse predictions
+            if args.use_fine:
+                loss += torch.nn.functional.mse_loss(outputs['rgb_map_0'],
+                                                     target_pixs)
+
             # Perform backprop and optimizer steps
             loss.backward()
             optimizer.step()
@@ -348,6 +355,8 @@ def train():
                     
                     rgb_predicted = outputs['rgb_map']
                     depth_predicted = outputs['depth_map']
+                    sigma = otuputs['sigma']
+                    z_vals = outputs['z_vals_combined']
 
                     val_loss = torch.nn.functional.mse_loss(rgb_predicted, testimg.reshape(-1, 3))
                     val_psnr = -10. * torch.log10(val_loss)
@@ -355,6 +364,15 @@ def train():
                     val_psnrs.append(val_psnr.item())
                     iternums.append(step)
                     if step % args.display_rate == 0:
+                        # Save density distribution along sample ray
+                        z_vals = z_vals.view(-1,
+                                args.n_samples + args.n_samples_hierch)
+                        sample_idx = z_vals.shape[0] // 2
+                        z_sample = z_vals[sample_idx].detach().cpu().numpy()
+                        sigma_sample = sigma[sample_idx].detach().cpu().numpy()
+                        curve = np.concatenate((z_sample, sigma_sample), -1)
+                        sigma_curves.append(curve)
+
                         logger.setLevel(100)
 
                         # Plot example outputs
@@ -373,7 +391,7 @@ def train():
                         ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=7.5)
                         ax[1,1].set_title('Predicted Depth')
-                        z_vals_strat = outputs['z_vals_stratified'].view((-1, args.n_samples))
+                        '''z_vals_strat = outputs['z_vals_stratified'].view((-1, args.n_samples))
                         z_sample_strat = z_vals_strat[z_vals_strat.shape[0] // 2].detach().cpu().numpy()
                         if 'z_vals_hierarchical' in outputs:
                             z_vals_hierarch = outputs['z_vals_hierarchical'].view((-1, args.n_samples_hierch))
@@ -381,7 +399,9 @@ def train():
                         else:
                             z_sample_hierarch = None
                         _ = plot_samples(z_sample_strat, z_sample_hierarch, ax=ax[1,2])
-                        ax[1,2].margins(0)
+                        ax[1,2].margins(0)'''
+                        ax[1, 2].plot(z_sample, sigma_sample)
+                        ax[1, 2].set_title('Density along sample ray')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")
                         plt.close(fig)
                         logger.setLevel(base_level)
@@ -401,7 +421,7 @@ def train():
 # Run training session(s)
 for k in range(args.n_restarts):
     print('Training attempt: ', k + 1)
-    model, fine_model, encode, encode_viewdirs = init_models()
+    model, fine_model, params, encode, encode_viewdirs = init_models()
     success, train_psnrs, val_psnrs, code = train()
 
     if success and val_psnrs[-1] >= args.min_fitness:
@@ -414,6 +434,10 @@ for k in range(args.n_restarts):
 
 # Save model
 torch.save(model, out_dir + '/model/nerf')
+
+# Save density curves for sample ray
+curves = np.array(curves)
+np.save(curves, out_dir + '/densities')
 
 # Compute camera poses along video rendering path
 render_poses = [pose_from_spherical(3., 45., phi)
