@@ -30,8 +30,8 @@ parser.add_argument('--n_freqs', dest='n_freqs', default=10, type=int,
                     help='Number of encoding functions for spatial coords')
 parser.add_argument('--log_space', dest='log_space', action="store_false",
                     help='If not set, frecuency scale in log space')
-parser.add_argument('--use_viewdirs', dest='use_viewdirs', default=True,
-                    type=bool, help='If set, model view dependent effects')
+parser.add_argument('--use_viewdirs', dest='use_viewdirs', action="store_true",
+                    help='If set, model view dependent effects')
 parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
                     type=int, help='Number of encoding functions for view dirs')
 
@@ -116,6 +116,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Set output directory
 out_dir = os.path.normpath(os.path.join('..', 'out', 'nerf', 
                                         'ffwd_' + str(args.ffwd),
+                                        "viewdirs_" + str(args.use_viewdirs),
                                         'lrate_' + str(args.lrate)))
 
 # Create directories
@@ -355,7 +356,7 @@ def train():
                     
                     rgb_predicted = outputs['rgb_map']
                     depth_predicted = outputs['depth_map']
-                    sigma = otuputs['sigma']
+                    sigma = outputs['sigma']
                     z_vals = outputs['z_vals_combined']
 
                     val_loss = torch.nn.functional.mse_loss(rgb_predicted, testimg.reshape(-1, 3))
@@ -367,10 +368,11 @@ def train():
                         # Save density distribution along sample ray
                         z_vals = z_vals.view(-1,
                                 args.n_samples + args.n_samples_hierch)
-                        sample_idx = z_vals.shape[0] // 2
+                        sample_idx = 65010
                         z_sample = z_vals[sample_idx].detach().cpu().numpy()
                         sigma_sample = sigma[sample_idx].detach().cpu().numpy()
-                        curve = np.concatenate((z_sample, sigma_sample), -1)
+                        curve = np.concatenate((z_sample[..., None],
+                                                sigma_sample[..., None]), -1)
                         sigma_curves.append(curve)
 
                         logger.setLevel(100)
@@ -385,9 +387,11 @@ def train():
                         ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
+                        ax[1,0].plot(210, 150, marker='o', color="red")
                         ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=7.5)
                         ax[1,0].set_title(r'Predicted Depth')
+                        ax[1,1].plot(210, 150, marker='o', color="red")
                         ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=7.5)
                         ax[1,1].set_title('Predicted Depth')
@@ -401,10 +405,14 @@ def train():
                         _ = plot_samples(z_sample_strat, z_sample_hierarch, ax=ax[1,2])
                         ax[1,2].margins(0)'''
                         ax[1, 2].plot(z_sample, sigma_sample)
-                        ax[1, 2].set_title('Density along sample ray')
+                        ax[1, 2].set_title('Density along sample ray (red dot)')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")
                         plt.close(fig)
                         logger.setLevel(base_level)
+
+                        # Save density curves for sample ray
+                        curves = np.array(sigma_curves)
+                        np.save(out_dir + '/densities', curves)
 
             # Check PSNR for issues and stop if any are found.
             if step == args.warmup_iters - 1:
@@ -426,18 +434,15 @@ for k in range(args.n_restarts):
 
     if success and val_psnrs[-1] >= args.min_fitness:
         print('Training successful!')
+
+        # Save model
+        torch.save(model, out_dir + '/model/nerf')
+
         break
     if not success and code == 0:
         print(f'Val PSNR {val_psnrs[-1]} below warmup_min_fitness {args.min_fitness}. Stopping...')
     elif not success and code == 1:
         print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
-
-# Save model
-torch.save(model, out_dir + '/model/nerf')
-
-# Save density curves for sample ray
-curves = np.array(curves)
-np.save(curves, out_dir + '/densities')
 
 # Compute camera poses along video rendering path
 render_poses = [pose_from_spherical(3., 45., phi)

@@ -381,7 +381,7 @@ def train():
                         sample_idx = 65010
                         z_sample = z_vals[sample_idx].detach().cpu().numpy()
                         sigma_sample = sigma[sample_idx].detach().cpu().numpy()
-                        curve = np.concatenate((z_sample[..., None,],
+                        curve = np.concatenate((z_sample[..., None],
                                                 sigma_sample[..., None]), -1)
                         sigma_curves.append(curve)
 
@@ -427,20 +427,20 @@ def train():
             # Check PSNR for issues and stop if any are found.
             if step == args.warmup_iters - 1:
                 if val_psnr < args.min_fitness:
-                    return False, train_psnrs, val_psnrs, sigma_curves, 0
+                    return False, train_psnrs, val_psnrs, 0
             elif step < args.warmup_iters:
                 if warmup_stopper is not None and warmup_stopper(step, val_psnr):
-                    return False, train_psnrs, val_psnrs, sigma_curves, 1 
+                    return False, train_psnrs, val_psnrs, 1 
 
         print("Loss:", val_loss.item())
 
-    return True, train_psnrs, val_psnrs, sigma_curves, 2
+    return True, train_psnrs, val_psnrs, 2
 
 # Run training session(s)
 for k in range(args.n_restarts):
     print('Training attempt: ', k + 1)
     model, fine_model, encode, encode_viewdirs = init_models()
-    success, train_psnrs, val_psnrs, curves, code = train()
+    success, train_psnrs, val_psnrs, code = train()
 
     if success and val_psnrs[-1] >= args.min_fitness:
         print('Training successful!')
