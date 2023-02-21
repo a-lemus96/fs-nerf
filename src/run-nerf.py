@@ -465,5 +465,5 @@ frames = render_path(render_poses=render_poses,
                      chunksize=args.chunksize)
 
 # Now we put together frames and save result into .mp4 file
-render_video(basedir='{out_dir}/video/',
+render_video(basedir=f'{out_dir}/video/',
              frames=frames)
