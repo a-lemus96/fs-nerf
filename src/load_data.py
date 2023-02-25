@@ -236,7 +236,7 @@ class DSNerfDataset(NerfDataset):
         # Load images, camera poses and depth maps
         data = load_blender(basedir, depth=True)
         maps, backs = data
-        test_back = backs[self.test_idx]
+        test_back = backs[self.test_idx].type(torch.bool)
         test_map = maps[self.test_idx]
         backs = backs[self.inds]
         maps = maps[self.inds]
@@ -247,7 +247,7 @@ class DSNerfDataset(NerfDataset):
 
         # Compute depth along rays for test depth map
         test_map = -test_map / self.local_dirs[..., -1]
-        self.test_map = test_map.type(torch.float32)
+        self.test_map = test_map.type(torch.float32) * (~test_back)
 
         # Expanded version of local rays according to number of training imgs
         local_dirs = self.local_dirs[None, None, ...].expand(N, 1, self.H,
