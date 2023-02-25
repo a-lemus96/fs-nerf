@@ -399,11 +399,11 @@ def train():
                         ax[0,2].set_title('PSNR (train=red, val=blue')
                         ax[1,0].plot(210, 150, marker='o', color="red")
                         ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
-                                     vmin=0., vmax=7.5)
+                                     vmin=0., vmax=5., cmap='plasma')
                         ax[1,0].set_title(r'Predicted Depth')
                         ax[1,1].plot(210, 150, marker='o', color="red")
                         ax[1,1].imshow(testmap.numpy(),
-                                     vmin=0., vmax=7.5)
+                                     vmin=0., vmax=5., cmap ='plasma')
                         ax[1,1].set_title('Target')
                         '''z_vals_strat = outputs['z_vals_stratified'].view((-1, args.n_samples))
                         z_sample_strat = z_vals_strat[z_vals_strat.shape[0] // 2].detach().cpu().numpy()
