@@ -25,8 +25,8 @@ parser.add_argument("-d2", "--dir2", dest="dir2", required=True, type=str,
 args = parser.parse_args()
 
 # load .npy files
-curves1 = np.load(args.dir1)
-curves2 = np.load(args.dir2)
+curves1 = (np.load(args.dir1))['curves']
+curves2 = (np.load(args.dir2))['curves']
 
 # call animation fn and save returned animation to .gif format
 anim = density_animate(curves1, curves2)
