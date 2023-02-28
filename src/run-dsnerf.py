@@ -95,6 +95,10 @@ parser.add_argument('--min_fitness', dest='min_fitness', default=14.5,
 parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
                     help='Maximum number of restarts if training stalls')
 
+# Video Rendering
+parser.add_argument('--render_only', dest='render_only', action='store_true',
+                    help='If set, load pretrained model to render video')
+
 args = parser.parse_args()
 
 # Bundle the kwargs for various functions to pass all at once
@@ -252,7 +256,7 @@ def init_models():
     else:
         fine_model = None
     
-    return model, fine_model, encode, encode_viewdirs 
+    return model, fine_model, encode, model_params, encode_viewdirs 
 
 # TRAINING LOOP
 
@@ -333,6 +337,11 @@ def train():
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss)
                 train_psnrs.append(psnr.item())
+
+            # Add coarse predictions
+            if args.use_fine:
+                loss += torch.nn.functional.mse_loss(outputs['rgb_map_0'],
+                                                     target_pixs)
 
             # Add depth loss
             target_d = target_d.to(device)
@@ -437,23 +446,39 @@ def train():
 
     return True, train_psnrs, val_psnrs, 2
 
-# Run training session(s)
-for k in range(args.n_restarts):
-    print('Training attempt: ', k + 1)
-    model, fine_model, encode, encode_viewdirs = init_models()
-    success, train_psnrs, val_psnrs, code = train()
+if not args.render_only:
+    # Run training session(s)
+    for k in range(args.n_restarts):
+        print('Training attempt: ', k + 1)
+        model, fine_model, params, encode, encode_viewdirs = init_models()
+        success, train_psnrs, val_psnrs, code = train()
 
-    if success and val_psnrs[-1] >= args.min_fitness:
-        print('Training successful!')
+        if success and val_psnrs[-1] >= args.min_fitness:
+            print('Training successful!')
 
-        # Save model
-        torch.save(model, out_dir + '/model/dsnerf')
+            # Save model
+            torch.save(model.state_dict(), out_dir + '/model/dsnerf.pt')
+            model.eval()
 
-        break
-    if not success and code == 0:
-        print(f'Val PSNR {val_psnrs[-1]} below warmup_min_fitness {args.min_fitness}. Stopping...')
-    elif not success and code == 1:
-        print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
+            if fine_model is not None:
+                torch.save(fine_model.state_dict(),
+                           out_dir + '/model/dsnerf_fine.pt')
+                fine_model.eval()
+
+            break
+        if not success and code == 0:
+            print(f'Val PSNR {val_psnrs[-1]} below warmup_min_fitness {args.min_fitness}. Stopping...')
+        elif not success and code == 1:
+            print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
+
+else:
+    model, fine_model, params, encode, encode_viewdirs = init_models()    
+    # load model
+    model.load_state_dict(torch.load(out_dir + '/model/dsnerf.pt'))
+    model.eval()
+    if fine_model is not None:
+        fine_model.load_state_dict(torch.load(out_dir + '/model/dsnerf_fine.pt'))
+        fine_model.eval()
 
 # compute path poses for rendering video output
 render_poses = sphere_path()
