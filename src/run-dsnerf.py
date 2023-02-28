@@ -13,7 +13,8 @@ from tqdm import tqdm
 # Local application/library specific imports
 from models import *
 from utilities import *
-from load_data import *
+from dataload import *
+from rendering import *
 
 # For repeatability
 '''seed = 451
@@ -454,10 +455,8 @@ for k in range(args.n_restarts):
     elif not success and code == 1:
         print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
 
-# Compute camera poses along video rendering path
-render_poses = [pose_from_spherical(3., 45., phi)
-                for phi in np.linspace(0, 360, 40, endpoint=False)]
-render_poses = torch.stack(render_poses, 0)
+# compute path poses for rendering video output
+render_poses = sphere_path()
 render_poses = render_poses.to(device)
 
 # Render frames for all rendering poses

@@ -7,47 +7,6 @@ import json
 from utilities import *
 from typing import Tuple, List, Union, Callable
 
-# POSES FROM SPHERICAL COORDINATES
-
-# Translate across world's z-axis
-trans_t = lambda t: torch.Tensor([[1., 0., 0., 0.],
-                                 [0., 1., 0., 0.],
-                                 [0., 0., 1., t],
-                                 [0., 0., 0., 1.]]).float() 
-
-# Rotate around world's x-axis
-rot_theta = lambda theta: torch.Tensor([[1., 0., 0., 0.],
-                                        [0., np.cos(theta), -np.sin(theta), 0.],
-                                        [0., np.sin(theta), np.cos(theta), 0.],
-                                        [0., 0., 0., 1.]]).float()
-
-# Rotate around world's z-axis
-rot_phi = lambda phi: torch.Tensor([[np.cos(phi), -np.sin(phi), 0., 0.],
-                                    [np.sin(phi), np.cos(phi), 0., 0.],
-                                    [0., 0., 1., 0.],
-                                    [0., 0., 0., 1.]]).float()
-
-def pose_from_spherical(
-    radius: float, 
-    theta: float,
-    phi: float
-    ) -> torch.Tensor:
-    r"""Computes 4x4 camera pose from 3D location expressed in spherical coords.
-    Camera frame points toward object with its y-axis tangent to the virtual
-    spherical surface defined by given radius.
-    ---------------------------------------------------------------------------- 
-    Args:
-        radius: float. Sphere radius.
-        theta: 0° < float < 90°. Colatitude angle.
-        phi: 0° < float < 360°. Azimutal angle.
-    Returns:
-        pose: [4, 4]. Camera to world transformation."""
-
-    pose = trans_t(radius) 
-    pose = rot_theta(theta/180. * np.pi) @ pose
-    pose = rot_phi(phi/180. * np.pi) @ pose 
-    
-    return pose
 
 # DATA LOADING FUNCTIONS
 

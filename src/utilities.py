@@ -4,9 +4,7 @@ import torch
 from torch import nn
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
-import imageio
 from typing import Optional, Tuple, List, Union, Callable
-from tqdm import tqdm
 
 def save_origins_and_dirs(poses):
     '''Plot and save optical axis positions and orientations for each camera pose.
@@ -492,77 +490,8 @@ def nerf_forward(
 
     return outputs
 
-# VIDEO RENDERING UTILITIES
-
-def render_path(
-    render_poses: torch.Tensor,
-    near: float,
-    far: float,
-    hwf: torch.Tensor,
-    encode: Callable[[torch.Tensor], torch.Tensor], 
-    model: nn.Module,
-    kwargs_sample_stratified: dict = None,
-    n_samples_hierarchical: int = 0,
-    kwargs_sample_hierarchical: dict = None,
-    fine_model: nn.Module = None,
-    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    chunksize: int = 2**12
-    ) -> torch.Tensor:
-    r"""Render frames for the incoming camera poses.
-    ----------------------------------------------------------------------------
-    Args:
-        render_poses: [N, 4, 4]. Camera poses to render from.
-        chunksize: int. Size of smaller minibatches to avoid OOM.
-        hwf: [3]. Height, width and focal length.
-    Returns:
-        frames: [N, H, W, 3]. Rendered RGB frames."""
-
-    H, W, focal = hwf
-    model.eval()
-
-    frames = []
-    print("Rendering frames...")
-    for i, pose in enumerate(tqdm(render_poses)):
-        with torch.no_grad():
-            # Get rays
-            rays_o, rays_d = get_rays(H, W, focal, pose)
-            rays_o = rays_o.reshape([-1, 3])
-            rays_d = rays_d.reshape([-1, 3])
-
-            # Compute NeRF forward pass
-            outputs = nerf_forward(rays_o, rays_d,
-                           near, far, encode, model,
-                           kwargs_sample_stratified=kwargs_sample_stratified,
-                           n_samples_hierarchical=n_samples_hierarchical,
-                           kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=chunksize)
-
-            rgb_predicted = outputs['rgb_map']
-            rgb_predicted = rgb_predicted.reshape([H, W, 3]).detach().cpu().numpy()
-
-        frames.append(rgb_predicted)
-    frames = np.stack(frames, 0)
-
-    return frames
-
-to8b = lambda x : (255 * np.clip(x, 0, 1)).astype(np.uint8)
-
-def render_video(
-    basedir: str,
-    frames: torch.Tensor):
-    r"""Video rendering functionality. It takes a series of frames and joins
-    them in a .mp4 file.
-    ----------------------------------------------------------------------------
-    Args:
-        basedir: str. Base directory where to store .mp4 file.
-        frames: [N, H, W, 3]. N video frames."""
-
-    imageio.mimwrite(basedir + 'rgb.mp4', to8b(frames), fps=30, quality=8)
-
-
 # TRAINING UTILITIES
+
 class CustomScheduler:
 
   def __init__(
