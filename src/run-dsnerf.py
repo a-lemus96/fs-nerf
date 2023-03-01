@@ -448,7 +448,7 @@ if not args.render_only:
     # Run training session(s)
     for k in range(args.n_restarts):
         print('Training attempt: ', k + 1)
-        model, fine_model, params, encode, encode_viewdirs = init_models()
+        model, fine_model, encode, params, encode_viewdirs = init_models()
         success, train_psnrs, val_psnrs, code = train()
 
         if success and val_psnrs[-1] >= args.min_fitness:
@@ -470,7 +470,7 @@ if not args.render_only:
             print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
 
 else:
-    model, fine_model, params, encode, encode_viewdirs = init_models()    
+    model, fine_model, encode, params, encode_viewdirs = init_models()    
     # load model
     model.load_state_dict(torch.load(out_dir + '/model/dsnerf.pt'))
     model.eval()
