@@ -11,10 +11,11 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Local application/library specific imports
-from models import *
-from utilities import *
 from dataload import *
+from loss import *
+from models import *
 from rendering import *
+from utilities import *
 
 # For repeatability
 '''seed = 451
@@ -95,6 +96,12 @@ parser.add_argument('--min_fitness', dest='min_fitness', default=14.5,
 parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
                     help='Maximum number of restarts if training stalls')
 
+# Directories
+parser.add_argument('--data_dir', dest='data_dir', default="../data/bunny/",
+                    type=str, help="Dataset directory")
+parser.add_argument('--out_dir', dest='out_dir', default="../out/",
+                    type=str, help="Base directory for storing results")
+
 # Video Rendering
 parser.add_argument('--render_only', dest='render_only', action='store_true',
                     help='If set, load pretrained model to render video')
@@ -121,31 +128,19 @@ else:
 # Use cuda device if available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Set output directories
-out_dir = os.path.normpath(os.path.join('..', 'out', 'ds_nerf',
+# Build base path for output directories
+out_dir = os.path.normpath(os.path.join(args.out_dir, 'ds_nerf',
                                         'ffwd_' + str(args.ffwd),
                                         'viewdirs_' + str(args.use_viewdirs),
                                         'lrate_' + str(args.lrate),
                                         'm_' + str(args.mu)))
 
 # Create directories
-try:
-    os.makedirs(os.path.join(out_dir, 'training'))
-except:
-    pass
-
-try:
-    os.makedirs(os.path.join(out_dir, 'video'))
-except:
-    pass
-
-try:
-    os.makedirs(os.path.join(out_dir, 'model'))
-except:
-    pass
+folders = ['training', 'video', 'model']
+[os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = DSNerfDataset(basedir='../data/bunny/',
+dataset = DSNerfDataset(basedir=os.path.normpath(args.data_dir),
                         n_imgs=50,
                         test_idx=49,
                         f_forward=args.ffwd,
