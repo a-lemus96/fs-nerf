@@ -76,6 +76,8 @@ parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
 parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
+parser.add_argument('--device_num', dest='device_num', default=0, type=int,
+                    help="Number of CUDA device to be used for training")
 
 # Validation
 parser.add_argument('--display_rate', dest='display_rate', default=1e3, type=int,
@@ -114,14 +116,16 @@ kwargs_sample_hierarchical = {
     'perturb': args.perturb_hierch
 }
 
-# Verify cuda availability
-if torch.cuda.is_available():
-    print(f"Device: {torch.cuda.get_device_name(torch.cuda.current_device())}")
-else:
-    print("Device: CPU")
-
 # Use cuda device if available
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+cuda_available = torch.cuda.is_available()
+device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
+
+# Verify CUDA availability
+if device != 'cpu' :
+    print(f"Device: {torch.cuda.get_device_name(device)}\n")
+else:
+    print("Device: CPU. Abort.")
+    exit()
 
 # Build base path for output directories
 out_dir = os.path.normpath(os.path.join(args.out_dir, 'nerf', 
