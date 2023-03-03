@@ -483,6 +483,7 @@ def nerf_forward(
             outputs['z_vals_combined'] = z_vals_combined
             outputs['rgb_map_0'] = rgb_map_0
             outputs['depth_map_0'] = depth_map_0
+            outputs['sigma_0'] = sigma_0
 
     outputs['rgb_map'] = rgb_map
     outputs['depth_map'] = depth_map

@@ -73,6 +73,10 @@ parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 parser.add_argument('--mu', dest='mu', default=1e-6, type=float,
                     help='Balancing factor for depth loss term')
+parser.add_argument('--use_entropy', dest='use_entropy', action='store_true',
+                    help='If set, add entropy-based reg term')
+parser.add_argument('--lamb', dest='lamb', default=1e-2, type=float,
+                    help='Balancing factor for entropy reg term')
 
 # Training 
 parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
@@ -132,12 +136,18 @@ else:
     print("Device: CPU. Abort.")
     exit()
 
+# Store entropy-based results in a separate folder
+method = 'entropy' if args.use_entropy else 'ds_nerf'
+
 # Build base path for output directories
-out_dir = os.path.normpath(os.path.join(args.out_dir, 'ds_nerf',
+out_dir = os.path.normpath(os.path.join(args.out_dir, method,
                                         'ffwd_' + str(args.ffwd),
                                         'viewdirs_' + str(args.use_viewdirs),
                                         'lrate_' + str(args.lrate),
                                         'm_' + str(args.mu)))
+
+if method == 'entropy':
+    out_dir = os.path.normpath(os.path.join(out_dir, 'l_' + str(args.lamb)))
 
 # Create directories
 folders = ['training', 'video', 'model']
@@ -350,6 +360,14 @@ def train():
             d_loss = torch.nn.functional.l1_loss(d_predicted, target_d)
             loss += args.mu * d_loss
 
+            # Add entropy regularization, if specified
+            if args.use_entropy:
+                sigma = (outputs['sigma'])[~target_backs]
+                loss += args.lamb * gini_entropy(sigma)
+                if args.use_fine:
+                    sigma = (outputs['sigma_0'])[~target_backs]
+                    loss += args.lamb * gini_entropy(sigma)
+
             # Perform backprop and optimizer steps
             loss.backward()
             optimizer.step()
@@ -403,7 +421,7 @@ def train():
                         ax[0,0].set_title(f'Iteration: {step}')
                         ax[0,1].imshow(testimg.cpu().numpy())
                         ax[0,1].set_title(f'Target')
-                        ax[0,2].plot(iternums, train_psnrs, 'r')
+                        ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
                         ax[1,0].plot(210, 150, marker='o', color="red")

@@ -21,6 +21,6 @@ def gini_entropy(
     sigmas = sigmas / total[..., None]
     
     # compute sum of squared proportions
-    loss = -torch.sum(sigmas**2, dim=-1)
+    loss = torch.mean(-torch.sum(sigmas**2, dim=-1))
 
     return loss 

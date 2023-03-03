@@ -386,7 +386,7 @@ def train():
                         ax[0,0].set_title(f'Iteration: {step}')
                         ax[0,1].imshow(testimg.cpu().numpy())
                         ax[0,1].set_title(f'Target')
-                        ax[0,2].plot(iternums, train_psnrs, 'r')
+                        ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
                         ax[1,0].plot(210, 150, marker='o', color="red")
