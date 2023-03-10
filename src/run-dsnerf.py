@@ -505,7 +505,7 @@ render_poses = sphere_path()
 render_poses = render_poses.to(device)
 
 # Render frames for all rendering poses
-frames = render_path(render_poses=render_poses,
+output = render_path(render_poses=render_poses,
                      near=near,
                      far=far,
                      hwf=[H, W, focal],
@@ -518,6 +518,9 @@ frames = render_path(render_poses=render_poses,
                      encode_viewdirs=encode_viewdirs,
                      chunksize=args.chunksize)
 
+frames, d_frames = output
+
 # Now we put together frames and save result into .mp4 file
 render_video(basedir=f'{out_dir}/video/',
-             frames=frames)
+             frames=frames,
+             d_frames=d_frames)

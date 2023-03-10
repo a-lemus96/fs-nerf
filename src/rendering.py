@@ -5,6 +5,8 @@ from typing import Callable, Optional, Tuple
 
 # third-party
 import imageio
+import matplotlib
+import matplotlib.cm as cm
 import numpy as np
 import torch 
 from torch import nn
@@ -96,20 +98,21 @@ def render_path(
     fine_model: nn.Module = None,
     encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     chunksize: int = 2**12
-    ) -> torch.Tensor:
-    r"""Render frames for the incoming camera poses.
+    ) -> Tuple[torch.Tensor]:
+    r"""Render video outputs for the incoming camera poses.
     ----------------------------------------------------------------------------
     Args:
         render_poses: [N, 4, 4]. Camera poses to render from.
         chunksize: int. Size of smaller minibatches to avoid OOM.
         hwf: [3]. Height, width and focal length.
     Returns:
-        frames: [N, H, W, 3]. Rendered RGB frames."""
+        frames: [N, H, W, 3]. Rendered RGB frames.
+        d_frames: (N, H, W)-shape tensor. Rendered depth frames."""
 
     H, W, focal = hwf
     model.eval()
 
-    frames = []
+    frames, d_frames = [], []
     print("Rendering frames...")
     for i, pose in enumerate(tqdm(render_poses)):
         with torch.no_grad():
@@ -128,22 +131,49 @@ def render_path(
                            viewdirs_encoding_fn=encode_viewdirs,
                            chunksize=chunksize)
 
-            rgb_predicted = outputs['rgb_map']
-            rgb_predicted = rgb_predicted.reshape([H, W, 3]).detach().cpu().numpy()
+            # read predicted rgb frame
+            rgb_map = outputs['rgb_map']
+            rgb_map = rgb_map.reshape([H, W, 3]).detach().cpu().numpy()
+            
+            # read predicted depth frame
+            depth_map = outputs['depth_map']
+            depth_map = depth_map.reshape([H, W]).detach().cpu().numpy()
 
-        frames.append(rgb_predicted)
+        # append rgb and depth frames
+        frames.append(rgb_map)
+        d_frames.append(depth_map)
+
+    # stack all frames in numpy arrays
     frames = np.stack(frames, 0)
+    d_frames = np.stack(d_frames, 0)
 
-    return frames
+    return frames, d_frames
 
 def render_video(
     basedir: str,
-    frames: torch.Tensor):
+    frames: torch.Tensor,
+    d_frames: torch.Tensor
+    ) -> None:
     r"""Video rendering functionality. It takes a series of frames and joins
-    them in a .mp4 file.
+    them in .mp4 files.
     ----------------------------------------------------------------------------
     Args:
-        basedir: str. Base directory where to store .mp4 file.
-        frames: [N, H, W, 3]. N video frames."""
-
+        basedir: str. Base directory where to store .mp4 file
+        frames: [N, H, W, 3]. N rgb frames
+        d_frames: (N, H, W)-shape. N depth frames
+    Returns:
+        None"""
+    # rgb video output
     imageio.mimwrite(basedir + 'rgb.mp4', to8b(frames), fps=30, quality=8)
+    
+    # map depth values to RGBA using a colormap
+    norm = matplotlib.colors.Normalize(vmin=np.amin(d_frames),
+                                       vmax=np.amax(d_frames))
+    mapper = cm.ScalarMappable(norm=norm, cmap='plasma')
+    # flatten d_frames before applying mapping
+    d_rgba = mapper.to_rgba(d_frames.flatten())
+    # return to normal dimensions
+    d_rgba = np.reshape(d_rgba, list(d_frames.shape[:3]) + [-1])
+    print(d_rgba.shape)
+    # unflatten d_frames
+    imageio.mimwrite(basedir + 'd.mp4', to8b(d_rgba), fps=30, quality=8)
