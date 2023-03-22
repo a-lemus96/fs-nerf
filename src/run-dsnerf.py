@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 # Local application/library specific imports
 from dataload import *
+from dataset import *
 from loss import *
 from models import *
 from rendering import *
@@ -154,7 +155,8 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = DSNerfDataset(basedir=os.path.normpath(args.data_dir),
+dataset = DSNerfDataset(dataset='custom',
+                        scene='bunny',
                         n_imgs=50,
                         test_idx=49,
                         f_forward=args.ffwd,

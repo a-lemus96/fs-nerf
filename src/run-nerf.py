@@ -11,9 +11,11 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Local application/library specific imports
-from models import *
-from utilities import *
 from dataload import *
+from dataset import *
+from models import *
+from rendering import *
+from utilities import *
 
 # For repeatability
 '''seed = 451
@@ -138,7 +140,8 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = NerfDataset(basedir=os.path.normpath(args.data_dir),
+dataset = NerfDataset(dataset='custom',
+                      scene='bunny',
                       n_imgs=50,
                       test_idx=49,
                       f_forward=args.ffwd,
