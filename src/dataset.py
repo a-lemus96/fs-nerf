@@ -19,6 +19,7 @@ class NerfDataset(Dataset):
     def __init__(
         self,
         dataset: str,
+        subset: str,
         scene: str,
         n_imgs: int,
         test_idx: int,
@@ -33,8 +34,8 @@ class NerfDataset(Dataset):
         self.far = far
 
         # Load images and camera poses
-        reader = DataReader(dataset)
-        imgs, poses, hwf = reader.get_data(scene)[:3]
+        reader = DataReader(dataset, subset=subset, scene=scene)
+        imgs, poses, hwf = reader.get_data()[:3]
 
         # Validation image
         self.testimg = imgs[test_idx]

@@ -65,6 +65,14 @@ parser.add_argument('--n_samples_hierch', dest='n_samples_hierch', default=128,
 parser.add_argument('--perturb_hierch', dest='perturb_hierch', action="store_false", 
                     help='Applies noise to hierarchical samples')
 
+# Dataset
+parser.add_argument('--dataset', dest='dataset', default='rtmv', type=str,
+                    help="Dataset to choose scenes from")
+parser.add_argument('--subset', dest='subset', default='bricks', type=str,
+                    help="Subset of the dataset")
+parser.add_argument('--scene', dest='scene', default='fire-temple', type=str,
+                    help="Scene to be used for training")
+
 # Optimization
 parser.add_argument('--ffwd', dest='ffwd', action='store_true',
                     help='If set, use face forward training scheme')
@@ -140,10 +148,11 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = NerfDataset(dataset='custom',
-                      scene='bunny',
-                      n_imgs=50,
-                      test_idx=49,
+dataset = NerfDataset(dataset=args.dataset,
+                      subset=args.subset,
+                      scene=args.scene,
+                      n_imgs=100,
+                      test_idx=102,
                       f_forward=args.ffwd,
                       near=1.2,
                       far=7.)
