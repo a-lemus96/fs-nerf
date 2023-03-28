@@ -24,6 +24,7 @@ class NerfDataset(Dataset):
         n_imgs: int,
         test_idx: int,
         f_forward: bool = False,
+        factor: int = None,
         near: int = 2.,
         far: int = 7.):
 
@@ -34,7 +35,7 @@ class NerfDataset(Dataset):
         self.far = far
 
         # Load images and camera poses
-        reader = DataReader(dataset, subset=subset, scene=scene)
+        reader = DataReader(dataset, subset, scene, factor)
         imgs, poses, hwf = reader.get_data()[:3]
 
         # Validation image
@@ -106,13 +107,15 @@ class DSNerfDataset(NerfDataset):
         n_imgs: int,
         test_idx: int,
         f_forward: bool = False,
+        factor: int = None,
         near: int=2.,
         far: int=7.): 
         # Call base class constructor method
-        super().__init__(dataset, scene, n_imgs, test_idx, f_forward, near, far)
+        super().__init__(dataset, scene, n_imgs, test_idx,
+                         f_forward, factor, near, far)
 
         # Load images, camera poses and depth maps
-        reader = DataReader(dataset)
+        reader = DataReader(dataset, factor, subset=subset, scene=scene)
         imgs, poses, hwf, maps, backs = reader.get_data(scene)
 
         test_back = backs[self.test_idx].type(torch.bool)

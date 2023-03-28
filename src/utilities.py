@@ -208,10 +208,10 @@ def raw2outputs(raw: torch.Tensor,
                 z_vals: torch.Tensor,
                 rays_dirs: torch.Tensor,
                 raw_noise_std: float = 0.0,
-                white_background: bool = False) -> Tuple[torch.Tensor,
-                                                         torch.Tensor,
-                                                         torch.Tensor,
-                                                         torch.Tensor]:
+                white_bkgd: bool = False) -> Tuple[torch.Tensor,
+                                                   torch.Tensor,
+                                                   torch.Tensor,
+                                                   torch.Tensor]:
     '''Convert NeRF raw output to RGB images and other useful representations.
     Args:
        raw: [N, n_samples, 4]. Raw outputs from NeRF model. First 3 elements 
@@ -260,7 +260,7 @@ def raw2outputs(raw: torch.Tensor,
     acc_map = torch.sum(weights, dim=-1)
 
     # Use accumulated alpha map to composite onto a white background
-    if white_background:
+    if white_bkgd:
         rgb_map = rgb_map + (1. - acc_map[..., None])
 
     return rgb_map, depth_map, weights, sigma
@@ -409,8 +409,9 @@ def nerf_forward(
     kwargs_sample_hierarchical: dict = None,
     fine_model = None,
     viewdirs_encoding_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    chunksize = 2**15
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
+    chunksize = 2**15,
+    white_bkgd = False,
+    ) -> dict:
     r"""
     Compute forward pass through NeRF model(s).
     Args:
@@ -442,7 +443,7 @@ def nerf_forward(
     raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
 
     # Perform differentiable volume rendering
-    data = raw2outputs(raw, z_vals, rays_d)
+    data = raw2outputs(raw, z_vals, rays_d, white_bkgd=white_bkgd)
     rgb_map, depth_map, weights, sigma = data
 
     if kwargs_sample_hierarchical is not None:
@@ -455,7 +456,7 @@ def nerf_forward(
             hierarch_data = sample_hierarchical(rays_o, rays_d, z_vals, weights, 
                                                 n_samples_hierarchical,
                                                 **kwargs_sample_hierarchical)
-            query_points, z_vals_combined, inds, z_hierarch = hierarch_data 
+            query_points, z_vals_combined, inds, z_hierarch = hierarch_data
 
             # Prepare inputs
             batches = prepare_chunks(query_points, encoding_fn, chunksize=chunksize)
@@ -475,8 +476,10 @@ def nerf_forward(
             raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
 
             # Perform differentiable volume rendering on fine predictions
-            rgb_map, depth_map, weights, sigma = raw2outputs(raw, z_vals_combined,
-                                                             rays_d)
+            rgb_map, depth_map, weights, sigma = raw2outputs(raw,
+                                                             z_vals_combined,
+                                                             rays_d,
+                                                             white_bkgd=white_bkgd)
 
             # Store outputs.
             outputs['z_vals_hierarchical'] = z_hierarch

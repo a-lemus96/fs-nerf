@@ -67,6 +67,16 @@ parser.add_argument('--perturb_hierch', dest='perturb_hierch',
                     action="store_false",
                     help='If set, do not apply noise to hierarchical samples')
 
+# Dataset
+parser.add_argument('--dataset', dest='dataset', default='rtmv', type=str,
+                    help="Dataset to choose scenes from")
+parser.add_argument('--subset', dest='subset', default='bricks', type=str,
+                    help="Subset of the dataset")
+parser.add_argument('--scene', dest='scene', default='fire-temple', type=str,
+                    help="Scene to be used for training")
+parser.add_argument('--white_bkgd', dest='white_bkgd', default=True,
+                    type=bool, help="Use white backgroung for training imgs")
+
 # Optimization
 parser.add_argument('--ffwd', dest='ffwd', action='store_true',
                     help='If set, use face forward training scheme')
@@ -104,8 +114,6 @@ parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
                     help='Maximum number of restarts if training stalls')
 
 # Directories
-parser.add_argument('--data_dir', dest='data_dir', default="../data/bunny/",
-                    type=str, help="Dataset directory")
 parser.add_argument('--out_dir', dest='out_dir', default="../out/",
                     type=str, help="Base directory for storing results")
 
@@ -155,11 +163,12 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = DSNerfDataset(dataset='custom',
-                        scene='bunny',
-                        n_imgs=50,
-                        test_idx=49,
+dataset = DSNerfDataset(dataset=args.dataset,
+                        subset=args.subset,
+                        n_imgs=100,
+                        test_idx=103,
                         f_forward=args.ffwd,
+                        factor=4,
                         near=1.2,
                         far=7.)
 
@@ -325,7 +334,8 @@ def train():
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
                            viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=args.chunksize)
+                           chunksize=args.chunksize,
+                           white_bkgd=args.white_bkgd)
 
             # Check for numerical issues
             for key, val in outputs.items():
@@ -391,7 +401,8 @@ def train():
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
                            viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=args.chunksize)
+                           chunksize=args.chunksize,
+                           white_bkgd=args.white_bkgd)
                     
                     rgb_predicted = outputs['rgb_map']
                     depth_predicted = outputs['depth_map']

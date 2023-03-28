@@ -9,6 +9,7 @@ from typing import Tuple, List, Union, Callable
 import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
+import torchvision.transforms as tv
 import tqdm
 import imageio
 import numpy as np
@@ -23,11 +24,12 @@ class DataReader:
     """Class definition for reading several NeRF dataset formats.
     ----------------------------------------------------------------------------
     """ 
-    def __read_custom(basedir: str, **kwargs) -> Tuple:
+    def __read_custom(basedir: str, factor: int, **kwargs) -> Tuple:
         """Reads custom blender dataset.
         ------------------------------------------------------------------------
         Args:
             basedir: basepath
+            factor: for reducing image resolution
             **kwargs: keyword args
         Returns:
             imgs: [N, H, W, 3]. N HxW RGB images
@@ -74,12 +76,12 @@ class DataReader:
 
         return imgs, poses, hwf, d_maps, d_backs
 
-
-    def __read_rtmv(basedir: str, **kwargs) -> Tuple:
+    def __read_rtmv(basedir: str, factor: int=None, **kwargs) -> Tuple:
         """Reads RTMV dataset.
         ------------------------------------------------------------------------
         Args:
             basedir: base path
+            factor: for reducing image resolution
             **kwargs: keyword args
         Returns:
             imgs: (N, H, W, 3)-shape. N HxW RGB images
@@ -109,7 +111,7 @@ class DataReader:
             #load RGB file
             img = cv2.imread(os.path.join(basedir, fname + '.exr'),
                              cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-            imgs.append(img)
+            imgs.append(img[...,::-1]) # change BGR to RGB
 
             # load depth map
             d_map = cv2.imread(os.path.join(basedir, fname + '.depth.exr'),
@@ -121,25 +123,62 @@ class DataReader:
         d_maps = torch.Tensor(np.array(d_maps))
         H, W = imgs.shape[1:3]
         hwf = torch.Tensor(np.array([H, W, np.array(focal)]))
+
+        # apply downsampling if applicable
+        if factor is not None:
+            imgs, hwf = DataReader.__downsample(imgs, hwf, factor)
         
         return imgs, poses, hwf
+
+    def __downsample(
+            imgs: torch.Tensor, 
+            hwf: torch.Tensor, 
+            factor: int
+            ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Downsample images and apply resize factor to camera intrinsics. It
+        may be used for upsampling by using 0 < 'factor' < 1.
+        ------------------------------------------------------------------------
+        Args:
+            imgs: (N, H, W, 3)-shape. Images
+            hwf: (3,)-shape. Camera intrinsics
+            factor: Downsample factor
+        Returns:
+            new_imgs: (N, H, W, 3)-shape. Downsampled images
+            new_hwf: (3,)-shape. Updated camera intrinsics"""
+        # apply factor to camera intrinsics
+        H, W = hwf[:2]
+        new_H = torch.div(H, factor, rounding_mode='floor')
+        new_W = torch.div(W, factor, rounding_mode='floor')
+        new_focal = hwf[2] / float(factor)
+        new_hwf = torch.Tensor((new_H, new_W, new_focal))
+
+        # resize images
+        new_H = int(new_H.item())
+        new_W = int(new_W.item())
+        new_imgs = tv.Resize((new_H, new_W))(torch.permute(imgs, (0, 3, 1, 2)))
+        new_imgs = torch.permute(new_imgs, (0, 2, 3, 1))
+
+        return new_imgs, new_hwf
+
 
     # class variable holding possible set of callable objects 
     __read_fns = {'custom': __read_custom,
                   'rtmv': __read_rtmv}
 
-    def __init__(self, dataset: str, subset: str, scene: str):
+    def __init__(self, dataset: str, subset: str, scene: str, factor: int):
         """Constructor method.
         ------------------------------------------------------------------------
         Args:
             dataset: string type indicating the type of dataset
-            **kwargs: keyword args
+            subset: dataset subcategory
+            scene: name of the scene
+            factor: for reducing image resolution
         Returns:
             DataReader object"""
         self.dataset = dataset
         self.subset = subset
         self.scene = scene
-        
+        self.factor = factor
 
     # Public methods
 
@@ -148,6 +187,5 @@ class DataReader:
         read_fn = self.__class__.__read_fns[self.dataset]
         basedir = os.path.join('..', 'data')
 
-        return read_fn(basedir, dataset=self.dataset, 
+        return read_fn(basedir, self.factor, dataset=self.dataset, 
                        subset=self.subset, scene=self.scene)
-
