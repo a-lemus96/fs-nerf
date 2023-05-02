@@ -1,20 +1,31 @@
-from typing import Optional, Tuple, List, Union, Callable
+# std modules
+from typing import Tuple, List
+
+# third-party modules
 import torch
 from torch import nn
 
+
 class PositionalEncoder(nn.Module):
-    '''Positional encoder for position and viewing coordinates.
-    '''
+    """Positional encoder module for mapping spatial coordinates and viewing
+    directions."""
     def __init__(self,
                d_input: int, 
                n_freqs: int,
                log_space: bool = False):
+        """Constructor method.
+        ------------------------------------------------------------------------
+        Args:
+            d_input: number of input dimensions
+            n_freqs: number of frequencies to be used in the mapping
+            log_space: compute frequencies in linear or log scale"""
         super().__init__()
         self.d_input = d_input
         self.n_freqs = n_freqs
         self.log_space = log_space
-        self.d_output = d_input * (1 + 2 * self.n_freqs)
-        self.embedding_fns = [lambda x: x]
+        self.d_output = d_input * (1 + 2 * self.n_freqs) # output dim
+        # define a list of embedding functions
+        self.embedding_fns = [lambda x: x] # initialize with identity fn
 
         # Define frequencies in either linear or log scale
         if self.log_space:
@@ -25,7 +36,7 @@ class PositionalEncoder(nn.Module):
         # Create embedding functions and append to embedding_fns list
         for freq in freqs:
             self.embedding_fns.append(lambda x, freq=freq: torch.sin(x * freq))
-            self.embedding_fns.append(lambda x, freq=freq: torch.sin(x* freq))
+            self.embedding_fns.append(lambda x, freq=freq: torch.cos(x * freq))
 
 
     # Forward method for passing inputs to the model
