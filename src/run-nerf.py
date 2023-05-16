@@ -7,6 +7,7 @@ import os
 # Related third party imports
 import torch
 from torch import nn
+from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
@@ -86,7 +87,7 @@ parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
                     help='Number of training iterations')
 parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**9, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 parser.add_argument('--device_num', dest='device_num', default=0, type=int,
                     help="Number of CUDA device to be used for training")
@@ -307,11 +308,11 @@ def train():
             rays_o, rays_d, target_pixs = batch
             
             # Send data to GPU
-            rays_o = rays_o.to(device)
-            rays_d = rays_d.to(device)
+            #rays_o = rays_o.to(device)
+            #rays_d = rays_d.to(device)
             
             # Run one iteration of NeRF and get the rendered RGB image
-            outputs = nerf_forward(rays_o, rays_d,
+            outputs = nerf_forward(rays_o.to(device), rays_d.to(device),
                            near, far, encode, model,
                            kwargs_sample_stratified=kwargs_sample_stratified,
                            n_samples_hierarchical=args.n_samples_hierch,
@@ -360,16 +361,19 @@ def train():
                     rays_o, rays_d = get_rays(H, W, focal, testpose)
                     rays_o = rays_o.reshape([-1, 3])
                     rays_d = rays_d.reshape([-1, 3])
-
-                    outputs = nerf_forward(rays_o, rays_d,
-                           near, far, encode, model,
-                           kwargs_sample_stratified=kwargs_sample_stratified,
-                           n_samples_hierarchical=args.n_samples_hierch,
-                           kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=args.chunksize,
-                           white_bkgd=args.white_bkgd)
+                    
+                    with profile(activities=[ProfilerActivity.CPU], 
+                                     profile_memory=True) as prof:
+                        outputs = nerf_forward(rays_o, rays_d,
+                               near, far, encode, model,
+                               kwargs_sample_stratified=kwargs_sample_stratified,
+                               n_samples_hierarchical=args.n_samples_hierch,
+                               kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                               fine_model=fine_model,
+                               viewdirs_encoding_fn=encode_viewdirs,
+                               chunksize=args.chunksize,
+                               white_bkgd=args.white_bkgd)
+                    print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
                     
                     rgb_predicted = outputs['rgb_map']
                     depth_predicted = outputs['depth_map']

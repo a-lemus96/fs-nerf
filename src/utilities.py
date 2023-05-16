@@ -1,10 +1,15 @@
+# stdlib modules
 import os
+from typing import Optional, Tuple, List, Union, Callable
+
+# third-party modules
 import numpy as np
 import torch
 from torch import nn
+from torch import jit
+from torch import Tensor
 from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
-from typing import Optional, Tuple, List, Union, Callable
 
 def save_origins_and_dirs(poses):
     '''Plot and save optical axis positions and orientations for each camera pose.
@@ -93,30 +98,30 @@ def sample_stratified(
         inverse_depth:
     Returns:
         points: [height, width, n_samples, 3]. World coordinates for all samples along every ray.  
-        z_vals: [height, width, n_samples]. Samples expressed as distances along every ray.
+        t_vals: [height, width, n_samples]. Samples expressed as distances along every ray.
     '''
     # Grab samples for parameter t
     t_vals = torch.linspace(0., 1., n_samples, device=rays_origins.device)
     if not inverse_depth:
         # Sample linearly between 'near' and 'far' bounds.
-        z_vals = near * (1. - t_vals) + far * (t_vals)
+        t_vals = near * (1. - t_vals) + far * (t_vals)
     else:
         # Sample linearly in inverse depth (disparity)
-        z_vals = 1. / (1. / near * (1. - t_vals) + 1. / far * (t_vals))
+        t_vals = 1. / (1. / near * (1. - t_vals) + 1. / far * (t_vals))
 
     # Draw samples from rays according to perturb parameter
     if perturb:
-        mid_values = 0.5 * (z_vals[1:] + z_vals[:-1]) # middle values between adjacent z points
-        upper = torch.concat([mid_values, z_vals[-1:]], axis=-1) # append upper z point to mid values
-        lower = torch.concat([z_vals[:1], mid_values], axis=-1) # prepend lower z point to mid values
-        t_rand = torch.rand([n_samples], device=z_vals.device) # sample N uniform distributed points 
-        z_vals  = lower + (upper - lower) * t_rand
-    z_vals = z_vals.expand(list(rays_origins.shape[:-1]) + [n_samples])
+        mids = 0.5 * (t_vals[1:] + t_vals[:-1]) # middle values between adjacent t points
+        up = torch.concat([mids, t_vals[-1:]], axis=-1) # append upper t point to mid values
+        low = torch.concat([t_vals[:1], mids], axis=-1) # prepend lower t point to mid values
+        t_rand = torch.rand([n_samples], device=t_vals.device) # sample N uniform distributed points 
+        t_vals  = low + (up - low) * t_rand
+    t_vals = t_vals.expand(list(rays_origins.shape[:-1]) + [n_samples])
 
     # Compute world coordinates for ray samples
-    points = rays_origins[..., None, :] + rays_directions[..., None, :] * z_vals[..., :, None]
+    points = rays_origins[..., None, :] + rays_directions[..., None, :] * t_vals[..., :, None]
 
-    return points, z_vals
+    return points, t_vals
 
 def sample_normal(
     rays_o: torch.Tensor,
@@ -265,57 +270,59 @@ def raw2outputs(raw: torch.Tensor,
 
     return rgb_map, depth_map, weights, sigma
 
+@jit.script
 def sample_pdf(bins: torch.Tensor,
                weights: torch.Tensor,
                n_samples: int,
                perturb: bool = False) -> torch.Tensor:
-    '''Apply inverse transform sampling to a weighted set of points.
+    """Apply inverse transform sampling to a weighted set of points. Function
+    inspired on 'NeRF' repository from yliess86 github user.
+    ----------------------------------------------------------------------------
     Args:
         bins:
         weights:
         n_samples:
         perturb:
-    Returns:
-        
-    '''
-    # Normalize weights to get a probability density function
-    weights  = weights + 1e-5
-    pdf = weights / torch.sum(weights, dim=-1, keepdims=True)
+    Returns:"""
+    EPS = 1e-5 # epsilon value
+    B, N = weights.size() # retrieve batch size and number of samples
 
-    # Convert density function into cumulative function
+    # normalize weights to get a pdf
+    weights  = weights + EPS
+    pdf = weights / torch.sum(weights, dim=-1, keepdim=True)
+    # compute cumulative function
     cdf = torch.cumsum(pdf, dim=-1)
-    cdf = torch.concat([torch.zeros_like(cdf[..., :1]), cdf], dim=-1)
+    cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], dim=-1)
 
-    # Take sample positions to grab from CDF. Linear when perturb is False.
-    if not perturb:
-        u = torch.linspace(0., 1., n_samples, device=cdf.device)
-        u = u.expand(list(cdf.shape[:-1] + [n_samples])) # [n_rays, n_samples]
+    # take sample positions to grab from cdf. Linear when perturb is False.
+    if perturb:
+        u = torch.rand((B, n_samples), device = cdf.device)
     else:
-        u = torch.rand(list(cdf.shape[:-1]) + [n_samples], device = cdf.device)
+        u = torch.linspace(0., 1., n_samples, device=cdf.device)
+        u = u.expand(B, n_samples) # [n_rays, n_samples]
 
-    # Find indices along CDF whose values in u would be placed
-    u = u.contiguous() # Return contiguous tensor
-    inds = torch.searchsorted(cdf, u, right=True)
+    u = u.contiguous() # return contiguous tensor
+    # find indices along CDF whose values in u would be placed
+    idxs = torch.searchsorted(cdf, u, right=True)
 
-    # Clamp out of bounds indices
-    below = torch.clamp(inds - 1, min=0)
-    above = torch.clamp(inds, max=cdf.shape[-1] - 1)
-    inds_g = torch.stack([below, above], dim=-1) # [n_rays, n_samples, 2]
+    # clamp out of bounds indices
+    idxs_below = torch.clamp_min(idxs - 1, 0)
+    idxs_above = torch.clamp_max(idxs, N)
+    # stack idxs to form a tensor of size [n_rays, 2 * n_samples]
+    idxs = torch.stack([idxs_below, idxs_above], dim=-1).view(B, 2 * samples)
 
-    # Sample from CDF and corresponding bin centers
-    matched_shape = list(inds_g.shape[:-1]) + [cdf.shape[-1]]
-    cdf_g = torch.gather(cdf.unsqueeze(-2).expand(matched_shape), dim=-1, 
-                         index=inds_g)
-    bins_g = torch.gather(bins.unsqueeze(-2).expand(matched_shape), dim=-1,
-                         index=inds_g)
+    # sample from CDF and corresponding bin centers
+    cdf = torch.gather(cdf, dim=1, index=idxs).view(B, n_samples, 2)
+    bins = torch.gather(bins, dim=1, index=idxs).view(B, n_samples, 2)
 
-    # Convert samples to ray length
-    denom = (cdf_g[..., 1] - cdf_g[..., 0])
-    denom = torch.where(denom < 1e-5, torch.ones_like(denom), denom)
-    t = (u - cdf_g[..., 0]) / denom
-    samples = bins_g[..., 0] + t * (bins_g[..., 1] - bins_g[..., 0])
+    denom = cdf[:, :, 1] - cdf[:, :, 0] # denominator
+    denom[denom < EPS] = 1. # avoid dividing by small numbers
 
-    return samples # [n_rays, n_samples]
+    # convert samples to ray length
+    t = (u - cdf[..., 0]) / denom
+    t = bins[..., 0] + t * (bins[..., 1] - bins[..., 0])
+
+    return t # [n_rays, n_samples]
 
 def sample_hierarchical(
     rays_o: torch.Tensor, 

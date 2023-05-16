@@ -1,9 +1,9 @@
-# standard library
+# stdlib modules
 import argparse
 import os
 from typing import Callable, Optional, Tuple
 
-# third-party
+# third-party modules
 import imageio
 import matplotlib
 import matplotlib.cm as cm
@@ -12,7 +12,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-# custom made
+# custom modules
 from utilities import *
 
 # FUNCTIONS TO COMPUTE POSES FROM SPHERICAL COORDINATES
