@@ -39,17 +39,17 @@ parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
                     type=int, help='Number of encoding functions for view dirs')
 
 # Model(s)
-parser.add_argument('--d_filter', dest='d_filter', default=256, type=int,
+parser.add_argument('--d_filter', dest='d_filter', default=128, type=int,
                     help='Linear layer filter dimension')
-parser.add_argument('--n_layers', dest='n_layers', default=8, type=int,
+parser.add_argument('--n_layers', dest='n_layers', default=4, type=int,
                     help='Number of layers preceding bottleneck')
-parser.add_argument('--skip', dest='skip', default=[4], type=list,
+parser.add_argument('--skip', dest='skip', default=[2], type=list,
                     help='Layers at which to apply input residual')
 parser.add_argument('--use_fine', dest='use_fine', action="store_true",
                     help='Creates and uses fine NeRF model')
-parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=256,
+parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=128,
                     type=int, help='Linear layer filter dim for fine model')
-parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=8,
+parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=4,
                     type=int, help='Number of fine layers preceding bottleneck')
 
 # Stratified sampling
@@ -83,17 +83,17 @@ parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 
 # Training 
-parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
+parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                     help='Number of training iterations')
-parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
+parser.add_argument('--batch_size', dest='batch_size', default=2**10, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**9, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 parser.add_argument('--device_num', dest='device_num', default=0, type=int,
                     help="Number of CUDA device to be used for training")
 
 # Validation
-parser.add_argument('--display_rate', dest='display_rate', default=1e3, type=int,
+parser.add_argument('--display_rate', dest='display_rate', default=1e2, type=int,
                     help='Display rate for test output measured in iterations')
 parser.add_argument('--val_rate', dest='val_rate', default=1e2, type=int,
                     help='Test image evaluation rate')
@@ -318,7 +318,7 @@ def train():
                            n_samples_hierarchical=args.n_samples_hierch,
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
+                           dir_fn=encode_viewdirs,
                            chunksize=args.chunksize,
                            white_bkgd=args.white_bkgd)
 
@@ -362,7 +362,7 @@ def train():
                     rays_o = rays_o.reshape([-1, 3])
                     rays_d = rays_d.reshape([-1, 3])
                     
-                    with profile(activities=[ProfilerActivity.CPU], 
+                    '''with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
                                      profile_memory=True) as prof:
                         outputs = nerf_forward(rays_o, rays_d,
                                near, far, encode, model,
@@ -370,15 +370,38 @@ def train():
                                n_samples_hierarchical=args.n_samples_hierch,
                                kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                                fine_model=fine_model,
-                               viewdirs_encoding_fn=encode_viewdirs,
+                               dir_fn=encode_viewdirs,
                                chunksize=args.chunksize,
                                white_bkgd=args.white_bkgd)
-                    print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
-                    
-                    rgb_predicted = outputs['rgb_map']
-                    depth_predicted = outputs['depth_map']
-                    sigma = outputs['sigma']
-                    z_vals = outputs['z_vals_combined']
+                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))'''
+
+                    origins = get_chunks(rays_o, chunksize=args.chunksize)
+                    dirs = get_chunks(rays_d, chunksize=args.chunksize)
+
+                    rgb_predicted = []
+                    depth_predicted = []
+                    sigma = []
+                    z_vals = []
+                    for batch_o, batch_d in zip(origins, dirs):
+                        outputs = nerf_forward(batch_o, batch_d,
+                               near, far, encode, model,
+                               kwargs_sample_stratified=kwargs_sample_stratified,
+                               n_samples_hierarchical=args.n_samples_hierch,
+                               kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                               fine_model=fine_model,
+                               dir_fn=encode_viewdirs,
+                               chunksize=args.chunksize,
+                               white_bkgd=args.white_bkgd)
+     
+                        rgb_predicted.append(outputs['rgb_map'])
+                        depth_predicted.append(outputs['depth_map'])
+                        sigma.append(outputs['sigma'])
+                        z_vals.append(outputs['z_vals_combined'])
+
+                    rgb_predicted = torch.cat(rgb_predicted, dim=0)
+                    depth_predicted = torch.cat(depth_predicted, dim=0)
+                    sigma = torch.cat(sigma, dim=0)
+                    z_vals = torch.cat(z_vals, dim=0)
 
                     val_loss = torch.nn.functional.mse_loss(rgb_predicted, testimg.reshape(-1, 3))
                     val_psnr = -10. * torch.log10(val_loss)

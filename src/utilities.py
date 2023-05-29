@@ -309,7 +309,7 @@ def sample_pdf(bins: torch.Tensor,
     idxs_below = torch.clamp_min(idxs - 1, 0)
     idxs_above = torch.clamp_max(idxs, N)
     # stack idxs to form a tensor of size [n_rays, 2 * n_samples]
-    idxs = torch.stack([idxs_below, idxs_above], dim=-1).view(B, 2 * samples)
+    idxs = torch.stack([idxs_below, idxs_above], dim=-1).view(B, 2 * n_samples)
 
     # sample from CDF and corresponding bin centers
     cdf = torch.gather(cdf, dim=1, index=idxs).view(B, n_samples, 2)
@@ -352,7 +352,6 @@ def sample_hierarchical(
 
 
 # FULL FORWARD PASS
-
 def get_chunks(inputs: torch.Tensor,
                chunksize: int = 2**15) -> List[torch.Tensor]:
     '''Divide an input into chunks. This is done due to potential memory issues.
@@ -368,54 +367,18 @@ def get_chunks(inputs: torch.Tensor,
 
     return [inputs[i:i + chunksize] for i in inds]
 
-def prepare_chunks(points: torch.Tensor,
-                   encoding_function: Callable[[torch.Tensor], torch.Tensor],
-                   chunksize: int = 2**15) -> List[torch.Tensor]:
-    '''Encode and chunkify points to prepare for NeRF model.
-    Args:
-        points: [N, n_samples, 3]. World coordinates for points.
-        encoding_function: Positional encoder callable.
-        chunksize: int. Chunk size.
-    Returns:
-        points: [M, chunksize, 3]. M chunks of embedded points.'''
-    points = points.reshape((-1, 3))
-    points = encoding_function(points)
-    points = get_chunks(points, chunksize=chunksize)
-
-    return points
-
-def prepare_viewdirs_chunks(
-    points: torch.Tensor,
-    rays_d: torch.Tensor,
-    encoding_function: Callable[[torch.Tensor], torch.Tensor],
-    chunksize: int = 2**15) -> List[torch.Tensor]:
-    '''Encode and chunkify viewing directions to prepare for NeRF model.
-    Args:
-        points: [N, n_samples, 3]. World coordinates for points.
-        rays_d: [N, 3]. Ray directions expressed as cartesian vectors.
-        encoding_function: Positional encoder callable.
-        chunksize: int. Chunk size.
-    Returns:
-        viewdirs: [M, chunksize, 3]. M chunks of embedded dirs.'''
-    viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
-    viewdirs = viewdirs[:, None, ...].expand(points.shape).reshape((-1, 3))
-    viewdirs = encoding_function(viewdirs)
-    viewdirs = get_chunks(viewdirs, chunksize=chunksize)
-    
-    return viewdirs
-
 def nerf_forward(
     rays_o: torch.Tensor,
     rays_d: torch.Tensor,
     near: float,
     far: float,
-    encoding_fn: Callable[[torch.Tensor], torch.Tensor],
+    pos_fn: Callable[[torch.Tensor], torch.Tensor],
     coarse_model: nn.Module,
     kwargs_sample_stratified: dict = None, 
     n_samples_hierarchical: int = 0,
     kwargs_sample_hierarchical: dict = None,
     fine_model = None,
-    viewdirs_encoding_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     chunksize = 2**15,
     white_bkgd = False,
     ) -> dict:
@@ -424,71 +387,65 @@ def nerf_forward(
     Args:
     Returns:
     """
-
-    # Sample query points along each ray
-    query_points, z_vals = sample_stratified(rays_o, rays_d, near, far,
-                                     **kwargs_sample_stratified)
+    # sample query points along each ray
+    points, z_vals = sample_stratified(rays_o, rays_d, near, far,
+                                       **kwargs_sample_stratified)
+    points_shape = points.shape[:2]
 
     outputs = {'z_vals_stratified': z_vals}
 
-    # Prepare batches
-    batches = prepare_chunks(query_points, encoding_fn, chunksize=chunksize)
-    if viewdirs_encoding_fn is not None:
-        batches_viewdirs = prepare_viewdirs_chunks(query_points, rays_d,
-                                                   viewdirs_encoding_fn,
-                                                   chunksize=chunksize)
+    # prepare viewdirs
+    if dir_fn is not None:
+        dirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+        dirs = dirs[:, None, ...].expand(points.shape).reshape((-1, 3))
+        dirs = dir_fn(dirs) # positional encoding
+
     else:
-        batches_viewdirs = [None] * len(batches)
+        dirs = [None] * len(rays_d)
 
-    # Coarse model pass
-    # Split encoded points into chunks, run model on all chunks, and concatenate
-    # results (avoids OOM issues)
-    predictions = []
-    for batch, batch_viewdirs in zip(batches, batches_viewdirs):
-        predictions.append(coarse_model(batch, viewdirs=batch_viewdirs))
-    raw = torch.cat(predictions, dim=0)
-    raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
+    points = pos_fn(points.reshape((-1, 3))) # positional encoding
 
-    # Perform differentiable volume rendering
+    # coarse model pass
+    raw = coarse_model(points, viewdirs=dirs)
+    raw = raw.reshape(list(points_shape) + [raw.shape[-1]])
+    # perform differentiable volume rendering
     data = raw2outputs(raw, z_vals, rays_d, white_bkgd=white_bkgd)
     rgb_map, depth_map, weights, sigma = data
 
     if kwargs_sample_hierarchical is not None:
-        # Fine model pass
+        # fine model pass
         if n_samples_hierarchical > 0:
-            # Save previous outputs to return
+            # save previous outputs to return
             rgb_map_0, depth_map_0, sigma_0 = rgb_map, depth_map, sigma
 
-            # Apply hierarchical sampling for fine query points
+            # apply hierarchical sampling for fine query points
             hierarch_data = sample_hierarchical(rays_o, rays_d, z_vals, weights, 
                                                 n_samples_hierarchical,
                                                 **kwargs_sample_hierarchical)
-            query_points, z_vals_combined, inds, z_hierarch = hierarch_data
+            points, z_vals_combined, inds, z_hierarch = hierarch_data
+            points_shape = points.shape[:2]
 
-            # Prepare inputs
-            batches = prepare_chunks(query_points, encoding_fn, chunksize=chunksize)
-            if viewdirs_encoding_fn is not None:
-                batches_viewdirs = prepare_viewdirs_chunks(query_points, rays_d,
-                                                           viewdirs_encoding_fn,
-                                                           chunksize=chunksize)
+            if dir_fn is not None:
+                dirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+                dirs = dirs[:, None, ...].expand(points.shape).reshape((-1, 3))
+                dirs = dir_fn(dirs) # positional encoding
             else:
-                batches_viewdirs = [None] * len(batches)
+                dirs = [None] * len(rays_d)
 
-            # Forward pass new samples through fine model
+            points = pos_fn(points.reshape((-1, 3))) # positional encoding
+
+            # forward pass new samples through fine model
             fine_model = fine_model if fine_model is not None else coarse_model
-            predictions = []
-            for batch, batch_viewdirs in zip(batches, batches_viewdirs):
-                predictions.append(fine_model(batch, viewdirs=batch_viewdirs))
-            raw = torch.cat(predictions, dim=0)
-            raw = raw.reshape(list(query_points.shape[:2]) + [raw.shape[-1]])
-
-            # Perform differentiable volume rendering on fine predictions
+            #predictions.append(fine_model(batch, viewdirs=batch_viewdirs))
+            raw = fine_model(points, viewdirs=dirs)
+            raw = raw.reshape(list(points_shape) + [raw.shape[-1]])
+            # perform differentiable volume rendering on fine predictions
             rgb_map, depth_map, weights, sigma = raw2outputs(raw,
                                                              z_vals_combined,
                                                              rays_d,
                                                              white_bkgd=white_bkgd)
 
-            # Store outputs.
+            # store outputs
             outputs['z_vals_hierarchical'] = z_hierarch
             outputs['z_vals_combined'] = z_vals_combined
             outputs['rgb_map_0'] = rgb_map_0
