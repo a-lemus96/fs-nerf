@@ -43,7 +43,7 @@ class NerfDataset(Dataset):
         self.testpose = poses[test_idx]
 
         # Selection indices
-        self.inds = torch.arange(n_imgs - 1)
+        self.inds = torch.arange(n_imgs)
 
         if f_forward:
             # Set central view arbitrarily
@@ -83,15 +83,15 @@ class NerfDataset(Dataset):
         rays_rgb = rays_rgb.reshape([-1, rays_rgb.shape[3], 3])
         rays_rgb = torch.transpose(rays_rgb, 0, 1)
         
-        self.rays_rgb = rays_rgb.type(torch.float32) 
+        self.rays_rgb = rays_rgb.type(torch.float32)
 
     def __len__(self):
-        return self.rays_rgb.shape[1] 
+        return self.rays_rgb.shape[1]
 
     def __getitem__(self, idx):
         rays_o, rays_d, target_pixs = self.rays_rgb[:, idx]
         
-        return rays_o, rays_d, target_pixs 
+        return rays_o, rays_d, target_pixs
 
 # DEPTH SUPERVISED NERF DATASET
 

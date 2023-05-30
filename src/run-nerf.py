@@ -1,17 +1,18 @@
-# Standard library imports
+# stdlib mods
 import argparse
 from datetime import date
 import logging
 import os
 
-# Related third party imports
+# 3rd-party mods
+from multiprocessing import cpu_count
 import torch
 from torch import nn
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-# Local application/library specific imports
+# custom mods
 from dataload import *
 from dataset import *
 from models import *
@@ -24,6 +25,9 @@ torch.manual_seed(seed)
 np.random.seed(seed)'''
 
 # HYPERPARAMETERS 
+
+JOBS = cpu_count()
+
 parser = argparse.ArgumentParser(description='Train NeRF for view synthesis.')
 
 # Encoder(s)
@@ -39,11 +43,11 @@ parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
                     type=int, help='Number of encoding functions for view dirs')
 
 # Model(s)
-parser.add_argument('--d_filter', dest='d_filter', default=128, type=int,
+parser.add_argument('--d_filter', dest='d_filter', default=256, type=int,
                     help='Linear layer filter dimension')
-parser.add_argument('--n_layers', dest='n_layers', default=4, type=int,
+parser.add_argument('--n_layers', dest='n_layers', default=8, type=int,
                     help='Number of layers preceding bottleneck')
-parser.add_argument('--skip', dest='skip', default=[2], type=list,
+parser.add_argument('--skip', dest='skip', default=[4], type=list,
                     help='Layers at which to apply input residual')
 parser.add_argument('--use_fine', dest='use_fine', action="store_true",
                     help='Creates and uses fine NeRF model')
@@ -85,23 +89,23 @@ parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
 # Training 
 parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                     help='Number of training iterations')
-parser.add_argument('--batch_size', dest='batch_size', default=2**10, type=int,
+parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**12, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 parser.add_argument('--device_num', dest='device_num', default=0, type=int,
                     help="Number of CUDA device to be used for training")
 
 # Validation
-parser.add_argument('--display_rate', dest='display_rate', default=1e2, type=int,
+parser.add_argument('--display_rate', dest='display_rate', default=6e2, type=int,
                     help='Display rate for test output measured in iterations')
-parser.add_argument('--val_rate', dest='val_rate', default=1e2, type=int,
+parser.add_argument('--val_rate', dest='val_rate', default=2e2, type=int,
                     help='Test image evaluation rate')
 
 # Early Stopping
 parser.add_argument('--warmup_iters', dest='warmup_iters', default=1e3,
                     type=int, help='Number of iterations for warmup phase')
-parser.add_argument('--min_fitness', dest='min_fitness', default=14.5,
+parser.add_argument('--min_fitness', dest='min_fitness', default=10.0,
                     type=float, help='Minimum PSNR value to continue training')
 parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
                     help='Maximum number of restarts if training stalls')
@@ -155,7 +159,7 @@ dataset = NerfDataset(dataset=args.dataset,
                       n_imgs=100,
                       test_idx=102,
                       f_forward=args.ffwd,
-                      factor=4,
+                      factor=2,
                       near=1.2,
                       far=7.)
 
@@ -268,7 +272,7 @@ def init_models():
 # TRAINING LOOP
 
 # Early stopping helper
-warmup_stopper = EarlyStopping(patience=1e3)
+warmup_stopper = EarlyStopping(patience=2000)
 
 def train():
     r"""
@@ -278,7 +282,7 @@ def train():
     dataloader = DataLoader(dataset,
                             batch_size=args.batch_size,
                             shuffle=True,
-                            num_workers=8)
+                            num_workers=JOBS)
 
     # Optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
@@ -300,7 +304,7 @@ def train():
         print(f"Epoch {i + 1}")
         model.train()
 
-        for k, batch in enumerate(tqdm(dataloader)): 
+        for k, batch in enumerate(tqdm(dataloader)):
             # Compute step
             step = int(i * steps_per_epoch + k)
 
@@ -375,8 +379,8 @@ def train():
                                white_bkgd=args.white_bkgd)
                     print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))'''
 
-                    origins = get_chunks(rays_o, chunksize=args.chunksize)
-                    dirs = get_chunks(rays_d, chunksize=args.chunksize)
+                    origins = get_chunks(rays_o, chunksize=args.batch_size)
+                    dirs = get_chunks(rays_d, chunksize=args.batch_size)
 
                     rgb_predicted = []
                     depth_predicted = []
@@ -412,7 +416,7 @@ def train():
                         # Save density distribution along sample ray
                         z_vals = z_vals.view(-1,
                                 args.n_samples + args.n_samples_hierch)
-                        sample_idx = 65010
+                        sample_idx = 320350
                         z_sample = z_vals[sample_idx].detach().cpu().numpy()
                         sigma_sample = sigma[sample_idx].detach().cpu().numpy()
                         curve = np.concatenate((z_sample[..., None],
@@ -431,11 +435,11 @@ def train():
                         ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
-                        ax[1,0].plot(210, 150, marker='o', color="red")
+                        ax[1,0].plot(300, 400, marker='o', color="red")
                         ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,0].set_title(r'Predicted Depth')
-                        ax[1,1].plot(210, 150, marker='o', color="red")
+                        ax[1,1].plot(300, 400, marker='o', color="red")
                         ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,1].set_title('Predicted Depth')
