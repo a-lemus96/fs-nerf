@@ -1,11 +1,12 @@
-# standard library modules
+# stdlib imports
 import glob
 import json
 import os
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 from typing import Tuple, List, Union, Callable
 
-# third-party modules
+# third-party imports
+from matplotlib import pyplot as plt
 import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -111,24 +112,35 @@ class DataReader:
             #load RGB file
             img = cv2.imread(os.path.join(basedir, fname + '.exr'),
                              cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-            imgs.append(img[...,::-1]) # change BGR to RGB
-
             # load depth map
             d_map = cv2.imread(os.path.join(basedir, fname + '.depth.exr'),
                              cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+            # apply downsampling
+            if factor is not None:
+                new_size = (d_map.shape[1] // factor, d_map.shape[0] // factor)
+                img = cv2.resize(img, new_size, interpolation=cv2.INTER_AREA)
+                d_map = cv2.resize(d_map, new_size, interpolation=cv2.INTER_AREA)
+
+            imgs.append(img[...,::-1]) # change BGR to RGB
+            d_map = d_map[..., 0]
             d_maps.append(d_map)
         
         poses = torch.Tensor(np.array(poses))
         imgs = torch.Tensor(np.array(imgs))
         d_maps = torch.Tensor(np.array(d_maps))
+        eps = torch.min(d_maps)
+        d_backs = torch.eq(d_maps, eps)
         H, W = imgs.shape[1:3]
         hwf = torch.Tensor(np.array([H, W, np.array(focal)]))
 
         # apply downsampling if applicable
         if factor is not None:
-            imgs, hwf = DataReader.__downsample(imgs, hwf, factor)
+            # apply factor to camera intrinsics
+            new_W, new_H = new_size
+            new_focal = hwf[2] / float(factor)
+            hwf = torch.Tensor((new_H, new_W, new_focal))
         
-        return imgs, poses, hwf
+        return imgs, poses, hwf, d_maps, d_backs
 
     def __downsample(
             imgs: torch.Tensor, 
@@ -145,18 +157,6 @@ class DataReader:
         Returns:
             new_imgs: (N, H, W, 3)-shape. Downsampled images
             new_hwf: (3,)-shape. Updated camera intrinsics"""
-        # apply factor to camera intrinsics
-        H, W = hwf[:2]
-        new_H = torch.div(H, factor, rounding_mode='floor')
-        new_W = torch.div(W, factor, rounding_mode='floor')
-        new_focal = hwf[2] / float(factor)
-        new_hwf = torch.Tensor((new_H, new_W, new_focal))
-
-        # resize images
-        new_H = int(new_H.item())
-        new_W = int(new_W.item())
-        new_imgs = tv.Resize((new_H, new_W))(torch.permute(imgs, (0, 3, 1, 2)))
-        new_imgs = torch.permute(new_imgs, (0, 2, 3, 1))
 
         return new_imgs, new_hwf
 

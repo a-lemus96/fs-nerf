@@ -1,28 +1,22 @@
-# stdlib mods
+# stdlib imports
 import argparse
 from datetime import date
 import logging
 import os
 
-# 3rd-party mods
+# third-party imports
 from multiprocessing import cpu_count
 import torch
 from torch import nn
-from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-# custom mods
+# local imports
 from dataload import *
 from dataset import *
 from models import *
 from rendering import *
 from utilities import *
-
-# For repeatability
-'''seed = 451
-torch.manual_seed(seed)
-np.random.seed(seed)'''
 
 # HYPERPARAMETERS 
 
@@ -433,15 +427,6 @@ def train():
                         ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,1].set_title('Predicted Depth')
-                        '''z_vals_strat = outputs['z_vals_stratified'].view((-1, args.n_samples))
-                        z_sample_strat = z_vals_strat[z_vals_strat.shape[0] // 2].detach().cpu().numpy()
-                        if 'z_vals_hierarchical' in outputs:
-                            z_vals_hierarch = outputs['z_vals_hierarchical'].view((-1, args.n_samples_hierch))
-                            z_sample_hierarch = z_vals_hierarch[z_vals_hierarch.shape[0] // 2].detach().cpu().numpy()
-                        else:
-                            z_sample_hierarch = None
-                        _ = plot_samples(z_sample_strat, z_sample_hierarch, ax=ax[1,2])
-                        ax[1,2].margins(0)'''
                         ax[1, 2].plot(z_sample, sigma_sample)
                         ax[1, 2].set_title('Density along sample ray (red dot)')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")

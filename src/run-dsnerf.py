@@ -1,16 +1,17 @@
-# Standard library imports
+# stdlib imports
 import argparse
 from datetime import date
 import logging
 import os
 
-# Related third party imports
+# third-party imports
+from multiprocessing import cpu_count
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-# Local application/library specific imports
+# local imports
 from dataload import *
 from dataset import *
 from loss import *
@@ -18,13 +19,11 @@ from models import *
 from rendering import *
 from utilities import *
 
-# For repeatability
-'''seed = 451
-torch.manual_seed(seed)
-np.random.seed(seed)'''
-
 # HYPERPARAMETERS 
-parser = argparse.ArgumentParser(description='Train NeRF for view synthesis.')
+
+JOBS = cpu_count()
+
+parser = argparse.ArgumentParser(description='Train DSNeRF for view synthesis.')
 
 # Encoder(s)
 parser.add_argument('--d_input', dest='d_input', default=3, type=int,
@@ -90,25 +89,25 @@ parser.add_argument('--lamb', dest='lamb', default=1e-2, type=float,
                     help='Balancing factor for entropy reg term')
 
 # Training 
-parser.add_argument('--n_iters', dest='n_iters', default=1e5, type=int,
+parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                     help='Number of training iterations')
 parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**10, type=int,
+parser.add_argument('--chunksize', dest='chunksize', default=2**12, type=int,
                     help='Batch is divided into chunks to avoid OOM error')
 parser.add_argument('--device_num', dest='device_num', default=0, type=int,
                     help="Number of CUDA device to be used for training")
 
 # Validation
-parser.add_argument('--display_rate', dest='display_rate', default=1e3, type=int,
+parser.add_argument('--display_rate', dest='display_rate', default=500, type=int,
                     help='Display rate for test output measured in iterations')
-parser.add_argument('--val_rate', dest='val_rate', default=1e2, type=int,
+parser.add_argument('--val_rate', dest='val_rate', default=100, type=int,
                     help='Test image evaluation rate')
 
 # Early Stopping
 parser.add_argument('--warmup_iters', dest='warmup_iters', default=1e3,
                     type=int, help='Number of iterations for warmup phase')
-parser.add_argument('--min_fitness', dest='min_fitness', default=14.5,
+parser.add_argument('--min_fitness', dest='min_fitness', default=10.0,
                     type=float, help='Minimum PSNR value to continue training')
 parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
                     help='Maximum number of restarts if training stalls')
@@ -165,10 +164,11 @@ folders = ['training', 'video', 'model']
 # Load dataset
 dataset = DSNerfDataset(dataset=args.dataset,
                         subset=args.subset,
+                        scene=args.scene,
                         n_imgs=100,
-                        test_idx=103,
+                        test_idx=101,
                         f_forward=args.ffwd,
-                        factor=4,
+                        factor=2,
                         near=1.2,
                         far=7.)
 
@@ -281,7 +281,7 @@ def init_models():
 # TRAINING LOOP
 
 # Early stopping helper
-warmup_stopper = EarlyStopping(patience=1e3)
+warmup_stopper = EarlyStopping(patience=10**3)
 
 def train():
     r"""
@@ -291,7 +291,7 @@ def train():
     dataloader = DataLoader(dataset,
                             batch_size=args.batch_size,
                             shuffle=True,
-                            num_workers=8)
+                            num_workers=JOBS)
 
     # Optimizer and scheduler
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate)
@@ -304,7 +304,7 @@ def train():
     sigma_curves = []
     
     testimg, testpose = dataset.testimg.to(device), dataset.testpose.to(device)
-    testmap = dataset.test_map
+    testmap = dataset.test_map.to(device)
 
     # Compute number of epochs
     steps_per_epoch = np.ceil(len(dataset)/args.batch_size)
@@ -321,21 +321,18 @@ def train():
             # Unpack batch info
             rays_o, rays_d, target_pixs, target_d, target_backs = batch
             target_backs = target_backs.type(torch.bool)
-            
-            # Send data to GPU
-            rays_o = rays_o.to(device)
-            rays_d = rays_d.to(device)
-            
+         
             # Run one iteration of NeRF and get the rendered RGB image
-            outputs = nerf_forward(rays_o, rays_d,
+            outputs = nerf_forward(rays_o.to(device), rays_d.to(device),
                            near, far, encode, model,
                            kwargs_sample_stratified=kwargs_sample_stratified,
                            n_samples_hierarchical=args.n_samples_hierch,
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
+                           dir_fn=encode_viewdirs,
                            chunksize=args.chunksize,
                            white_bkgd=args.white_bkgd)
+
 
             # Check for numerical issues
             for key, val in outputs.items():
@@ -394,20 +391,33 @@ def train():
                     rays_o = rays_o.reshape([-1, 3])
                     rays_d = rays_d.reshape([-1, 3])
 
-                    outputs = nerf_forward(rays_o, rays_d,
-                           near, far, encode, model,
-                           kwargs_sample_stratified=kwargs_sample_stratified,
-                           n_samples_hierarchical=args.n_samples_hierch,
-                           kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=args.chunksize,
-                           white_bkgd=args.white_bkgd)
-                    
-                    rgb_predicted = outputs['rgb_map']
-                    depth_predicted = outputs['depth_map']
-                    sigma = outputs['sigma']
-                    z_vals = outputs['z_vals_combined']
+                    origins = get_chunks(rays_o, chunksize=args.batch_size)
+                    dirs = get_chunks(rays_d, chunksize=args.batch_size)
+
+                    rgb_predicted = []
+                    depth_predicted = []
+                    sigma = []
+                    z_vals = []
+                    for batch_o, batch_d in zip(origins, dirs):
+                        outputs = nerf_forward(batch_o, batch_d,
+                               near, far, encode, model,
+                               kwargs_sample_stratified=kwargs_sample_stratified,
+                               n_samples_hierarchical=args.n_samples_hierch,
+                               kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                               fine_model=fine_model,
+                               dir_fn=encode_viewdirs,
+                               chunksize=args.chunksize,
+                               white_bkgd=args.white_bkgd)
+     
+                        rgb_predicted.append(outputs['rgb_map'])
+                        depth_predicted.append(outputs['depth_map'])
+                        sigma.append(outputs['sigma'])
+                        z_vals.append(outputs['z_vals_combined'])
+
+                    rgb_predicted = torch.cat(rgb_predicted, dim=0)
+                    depth_predicted = torch.cat(depth_predicted, dim=0)
+                    sigma = torch.cat(sigma, dim=0)
+                    z_vals = torch.cat(z_vals, dim=0)
 
                     val_loss = torch.nn.functional.mse_loss(rgb_predicted, testimg.reshape(-1, 3))
                     val_psnr = -10. * torch.log10(val_loss)
@@ -442,18 +452,9 @@ def train():
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,0].set_title(r'Predicted Depth')
                         ax[1,1].plot(210, 150, marker='o', color="red")
-                        ax[1,1].imshow(testmap.numpy(),
+                        ax[1,1].imshow(testmap.cpu().numpy(),
                                      vmin=0., vmax=5., cmap ='plasma')
                         ax[1,1].set_title('Target')
-                        '''z_vals_strat = outputs['z_vals_stratified'].view((-1, args.n_samples))
-                        z_sample_strat = z_vals_strat[z_vals_strat.shape[0] // 2].detach().cpu().numpy()
-                        if 'z_vals_hierarchical' in outputs:
-                            z_vals_hierarch = outputs['z_vals_hierarchical'].view((-1, args.n_samples_hierch))
-                            z_sample_hierarch = z_vals_hierarch[z_vals_hierarch.shape[0] // 2].detach().cpu().numpy()
-                        else:
-                            z_sample_hierarch = None
-                        _ = plot_samples(z_sample_strat, z_sample_hierarch, ax=ax[1,2])
-                        ax[1,2].margins(0)'''
                         ax[1, 2].plot(z_sample, sigma_sample)
                         ax[1, 2].set_title('Density along sample ray (red dot)')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")

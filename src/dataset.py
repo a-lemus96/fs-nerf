@@ -36,7 +36,7 @@ class NerfDataset(Dataset):
 
         # Load images and camera poses
         reader = DataReader(dataset, subset, scene, factor)
-        imgs, poses, hwf = reader.get_data()[:3]
+        imgs, poses, hwf, _, _ = reader.get_data()
 
         # Validation image
         self.testimg = imgs[test_idx]
@@ -103,6 +103,7 @@ class DSNerfDataset(NerfDataset):
     def __init__(
         self,
         dataset: str,
+        subset: str,
         scene: str,
         n_imgs: int,
         test_idx: int,
@@ -111,12 +112,12 @@ class DSNerfDataset(NerfDataset):
         near: int=2.,
         far: int=7.): 
         # Call base class constructor method
-        super().__init__(dataset, scene, n_imgs, test_idx,
+        super().__init__(dataset, subset, scene, n_imgs, test_idx,
                          f_forward, factor, near, far)
 
         # Load images, camera poses and depth maps
-        reader = DataReader(dataset, factor, subset=subset, scene=scene)
-        imgs, poses, hwf, maps, backs = reader.get_data(scene)
+        reader = DataReader(dataset, subset, scene, factor)
+        imgs, poses, hwf, maps, backs = reader.get_data()
 
         test_back = backs[self.test_idx].type(torch.bool)
         test_map = maps[self.test_idx]
@@ -128,7 +129,7 @@ class DSNerfDataset(NerfDataset):
         self.local_dirs = get_rays(self.H, self.W, self.focal, local_only=True)
 
         # Compute depth along rays for test depth map
-        test_map = -test_map / self.local_dirs[..., -1]
+        #test_map = -test_map / self.local_dirs[..., -1]
         self.test_map = test_map.type(torch.float32) * (~test_back)
 
         # Expanded version of local rays according to number of training imgs
