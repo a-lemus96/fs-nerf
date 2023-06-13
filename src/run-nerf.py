@@ -51,9 +51,9 @@ parser.add_argument('--skip', dest='skip', default=[4], type=list,
                     help='Layers at which to apply input residual')
 parser.add_argument('--use_fine', dest='use_fine', action="store_true",
                     help='Creates and uses fine NeRF model')
-parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=128,
+parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=256,
                     type=int, help='Linear layer filter dim for fine model')
-parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=4,
+parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=8,
                     type=int, help='Number of fine layers preceding bottleneck')
 
 # Stratified sampling
@@ -97,9 +97,9 @@ parser.add_argument('--device_num', dest='device_num', default=0, type=int,
                     help="Number of CUDA device to be used for training")
 
 # Validation
-parser.add_argument('--display_rate', dest='display_rate', default=6e2, type=int,
+parser.add_argument('--display_rate', dest='display_rate', default=500, type=int,
                     help='Display rate for test output measured in iterations')
-parser.add_argument('--val_rate', dest='val_rate', default=2e2, type=int,
+parser.add_argument('--val_rate', dest='val_rate', default=100, type=int,
                     help='Test image evaluation rate')
 
 # Early Stopping
@@ -157,7 +157,7 @@ dataset = NerfDataset(dataset=args.dataset,
                       subset=args.subset,
                       scene=args.scene,
                       n_imgs=100,
-                      test_idx=102,
+                      test_idx=101,
                       f_forward=args.ffwd,
                       factor=2,
                       near=1.2,
@@ -259,7 +259,7 @@ def init_models():
     model.to(device)
     model_params = list(model.parameters())
     if args.use_fine:
-        fine_model = NeRF(encoder.d_output, n_layers=args.n_layers, 
+        fine_model = NeRF(encoder.d_output, n_layers=args.n_layers,
                           d_filter=args.d_filter_fine, skip=args.skip,
                           d_viewdirs=d_viewdirs)
         fine_model.to(device)
@@ -366,19 +366,6 @@ def train():
                     rays_o = rays_o.reshape([-1, 3])
                     rays_d = rays_d.reshape([-1, 3])
                     
-                    '''with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
-                                     profile_memory=True) as prof:
-                        outputs = nerf_forward(rays_o, rays_d,
-                               near, far, encode, model,
-                               kwargs_sample_stratified=kwargs_sample_stratified,
-                               n_samples_hierarchical=args.n_samples_hierch,
-                               kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                               fine_model=fine_model,
-                               dir_fn=encode_viewdirs,
-                               chunksize=args.chunksize,
-                               white_bkgd=args.white_bkgd)
-                    print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))'''
-
                     origins = get_chunks(rays_o, chunksize=args.batch_size)
                     dirs = get_chunks(rays_d, chunksize=args.batch_size)
 
@@ -416,7 +403,8 @@ def train():
                         # Save density distribution along sample ray
                         z_vals = z_vals.view(-1,
                                 args.n_samples + args.n_samples_hierch)
-                        sample_idx = 320350
+                        #sample_idx = 320350
+                        sample_idx = 65010
                         z_sample = z_vals[sample_idx].detach().cpu().numpy()
                         sigma_sample = sigma[sample_idx].detach().cpu().numpy()
                         curve = np.concatenate((z_sample[..., None],
@@ -435,11 +423,13 @@ def train():
                         ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
-                        ax[1,0].plot(300, 400, marker='o', color="red")
+                        #ax[1,0].plot(300, 400, marker='o', color="red")
+                        ax[1,0].plot(210, 150, marker='o', color="red")
                         ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,0].set_title(r'Predicted Depth')
-                        ax[1,1].plot(300, 400, marker='o', color="red")
+                        #ax[1,1].plot(300, 400, marker='o', color="red")
+                        ax[1,1].plot(210, 150, marker='o', color="red")
                         ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
                                      vmin=0., vmax=5., cmap='plasma')
                         ax[1,1].set_title('Predicted Depth')
