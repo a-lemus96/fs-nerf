@@ -119,37 +119,42 @@ class DSNerfDataset(NerfDataset):
         reader = DataReader(dataset, subset, scene, factor)
         imgs, poses, hwf, maps, backs = reader.get_data()
 
-        test_back = backs[self.test_idx].type(torch.bool)
-        test_map = maps[self.test_idx]
+        self.test_back = backs[self.test_idx].type(torch.bool)
+        self.test_map = maps[self.test_idx]
         backs = backs[self.inds]
         maps = maps[self.inds]
         N = backs.shape[0]
+        print(torch.min(maps), torch.max(maps))
  
         # Local rays
-        self.local_dirs = get_rays(self.H, self.W, self.focal, local_only=True)
+        #self.local_dirs = get_rays(self.H, self.W, self.focal, local_only=True)
 
         # Compute depth along rays for test depth map
         #test_map = -test_map / self.local_dirs[..., -1]
-        self.test_map = test_map.type(torch.float32) * (~test_back)
+        #self.test_map = test_map.type(torch.float32) * (~test_back)
 
         # Expanded version of local rays according to number of training imgs
-        local_dirs = self.local_dirs[None, None, ...].expand(N, 1, self.H,
-                                                             self.W, 3)
+        #local_dirs = self.local_dirs[None, None, ...].expand(N, 1, self.H,
+        #                                                     self.W, 3)
 
         # Compute depth along rays
-        t_maps = -maps[:, None, ...] / local_dirs[..., -1]
+        #t_maps = -maps[:, None, ...] / local_dirs[..., -1]
 
         # Compute background masks and concatenate with depth maps
-        backs = backs[:, None, ..., None]
-        depths = torch.cat((t_maps[..., None], backs), 1)
+        #backs = backs[:, None, ..., None]
+        #maps = maps[:, None, ..., None]
+        print(maps.shape, backs.shape)
+        #depths = torch.cat((maps, backs), 1)
 
-        depths = torch.permute(depths, [0, 2, 3, 1, 4])
-        depths = depths.reshape([-1, depths.shape[3], 1]).type(torch.float32)
-        depths = torch.transpose(depths, 0, 1)
-        self.depths = depths.type(torch.float32)
+        #depths = torch.permute(depths, [0, 2, 3, 1, 4])
+        #depths = depths.reshape([-1, depths.shape[3], 1]).type(torch.float32)
+        #depths = torch.transpose(depths, 0, 1)
+        self.depths = maps.reshape(maps.numel()).type(torch.float32)
+        self.backs = backs.reshape(backs.numel()).type(torch.bool)
 
     def __getitem__(self, idx):
         rays_o, rays_d, target_pixs = self.rays_rgb[:, idx]
-        depths, backs = self.depths[:, idx, 0]
+        depths = self.depths[idx]
+        backs = self.backs[idx]
 
         return rays_o, rays_d, target_pixs, depths, backs

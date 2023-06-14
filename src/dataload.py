@@ -98,7 +98,7 @@ class DataReader:
         files = os.listdir(basedir)
         fnames = [f.split('.')[0] for f in files if f.endswith('.json')]
 
-        imgs, poses, d_maps, d_masks = [], [], [], []
+        imgs, poses, d_maps, d_backs = [], [], [], []
         # iterate through all filenames
         print("Reading files...")
         for fname in tqdm.tqdm(fnames):
@@ -115,21 +115,23 @@ class DataReader:
             # load depth map
             d_map = cv2.imread(os.path.join(basedir, fname + '.depth.exr'),
                              cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+            d_back = (d_map <= 0)
+            d_map = d_map * ~d_back
             # apply downsampling
             if factor is not None:
                 new_size = (d_map.shape[1] // factor, d_map.shape[0] // factor)
                 img = cv2.resize(img, new_size, interpolation=cv2.INTER_AREA)
                 d_map = cv2.resize(d_map, new_size, interpolation=cv2.INTER_AREA)
-
             imgs.append(img[...,::-1]) # change BGR to RGB
             d_map = d_map[..., 0]
             d_maps.append(d_map)
+            d_back = (d_map <= 0)
+            d_backs.append(d_back)
         
         poses = torch.Tensor(np.array(poses))
         imgs = torch.Tensor(np.array(imgs))
         d_maps = torch.Tensor(np.array(d_maps))
-        eps = torch.min(d_maps)
-        d_backs = torch.eq(d_maps, eps)
+        d_backs = torch.Tensor(np.array(d_backs))
         H, W = imgs.shape[1:3]
         hwf = torch.Tensor(np.array([H, W, np.array(focal)]))
 

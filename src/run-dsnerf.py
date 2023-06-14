@@ -165,12 +165,12 @@ folders = ['training', 'video', 'model']
 dataset = DSNerfDataset(dataset=args.dataset,
                         subset=args.subset,
                         scene=args.scene,
-                        n_imgs=100,
-                        test_idx=101,
+                        n_imgs=50,
+                        test_idx=51,
                         f_forward=args.ffwd,
                         factor=2,
-                        near=1.2,
-                        far=7.)
+                        near=0.05,
+                        far=3.)
 
 
 near, far = dataset.near, dataset.far
@@ -281,7 +281,7 @@ def init_models():
 # TRAINING LOOP
 
 # Early stopping helper
-warmup_stopper = EarlyStopping(patience=10**3)
+warmup_stopper = EarlyStopping(patience=10**4)
 
 def train():
     r"""
@@ -364,8 +364,8 @@ def train():
             # Add depth loss
             target_d = target_d.to(device)
             target_backs = target_backs.to(device)
-            d_predicted = d_predicted[~target_backs]
-            target_d = target_d[~target_backs]
+            #d_predicted = d_predicted[~target_backs]
+            #target_d = target_d[~target_backs]
             d_loss = torch.nn.functional.l1_loss(d_predicted, target_d)
             loss += args.mu * d_loss
 
@@ -448,12 +448,12 @@ def train():
                         ax[0,2].plot(iternums, val_psnrs, 'b')
                         ax[0,2].set_title('PSNR (train=red, val=blue')
                         ax[1,0].plot(210, 150, marker='o', color="red")
-                        ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
-                                     vmin=0., vmax=5., cmap='plasma')
+                        ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy())
+                                     #vmin=0., vmax=2., cmap='plasma')
                         ax[1,0].set_title(r'Predicted Depth')
                         ax[1,1].plot(210, 150, marker='o', color="red")
-                        ax[1,1].imshow(testmap.cpu().numpy(),
-                                     vmin=0., vmax=5., cmap ='plasma')
+                        ax[1,1].imshow(testmap.cpu().numpy())
+                                     #vmin=0., vmax=2., cmap ='plasma')
                         ax[1,1].set_title('Target')
                         ax[1, 2].plot(z_sample, sigma_sample)
                         ax[1, 2].set_title('Density along sample ray (red dot)')
