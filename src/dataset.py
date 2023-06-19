@@ -21,7 +21,11 @@ class SyntheticRealistic(Dataset):
     Here, N is the number of training images of size H x W.
     ----------------------------------------------------------------------------
     """
-    def __init__(self, scene: str, root: str, factor: float=None) -> None:
+    def __init__(self, 
+            scene: str, 
+            root: str, 
+            factor: float = None,
+            white_bkgd: bool = False) -> None:
         """
         Initialize the dataset.
         ------------------------------------------------------------------------
@@ -37,9 +41,21 @@ class SyntheticRealistic(Dataset):
         self.scene = scene
         self.root = root
         self.factor = factor
+        self.near = 2.0
+        self.far = 6.0
 
         # load the dataset
         imgs, poses, hwf = self.__load()
+        self.hwf = hwf
+        # compute background color
+        if white_bkgd:
+            imgs = imgs[..., :3] * imgs[..., -1:] + (1. - imgs[..., -1:])
+        else:
+            imgs = imgs[..., :3]
+        # choose random index for test image and pose
+        idx = np.random.randint(0, imgs.shape[0])
+        self.testimg = imgs[idx]
+        self.testpose = poses[idx]
 
         # compute rays
         H, W, f = hwf
@@ -50,7 +66,8 @@ class SyntheticRealistic(Dataset):
         self.rays_d = rays[:, 3:]
 
         # add pixel colors
-        self.rgba = imgs.reshape(-1, 4)
+        self.rgb = imgs.reshape(-1, 3)
+
 
     def __len__(self) -> int:
         """Compute the number of training samples.
@@ -61,6 +78,8 @@ class SyntheticRealistic(Dataset):
             N (int): number of training samples
         """
         return self.rgb.shape[0]
+
+
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor]:
         """Get a training sample by index.
         ------------------------------------------------------------------------
@@ -69,9 +88,9 @@ class SyntheticRealistic(Dataset):
         Returns:
             ray_o (Tensor): [3,]. Ray origin
             ray_d (Tensor): [3,]. Ray direction
-            rgba (Tensor): [4,]. Pixel RGBa color
+            rgb (Tensor): [3,]. Pixel RGB color
         """
-        return self.rays_o[idx], self.rays_d[idx], self.rgba[idx]
+        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx]
 
 
     def __factor(self, imgs: Tensor, hwf: Tensor) -> Tuple[Tensor, Tensor]:
@@ -95,6 +114,7 @@ class SyntheticRealistic(Dataset):
         new_imgs = Resize((new_H, new_W))(imgs)
 
         return new_imgs, new_hwf
+
 
     def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
         """

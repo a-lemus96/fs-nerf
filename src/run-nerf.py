@@ -3,11 +3,13 @@ import argparse
 from datetime import date
 import logging
 import os
+import random
 
 # third-party imports
 from multiprocessing import cpu_count
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
@@ -18,9 +20,14 @@ from models import *
 from rendering import *
 from utilities import *
 
-# HYPERPARAMETERS 
+# RANDOM SEED
 
-JOBS = cpu_count()
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+
+# HYPERPARAMETERS 
 
 parser = argparse.ArgumentParser(description='Train NeRF for view synthesis.')
 
@@ -69,9 +76,9 @@ parser.add_argument('--dataset', dest='dataset', default='rtmv', type=str,
                     help="Dataset to choose scenes from")
 parser.add_argument('--subset', dest='subset', default='bricks', type=str,
                     help="Subset of the dataset")
-parser.add_argument('--scene', dest='scene', default='fire-temple', type=str,
+parser.add_argument('--scene', dest='scene', default='lego', type=str,
                     help="Scene to be used for training")
-parser.add_argument('--white_bkgd', dest='white_bkgd', default=True,
+parser.add_argument('--white_bkgd', dest='white_bkgd', default=False,
                     type=bool, help="Use white backgroung for training imgs")
 
 # Optimization
@@ -147,18 +154,10 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = NerfDataset(dataset=args.dataset,
-                      subset=args.subset,
-                      scene=args.scene,
-                      n_imgs=100,
-                      test_idx=101,
-                      f_forward=args.ffwd,
-                      factor=2,
-                      near=1.2,
-                      far=7.)
-
+dataset = SyntheticRealistic(args.scene, 'train', white_bkgd=args.white_bkgd)
 near, far = dataset.near, dataset.far
-H, W, focal = int(dataset.H), int(dataset.W), dataset.focal
+H, W, focal = dataset.hwf
+H, W = int(H), int(W)
 
 testimg, testpose = dataset.testimg, dataset.testpose
 
@@ -276,7 +275,7 @@ def train():
     dataloader = DataLoader(dataset,
                             batch_size=args.batch_size,
                             shuffle=True,
-                            num_workers=JOBS)
+                            num_workers=8)
 
     # Optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
@@ -303,13 +302,9 @@ def train():
             step = int(i * steps_per_epoch + k)
 
             # Unpack batch info
-            rays_o, rays_d, target_pixs = batch
+            rays_o, rays_d, rgb_gt = batch
             
-            # Send data to GPU
-            #rays_o = rays_o.to(device)
-            #rays_d = rays_d.to(device)
-            
-            # Run one iteration of NeRF and get the rendered RGB image
+            # forward pass
             outputs = nerf_forward(rays_o.to(device), rays_d.to(device),
                            near, far, encode, model,
                            kwargs_sample_stratified=kwargs_sample_stratified,
@@ -320,33 +315,25 @@ def train():
                            chunksize=args.chunksize,
                            white_bkgd=args.white_bkgd)
 
-            # Check for numerical issues
+            # check for numerical errors
             for key, val in outputs.items():
                 if torch.isnan(val).any():
                     print(f"! [Numerical Alert] {key} contains NaN.")
                 if torch.isinf(val).any():
                     print(f"! [Numerical Alert] {key} contains Inf.")
 
-            # Send RGB training data to GPU
-            target_pixs = target_pixs.to(device)
-
-            # Retrieve predictions from model
-            rgb_predicted = outputs['rgb_map']
-
-            # Compute RGB loss
-            loss = torch.nn.functional.mse_loss(rgb_predicted, target_pixs)
-
-            # Compute PSNR value
+            rgb_gt = rgb_gt.to(device) # ground truth rgb to device
+            rgb = outputs['rgb_map'] # predicted rgb
+            loss = F.mse_loss(rgb, rgb_gt) # compute loss
+            # compute PSNR
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss)
                 train_psnrs.append(psnr.item())
 
-            # Add coarse predictions
-            if args.use_fine:
-                loss += torch.nn.functional.mse_loss(outputs['rgb_map_0'],
-                                                     target_pixs)
+            if args.use_fine: # add coarse loss
+                loss += F.mse_loss(outputs['rgb_map_0'], rgb_gt) # add
 
-            # Perform backprop and optimizer steps
+            # backward pass
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -363,8 +350,8 @@ def train():
                     origins = get_chunks(rays_o, chunksize=args.batch_size)
                     dirs = get_chunks(rays_d, chunksize=args.batch_size)
 
-                    rgb_predicted = []
-                    depth_predicted = []
+                    rgb = []
+                    depth = []
                     sigma = []
                     z_vals = []
                     for batch_o, batch_d in zip(origins, dirs):
@@ -378,17 +365,17 @@ def train():
                                chunksize=args.chunksize,
                                white_bkgd=args.white_bkgd)
      
-                        rgb_predicted.append(outputs['rgb_map'])
-                        depth_predicted.append(outputs['depth_map'])
+                        rgb.append(outputs['rgb_map'])
+                        depth.append(outputs['depth_map'])
                         sigma.append(outputs['sigma'])
                         z_vals.append(outputs['z_vals_combined'])
 
-                    rgb_predicted = torch.cat(rgb_predicted, dim=0)
-                    depth_predicted = torch.cat(depth_predicted, dim=0)
+                    rgb = torch.cat(rgb, dim=0)
+                    depth = torch.cat(depth, dim=0)
                     sigma = torch.cat(sigma, dim=0)
                     z_vals = torch.cat(z_vals, dim=0)
 
-                    val_loss = torch.nn.functional.mse_loss(rgb_predicted, testimg.reshape(-1, 3))
+                    val_loss = F.mse_loss(rgb, testimg.reshape(-1, 3))
                     val_psnr = -10. * torch.log10(val_loss)
 
                     val_psnrs.append(val_psnr.item())
@@ -410,7 +397,7 @@ def train():
                         # Plot example outputs
                         fig, ax = plt.subplots(2, 3, figsize=(25, 8),
                                                gridspec_kw={'width_ratios': [1, 1, 3]})
-                        ax[0,0].imshow(rgb_predicted.reshape([H, W, 3]).cpu().numpy())
+                        ax[0,0].imshow(rgb.reshape([H, W, 3]).cpu().numpy())
                         ax[0,0].set_title(f'Iteration: {step}')
                         ax[0,1].imshow(testimg.cpu().numpy())
                         ax[0,1].set_title(f'Target')
@@ -419,14 +406,9 @@ def train():
                         ax[0,2].set_title('PSNR (train=red, val=blue')
                         #ax[1,0].plot(300, 400, marker='o', color="red")
                         ax[1,0].plot(210, 150, marker='o', color="red")
-                        ax[1,0].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
-                                     vmin=0., vmax=5., cmap='plasma')
+                        ax[1,0].imshow(depth.reshape([H, W]).cpu().numpy())
                         ax[1,0].set_title(r'Predicted Depth')
                         #ax[1,1].plot(300, 400, marker='o', color="red")
-                        ax[1,1].plot(210, 150, marker='o', color="red")
-                        ax[1,1].imshow(depth_predicted.reshape([H, W]).cpu().numpy(),
-                                     vmin=0., vmax=5., cmap='plasma')
-                        ax[1,1].set_title('Predicted Depth')
                         ax[1, 2].plot(z_sample, sigma_sample)
                         ax[1, 2].set_title('Density along sample ray (red dot)')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")
