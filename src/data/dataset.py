@@ -130,7 +130,7 @@ class SyntheticRealistic(Dataset):
         """
         scene = self.scene
         root = self.root
-        path = os.path.join('..', 'data', 'synthetic', scene)
+        path = os.path.join('..', 'datasets', 'synthetic', scene)
         # load JSON file
         with open(os.path.join(path, f'transforms_{root}.json'), 'r') as f:
             meta = json.load(f) # metadata

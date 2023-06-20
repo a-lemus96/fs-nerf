@@ -14,8 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # local imports
-from dataload import *
-from dataset import *
+import data.dataset as dset
 from models import *
 from rendering import *
 from utilities import *
@@ -148,7 +147,9 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = SyntheticRealistic(args.scene, 'train', white_bkgd=args.white_bkgd)
+dataset = dset.SyntheticRealistic(args.scene, 
+                                  'train', 
+                                  white_bkgd=args.white_bkgd)
 near, far = dataset.near, dataset.far
 H, W, focal = dataset.hwf
 H, W = int(H), int(W)

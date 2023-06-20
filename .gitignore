@@ -1,4 +1,4 @@
-data/
+datasets/
 out/
 src/__pycache__/
 .ipynb_checkpoints/
