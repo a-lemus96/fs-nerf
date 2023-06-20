@@ -482,6 +482,6 @@ output = R.render_path(render_poses=render_poses,
 frames, d_frames = output
 
 # Now we put together frames and save result into .mp4 file
-render_video(basedir=f'{out_dir}/video/',
-             frames=frames,
-             d_frames=d_frames)
+R.render_video(basedir=f'{out_dir}/video/',
+               frames=frames,
+               d_frames=d_frames)

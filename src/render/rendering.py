@@ -59,7 +59,7 @@ def pose_from_spherical(
 
 # RENDERING PATH UTILITIES
 
-def sphere_path(radius: float = 3.,
+def sphere_path(radius: float = 3.5,
                 theta: float = 45.,
                 frames: int = 40
                 ) -> torch.Tensor:
