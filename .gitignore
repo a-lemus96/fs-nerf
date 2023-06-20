@@ -1,5 +1,5 @@
 datasets/
 out/
-src/__pycache__/
+*/__pycache__/
 .ipynb_checkpoints/
 wandb/
