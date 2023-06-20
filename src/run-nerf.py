@@ -38,8 +38,8 @@ parser.add_argument('--n_freqs', dest='n_freqs', default=10, type=int,
                     help='Number of encoding functions for spatial coords')
 parser.add_argument('--log_space', dest='log_space', action="store_false",
                     help='If not set, frecuency scale in log space')
-parser.add_argument('--use_viewdirs', dest='use_viewdirs', action="store_true",
-                    help='If set, model view dependent effects')
+parser.add_argument('--no_dirs', dest='no_dirs', action="store_true",
+                    help='If set, do not model view-dependent effects')
 parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
                     type=int, help='Number of encoding functions for view dirs')
 
@@ -72,18 +72,14 @@ parser.add_argument('--perturb_hierch', dest='perturb_hierch', action="store_fal
                     help='Applies noise to hierarchical samples')
 
 # Dataset
-parser.add_argument('--dataset', dest='dataset', default='rtmv', type=str,
+parser.add_argument('--dataset', dest='dataset', default='synthetic', type=str,
                     help="Dataset to choose scenes from")
-parser.add_argument('--subset', dest='subset', default='bricks', type=str,
-                    help="Subset of the dataset")
 parser.add_argument('--scene', dest='scene', default='lego', type=str,
                     help="Scene to be used for training")
 parser.add_argument('--white_bkgd', dest='white_bkgd', default=False,
                     type=bool, help="Use white backgroung for training imgs")
 
 # Optimization
-parser.add_argument('--ffwd', dest='ffwd', action='store_true',
-                    help='If set, use face forward training scheme')
 parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                     help='Learning rate')
 
@@ -92,13 +88,11 @@ parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                     help='Number of training iterations')
 parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                     help='Number of rays per optimization step')
-parser.add_argument('--chunksize', dest='chunksize', default=2**12, type=int,
-                    help='Batch is divided into chunks to avoid OOM error')
-parser.add_argument('--device_num', dest='device_num', default=0, type=int,
+parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                     help="Number of CUDA device to be used for training")
 
 # Validation
-parser.add_argument('--display_rate', dest='display_rate', default=500, type=int,
+parser.add_argument('--display_rate', dest='display_rate', default=1000, type=int,
                     help='Display rate for test output measured in iterations')
 parser.add_argument('--val_rate', dest='val_rate', default=100, type=int,
                     help='Test image evaluation rate')
@@ -138,15 +132,14 @@ device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
 
 # Verify CUDA availability
 if device != 'cpu' :
-    print(f"Device: {torch.cuda.get_device_name(device)}\n")
+    print(f"CUDA device: {torch.cuda.get_device_name(device)}\n")
 else:
-    print("Device: CPU. Abort.")
+    raise RuntimeError("CUDA device not available.")
     exit()
 
 # Build base path for output directories
 out_dir = os.path.normpath(os.path.join(args.out_dir, 'nerf', 
-                                        'ffwd_' + str(args.ffwd),
-                                        'viewdirs_' + str(args.use_viewdirs),
+                                        'viewdirs_' + str(not args.no_dirs),
                                         'lrate_' + str(args.lrate)))
 
 # Create folders
@@ -236,7 +229,7 @@ def init_models():
     encode = lambda x: encoder(x)
 
     # Check if using view directions to initialize encoders
-    if args.use_viewdirs:
+    if args.no_dirs is False:
         encoder_viewdirs = PositionalEncoder(args.d_input, args.n_freqs_views,
                                              log_space=args.log_space)
         encode_viewdirs = lambda x: encoder_viewdirs(x)
@@ -312,7 +305,6 @@ def train():
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
                            dir_fn=encode_viewdirs,
-                           chunksize=args.chunksize,
                            white_bkgd=args.white_bkgd)
 
             # check for numerical errors
@@ -362,7 +354,6 @@ def train():
                                kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                                fine_model=fine_model,
                                dir_fn=encode_viewdirs,
-                               chunksize=args.chunksize,
                                white_bkgd=args.white_bkgd)
      
                         rgb.append(outputs['rgb_map'])
