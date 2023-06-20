@@ -139,6 +139,7 @@ else:
 
 # Build base path for output directories
 out_dir = os.path.normpath(os.path.join(args.out_dir, 'nerf', 
+                                        args.dataset, args.scene,
                                         'viewdirs_' + str(not args.no_dirs),
                                         'lrate_' + str(args.lrate)))
 
