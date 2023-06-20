@@ -379,13 +379,26 @@ def nerf_forward(
     kwargs_sample_hierarchical: dict = None,
     fine_model = None,
     dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    chunksize = 2**15,
     white_bkgd = False,
     ) -> dict:
-    r"""
-    Compute forward pass through NeRF model(s).
+    """
+    Perform a forward pass through the NeRF model.
+    ----------------------------------------------------------------------------
     Args:
+        rays_o: origin of the rays
+        rays_d: direction of the rays
+        near: near bound
+        far: far bound
+        pos_fn: positional encoding function for points
+        coarse_model: coarse model
+        kwargs_sample_stratified: keyword arguments for stratified sampling
+        n_samples_hierarchical: number of hierarchical samples
+        kwargs_sample_hierarchical: keyword arguments for hierarchical sampling
+        fine_model: fine model
+        dir_fn: positional encoding function for viewdirs
+        white_bkgd: whether to use white background
     Returns:
+        dict: dictionary of outputs
     """
     # sample query points along each ray
     points, z_vals = sample_stratified(rays_o, rays_d, near, far,

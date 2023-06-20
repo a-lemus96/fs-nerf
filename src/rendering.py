@@ -96,8 +96,7 @@ def render_path(
     n_samples_hierarchical: int = 0,
     kwargs_sample_hierarchical: dict = None,
     fine_model: nn.Module = None,
-    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    chunksize: int = 2**12
+    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None
     ) -> Tuple[torch.Tensor]:
     r"""Render video outputs for the incoming camera poses.
     ----------------------------------------------------------------------------
@@ -128,8 +127,7 @@ def render_path(
                            n_samples_hierarchical=n_samples_hierarchical,
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                            fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs,
-                           chunksize=chunksize)
+                           viewdirs_encoding_fn=encode_viewdirs)
 
             # read predicted rgb frame
             rgb_map = outputs['rgb_map']

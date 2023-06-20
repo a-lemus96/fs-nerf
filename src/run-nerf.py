@@ -474,8 +474,7 @@ output = render_path(render_poses=render_poses,
                      n_samples_hierarchical=args.n_samples_hierch,
                      kwargs_sample_hierarchical=kwargs_sample_hierarchical,
                      fine_model=fine_model,
-                     encode_viewdirs=encode_viewdirs,
-                     chunksize=args.chunksize)
+                     encode_viewdirs=encode_viewdirs)
 
 frames, d_frames = output
 
