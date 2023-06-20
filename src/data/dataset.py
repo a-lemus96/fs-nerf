@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Resize
 
 # custom modules
-import utilities as utils
+import utils.utilities as U
 
 class SyntheticRealistic(Dataset):
     """
@@ -59,7 +59,7 @@ class SyntheticRealistic(Dataset):
 
         # compute rays
         H, W, f = hwf
-        rays = torch.stack([torch.cat(utils.get_rays(H, W, f, p), -1) 
+        rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1) 
                             for p in poses], 0)
         rays = rays.reshape(-1, 6)
         self.rays_o = rays[:, :3]

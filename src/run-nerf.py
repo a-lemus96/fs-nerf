@@ -4,9 +4,11 @@ from datetime import date
 import logging
 import os
 import random
+from typing import List, Tuple, Union, Optional
 
 # third-party imports
 from multiprocessing import cpu_count
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -14,10 +16,10 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # local imports
-import data.dataset as dset
-from models import *
-from rendering import *
-from utilities import *
+import data.dataset as D 
+import core.models as M
+import render.rendering as R
+import utils.utilities as U
 
 # RANDOM SEED
 
@@ -147,9 +149,7 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = dset.SyntheticRealistic(args.scene, 
-                                  'train', 
-                                  white_bkgd=args.white_bkgd)
+dataset = D.SyntheticRealistic(args.scene, 'train', white_bkgd=args.white_bkgd)
 near, far = dataset.near, dataset.far
 H, W, focal = dataset.hwf
 H, W = int(H), int(W)
@@ -226,14 +226,14 @@ def init_models():
     Initialize models, encoders and optimizer for NeRF training
     """
     # Encoders
-    encoder = PositionalEncoder(args.d_input, args.n_freqs,
-                                log_space=args.log_space)
+    encoder = M.PositionalEncoder(args.d_input, args.n_freqs,
+                                  log_space=args.log_space)
     encode = lambda x: encoder(x)
 
     # Check if using view directions to initialize encoders
     if args.no_dirs is False:
-        encoder_viewdirs = PositionalEncoder(args.d_input, args.n_freqs_views,
-                                             log_space=args.log_space)
+        encoder_viewdirs = M.PositionalEncoder(args.d_input, args.n_freqs_views,
+                                               log_space=args.log_space)
         encode_viewdirs = lambda x: encoder_viewdirs(x)
         d_viewdirs = encoder_viewdirs.d_output
     else:
@@ -241,15 +241,15 @@ def init_models():
         d_viewdirs = None
 
     # Models
-    model = NeRF(encoder.d_output, n_layers=args.n_layers,
-                 d_filter=args.d_filter, skip=args.skip,
-                 d_viewdirs=d_viewdirs)
+    model = M.NeRF(encoder.d_output, n_layers=args.n_layers,
+                   d_filter=args.d_filter, skip=args.skip,
+                   d_viewdirs=d_viewdirs)
     model.to(device)
     model_params = list(model.parameters())
     if args.use_fine:
-        fine_model = NeRF(encoder.d_output, n_layers=args.n_layers,
-                          d_filter=args.d_filter_fine, skip=args.skip,
-                          d_viewdirs=d_viewdirs)
+        fine_model = M.NeRF(encoder.d_output, n_layers=args.n_layers,
+                            d_filter=args.d_filter_fine, skip=args.skip,
+                            d_viewdirs=d_viewdirs)
         fine_model.to(device)
         model_params = model_params + list(fine_model.parameters())
     else:
@@ -462,22 +462,22 @@ else:
         fine_model.eval()
 
 # compute path poses for rendering video output
-render_poses = sphere_path()
+render_poses = R.sphere_path()
 render_poses = render_poses.to(device)
 
 # Render frames for all rendering poses
-output = render_path(render_poses=render_poses,
-                     near=near,
-                     far=far,
-                     hwf=[H, W, focal],
-                     chunksize=args.batch_size,
-                     encode=encode,
-                     model=model,
-                     kwargs_sample_stratified=kwargs_sample_stratified,
-                     n_samples_hierarchical=args.n_samples_hierch,
-                     kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                     fine_model=fine_model,
-                     encode_viewdirs=encode_viewdirs)
+output = R.render_path(render_poses=render_poses,
+                       near=near,
+                       far=far,
+                       hwf=[H, W, focal],
+                       chunksize=args.batch_size,
+                       encode=encode,
+                       model=model,
+                       kwargs_sample_stratified=kwargs_sample_stratified,
+                       n_samples_hierarchical=args.n_samples_hierch,
+                       kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                       fine_model=fine_model,
+                       encode_viewdirs=encode_viewdirs)
 
 frames, d_frames = output
 

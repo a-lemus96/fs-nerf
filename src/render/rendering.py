@@ -13,7 +13,7 @@ from torch import nn
 from tqdm import tqdm
 
 # custom modules
-from utilities import *
+import utils.utilities as U
 
 # FUNCTIONS TO COMPUTE POSES FROM SPHERICAL COORDINATES
 
@@ -130,7 +130,7 @@ def render_path(
         with torch.no_grad():
             # Get rays
 
-            rgb, depth = render_frame(
+            rgb, depth = U.render_frame(
                     H, W, focal, pose, chunksize=chunksize,
                     near=near, far=far, pos_fn=encode,
                     model=model,
