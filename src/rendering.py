@@ -90,23 +90,36 @@ def render_path(
     near: float,
     far: float,
     hwf: torch.Tensor,
+    chunksize: int,
     encode: Callable[[torch.Tensor], torch.Tensor], 
     model: nn.Module,
     kwargs_sample_stratified: dict = None,
     n_samples_hierarchical: int = 0,
     kwargs_sample_hierarchical: dict = None,
     fine_model: nn.Module = None,
-    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None
+    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    white_bkgd: bool = False
     ) -> Tuple[torch.Tensor]:
     r"""Render video outputs for the incoming camera poses.
     ----------------------------------------------------------------------------
     Args:
-        render_poses: [N, 4, 4]. Camera poses to render from.
-        chunksize: int. Size of smaller minibatches to avoid OOM.
-        hwf: [3]. Height, width and focal length.
+        render_poses: (frames, 4, 4)-shape tensor containing poses to render
+        near: float. Near clipping plane
+        far: float. Far clipping plane
+        hwf: [3,]. Height, width and focal length of the camera
+        chunksize: int. Number of rays to process in parallel
+        encode: Callable. Function to encode input rays
+        model: nn.Module. NeRF model
+        kwargs_sample_stratified: dict. Keyword arguments for stratified sampling
+        n_samples_hierarchical: int. Number of hierarchical samples
+        kwargs_sample_hierarchical: dict. Keyword arguments for hierarchical sampling
+        fine_model: nn.Module. Fine NeRF model
+        encode_viewdirs: Callable. Function to encode input view directions
+        white_bkgd: bool. Whether to use white background
     Returns:
-        frames: [N, H, W, 3]. Rendered RGB frames.
-        d_frames: (N, H, W)-shape tensor. Rendered depth frames."""
+        frames: (frames, H, W, 3)-shape tensor containing rendered frames
+        d_frames: (frames, H, W)-shape tensor containing rendered depth frames
+    """
 
     H, W, focal = hwf
     model.eval()
@@ -116,30 +129,28 @@ def render_path(
     for i, pose in enumerate(tqdm(render_poses)):
         with torch.no_grad():
             # Get rays
-            rays_o, rays_d = get_rays(H, W, focal, pose)
-            rays_o = rays_o.reshape([-1, 3])
-            rays_d = rays_d.reshape([-1, 3])
 
-            # Compute NeRF forward pass
-            outputs = nerf_forward(rays_o, rays_d,
-                           near, far, encode, model,
-                           kwargs_sample_stratified=kwargs_sample_stratified,
-                           n_samples_hierarchical=n_samples_hierarchical,
-                           kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine_model,
-                           viewdirs_encoding_fn=encode_viewdirs)
+            rgb, depth = render_frame(
+                    H, W, focal, pose, chunksize=chunksize,
+                    near=near, far=far, pos_fn=encode,
+                    model=model,
+                    kwargs_sample_stratified=kwargs_sample_stratified,
+                    n_samples_hierarchical=n_samples_hierarchical,
+                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                    fine_model=fine_model,
+                    dir_fn=encode_viewdirs,
+                    white_bkgd=white_bkgd
+                    )
 
             # read predicted rgb frame
-            rgb_map = outputs['rgb_map']
-            rgb_map = rgb_map.reshape([H, W, 3]).detach().cpu().numpy()
+            rgb = rgb.reshape([H, W, 3]).detach().cpu().numpy()
             
             # read predicted depth frame
-            depth_map = outputs['depth_map']
-            depth_map = depth_map.reshape([H, W]).detach().cpu().numpy()
+            depth = depth.reshape([H, W]).detach().cpu().numpy()
 
         # append rgb and depth frames
-        frames.append(rgb_map)
-        d_frames.append(depth_map)
+        frames.append(rgb)
+        d_frames.append(depth)
 
     # stack all frames in numpy arrays
     frames = np.stack(frames, 0)
@@ -172,6 +183,5 @@ def render_video(
     d_rgba = mapper.to_rgba(d_frames.flatten())
     # return to normal dimensions
     d_rgba = np.reshape(d_rgba, list(d_frames.shape[:3]) + [-1])
-    print(d_rgba.shape)
     # unflatten d_frames
     imageio.mimwrite(basedir + 'd.mp4', to8b(d_rgba), fps=30, quality=8)

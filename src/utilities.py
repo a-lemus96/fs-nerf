@@ -353,19 +353,82 @@ def sample_hierarchical(
 
 # FULL FORWARD PASS
 def get_chunks(inputs: torch.Tensor,
-               chunksize: int = 2**15) -> List[torch.Tensor]:
-    '''Divide an input into chunks. This is done due to potential memory issues.
-    The forward pass is computed in chunks, which are then aggregated across a
-    single batch. The gradient propagation is done until all batch has been pro-
-    cessed.
+               chunksize: int) -> List[torch.Tensor]:
+    """
+    Split inputs into chunks of size chunksize.
+    ----------------------------------------------------------------------------
     Args:
-        inputs:
-        chunksize:
+        inputs: tensor to be chunkified
+        chunksize: size of each chunk
     Returns:
-        '''
+        list of tensors of size chunksize
+    """
     inds = range(0, inputs.shape[0], chunksize)
 
     return [inputs[i:i + chunksize] for i in inds]
+
+def render_frame(
+        H: int,
+        W: int,
+        focal: float,
+        pose: torch.Tensor, 
+        chunksize: int,
+        near: float,
+        far: float,
+        pos_fn: Callable[[torch.Tensor], torch.Tensor],
+        model: nn.Module,
+        kwargs_sample_stratified: dict = None, 
+        n_samples_hierarchical: int = 0,
+        kwargs_sample_hierarchical: dict = None,
+        fine_model = None,
+        dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+        white_bkgd = False) -> torch.Tensor:
+    """Render an image from a given pose. Camera rays are chunkified to avoid
+    memory issues.
+    ----------------------------------------------------------------------------
+    Args:
+        H: height of the image
+        W: width of the image
+        focal: focal length of the camera
+        pose: [4, 4] tensor with the camera pose
+        chunksize: size of the chunks to be processed
+        near: near clipping plane
+        far: far clipping plane
+        pos_fn: positional encoding function
+        model: coarse model
+        kwargs_sample_stratified: keyword arguments for stratified sampling
+        n_samples_hierarchical: number of samples for hierarchical sampling
+        kwargs_sample_hierarchical: keyword arguments for hierarchical sampling
+        fine_model: fine model
+        dir_fn: directional encoding function
+        white_bkgd: whether to use a white background
+    Returns:
+        img: [H, W, 3] tensor with the rendered image
+        depth: [H, W] tensor with the depth map
+    """
+    rays_o, rays_d = get_rays(H, W, focal, pose) # compute rays
+    rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
+
+    # chunkify rays to avoid memory issues
+    chunked_rays_o = get_chunks(rays_o, chunksize=chunksize)
+    chunked_rays_d = get_chunks(rays_d, chunksize=chunksize)
+
+    # compute image and depth in chunks
+    img = []
+    depth = []
+    for chunk_o, chunk_d in zip(chunked_rays_o, chunked_rays_d):
+        output = nerf_forward(chunk_o, chunk_d, near, far, pos_fn,
+                              model, kwargs_sample_stratified,
+                              n_samples_hierarchical, kwargs_sample_hierarchical,
+                              fine_model, dir_fn, white_bkgd)
+        img.append(output['rgb_map'])
+        depth.append(output['depth_map'])
+
+    # aggregate chunks
+    img = torch.cat(img, dim=0)
+    depth = torch.cat(depth, dim=0)
+
+    return img, depth
 
 def nerf_forward(
     rays_o: torch.Tensor,
