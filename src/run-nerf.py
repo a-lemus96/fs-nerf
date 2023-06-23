@@ -149,7 +149,7 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # Load dataset
-dataset = D.SyntheticRealistic(args.scene, 'train', white_bkgd=args.white_bkgd)
+dataset = D.SyntheticRealistic(args.scene, 'test', white_bkgd=args.white_bkgd)
 near, far = dataset.near, dataset.far
 H, W, focal = dataset.hwf
 H, W = int(H), int(W)

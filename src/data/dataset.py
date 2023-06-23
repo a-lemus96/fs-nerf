@@ -5,6 +5,7 @@ from typing import Tuple, List, Union, Callable
 
 # third-party modules
 import imageio as iio
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import Tensor
@@ -17,7 +18,8 @@ import utils.utilities as U
 class SyntheticRealistic(Dataset):
     """
     Synthetic realistic dataset. It is made up of N x H x W ray origins and
-    directions in world coordinate frame paired with ground truth pixel colors.
+    directions in world coordinate frame paired with ground truth pixel colors
+    and depth values. The dataset is stored in a directory named 'synthetic'.
     Here, N is the number of training images of size H x W.
     ----------------------------------------------------------------------------
     """
@@ -118,7 +120,8 @@ class SyntheticRealistic(Dataset):
 
     def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
         """
-        Load the dataset.
+        Loads the dataset. It loads images, camera poses,  camera intrinsics and
+        depth maps.
         ------------------------------------------------------------------------
         Args:
             None
@@ -137,15 +140,34 @@ class SyntheticRealistic(Dataset):
 
         # load images and camera poses
         imgs = []
+        disps = []
         poses = []
         for frame in meta['frames']:
+            poses.append(np.array(frame['transform_matrix'])) # camera pose
             fname = os.path.join(path, frame['file_path'] + '.png')
-            imgs.append(iio.imread(fname))
-            poses.append(np.array(frame['transform_matrix']))
+            imgs.append(iio.imread(fname)) # RGBa image
+            fname = os.path.join(path, frame['file_path'] + '_depth_0001.png')
+            print(iio.imread(fname).shape)
+            disps.append(iio.imread(fname)) # disparity map
 
         # convert to numpy arrays
-        imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
         poses = np.stack(poses, axis=0).astype(np.float32)
+        imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
+        disps = np.stack(disps, axis=0).astype(np.float32)
+
+        # convert disparity maps into depth maps
+        depths = 1./disps
+        depths[depths == np.inf]
+        print(depths[0, ..., 0])
+
+        plt.imshow(depths[0, ..., 0])
+        plt.savefig('depth0.png')
+        plt.imshow(depths[0, ..., 1])
+        plt.savefig('depth1.png')
+        # check if both depth maps are equal
+        if not np.allclose(depths[..., 0], depths[..., 1]):
+            print('Depth maps are not equal')
+        exit()
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
