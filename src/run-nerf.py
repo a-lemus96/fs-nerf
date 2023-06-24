@@ -8,6 +8,7 @@ from typing import List, Tuple, Union, Optional
 
 # third-party imports
 from multiprocessing import cpu_count
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
@@ -138,23 +139,21 @@ else:
     raise RuntimeError("CUDA device not available.")
     exit()
 
-# Build base path for output directories
+# build base path for output directories
 out_dir = os.path.normpath(os.path.join(args.out_dir, 'nerf', 
                                         args.dataset, args.scene,
                                         'viewdirs_' + str(not args.no_dirs),
                                         'lrate_' + str(args.lrate)))
 
-# Create folders
+# create folders
 folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
-# Load dataset
+# load dataset
 dataset = D.SyntheticRealistic(args.scene, 'test', white_bkgd=args.white_bkgd)
 near, far = dataset.near, dataset.far
 H, W, focal = dataset.hwf
 H, W = int(H), int(W)
-
-testimg, testpose = dataset.testimg, dataset.testpose
 
 logger = logging.getLogger()
 base_level = logger.level
@@ -274,15 +273,17 @@ def train():
 
     # Optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
-    scheduler = CustomScheduler(optimizer, args.n_iters, 
-                                n_warmup=args.warmup_iters)
+    scheduler = U.CustomScheduler(optimizer, args.n_iters, 
+                                  n_warmup=args.warmup_iters)
 
     train_psnrs = []
     val_psnrs = []
     iternums = []
     sigma_curves = []
     
-    testimg, testpose = dataset.testimg.to(device), dataset.testpose.to(device)
+    testimg = dataset.testimg.to(device)
+    testpose = dataset.testpose.to(device)
+    testdepth = dataset.testdepth.to(device)
 
     # Compute number of epochs
     steps_per_epoch = np.ceil(len(dataset)/args.batch_size)
@@ -297,10 +298,10 @@ def train():
             step = int(i * steps_per_epoch + k)
 
             # Unpack batch info
-            rays_o, rays_d, rgb_gt = batch
+            rays_o, rays_d, rgb_gt, depth_gt = batch
             
             # forward pass
-            outputs = nerf_forward(rays_o.to(device), rays_d.to(device),
+            outputs = U.nerf_forward(rays_o.to(device), rays_d.to(device),
                            near, far, encode, model,
                            kwargs_sample_stratified=kwargs_sample_stratified,
                            n_samples_hierarchical=args.n_samples_hierch,
@@ -337,19 +338,19 @@ def train():
                 with torch.no_grad():
                     model.eval()
 
-                    rays_o, rays_d = get_rays(H, W, focal, testpose)
+                    rays_o, rays_d = U.get_rays(H, W, focal, testpose)
                     rays_o = rays_o.reshape([-1, 3])
                     rays_d = rays_d.reshape([-1, 3])
                     
-                    origins = get_chunks(rays_o, chunksize=args.batch_size)
-                    dirs = get_chunks(rays_d, chunksize=args.batch_size)
+                    origins = U.get_chunks(rays_o, chunksize=args.batch_size)
+                    dirs = U.get_chunks(rays_d, chunksize=args.batch_size)
 
                     rgb = []
                     depth = []
                     sigma = []
                     z_vals = []
                     for batch_o, batch_d in zip(origins, dirs):
-                        outputs = nerf_forward(batch_o, batch_d,
+                        outputs = U.nerf_forward(batch_o, batch_d,
                                near, far, encode, model,
                                kwargs_sample_stratified=kwargs_sample_stratified,
                                n_samples_hierarchical=args.n_samples_hierch,
@@ -378,7 +379,9 @@ def train():
                         z_vals = z_vals.view(-1,
                                 args.n_samples + args.n_samples_hierch)
                         #sample_idx = 320350
-                        sample_idx = 65010
+                        red_coords = (400, 400)
+                        flatten_coords = lambda x, y: y * W + x
+                        sample_idx = flatten_coords(*red_coords)
                         z_sample = z_vals[sample_idx].detach().cpu().numpy()
                         sigma_sample = sigma[sample_idx].detach().cpu().numpy()
                         curve = np.concatenate((z_sample[..., None],
@@ -393,15 +396,16 @@ def train():
                         ax[0,0].imshow(rgb.reshape([H, W, 3]).cpu().numpy())
                         ax[0,0].set_title(f'Iteration: {step}')
                         ax[0,1].imshow(testimg.cpu().numpy())
-                        ax[0,1].set_title(f'Target')
+                        ax[0,1].set_title(f'G.T. RGB')
                         ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
                         ax[0,2].plot(iternums, val_psnrs, 'b')
-                        ax[0,2].set_title('PSNR (train=red, val=blue')
-                        #ax[1,0].plot(300, 400, marker='o', color="red")
-                        ax[1,0].plot(210, 150, marker='o', color="red")
+                        ax[0,2].set_title('PSNR (train=red, val=blue)')
+                        ax[1,0].plot(red_coords, marker='o', color="red")
                         ax[1,0].imshow(depth.reshape([H, W]).cpu().numpy())
                         ax[1,0].set_title(r'Predicted Depth')
-                        #ax[1,1].plot(300, 400, marker='o', color="red")
+                        ax[1,1].plot(red_coords, marker='o', color="red")
+                        ax[1,1].imshow(testdepth.cpu().numpy())
+                        ax[1,1].set_title(r'G.T. Depth')
                         ax[1, 2].plot(z_sample, sigma_sample)
                         ax[1, 2].set_title('Density along sample ray (red dot)')
                         plt.savefig(f"{out_dir}/training/iteration_{step}.png")

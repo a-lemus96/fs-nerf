@@ -47,17 +47,18 @@ class SyntheticRealistic(Dataset):
         self.far = 6.0
 
         # load the dataset
-        imgs, poses, hwf = self.__load()
+        imgs, depths, poses, hwf = self.__load()
         self.hwf = hwf
         # compute background color
         if white_bkgd:
             imgs = imgs[..., :3] * imgs[..., -1:] + (1. - imgs[..., -1:])
         else:
             imgs = imgs[..., :3]
-        # choose random index for test image and pose
+        # choose random index for test image, pose and depth map
         idx = np.random.randint(0, imgs.shape[0])
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
+        self.testdepth = depths[idx]
 
         # compute rays
         H, W, f = hwf
@@ -67,8 +68,9 @@ class SyntheticRealistic(Dataset):
         self.rays_o = rays[:, :3]
         self.rays_d = rays[:, 3:]
 
-        # add pixel colors
+        # add pixel colors and depth values
         self.rgb = imgs.reshape(-1, 3)
+        self.depth = depths.reshape(-1)
 
 
     def __len__(self) -> int:
@@ -82,7 +84,7 @@ class SyntheticRealistic(Dataset):
         return self.rgb.shape[0]
 
 
-    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """Get a training sample by index.
         ------------------------------------------------------------------------
         Args:
@@ -91,20 +93,27 @@ class SyntheticRealistic(Dataset):
             ray_o (Tensor): [3,]. Ray origin
             ray_d (Tensor): [3,]. Ray direction
             rgb (Tensor): [3,]. Pixel RGB color
+            depth (Tensor): [1,]. Pixel depth value
         """
-        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx]
+        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx], self.depth[idx]
 
 
-    def __factor(self, imgs: Tensor, hwf: Tensor) -> Tuple[Tensor, Tensor]:
+    def __factor(
+            self, 
+            imgs: Tensor, 
+            depths: Tensor,
+            hwf: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Downsample images and apply resize factor to camera intrinsics.
         ------------------------------------------------------------------------
         Args:
-            imgs: [N, H, W, 4]. RGBa images
-            hwf: [3,]. Camera intrinsics.
+            imgs (Tensor): [N, H, W, 4]. RGBa images
+            depths (Tensor): [N, H, W]. Depth maps
+            hwf (Tensor): [3,]. Camera intrinsics
         Returns:
-            new_imgs: [N, H, W, 4]. Downsampled images
-            new_hwf: [3,]. Updated camera intrinsics
+            new_imgs (Tensor): [N, H // factor, W // factor, 4]. RGBa images
+            new_depths (Tensor): [N, H // factor, W // factor]. Depth maps
+            new_hwf (Tensor): [3,]. Camera intrinsics
         """
         # apply factor to camera intrinsics
         H, W, f = hwf
@@ -114,8 +123,9 @@ class SyntheticRealistic(Dataset):
 
         # downsample images
         new_imgs = Resize((new_H, new_W))(imgs)
+        new_depths = Resize((new_H, new_W))(depths)
 
-        return new_imgs, new_hwf
+        return new_imgs, new_depths, new_hwf
 
 
     def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
@@ -126,10 +136,11 @@ class SyntheticRealistic(Dataset):
         Args:
             None
         Returns:
-            imgs: [N, H, W, 4]. RGBa images
-            poses: [N, 4, 4]. Camera poses
-            hwf: [3,]. Camera intrinsics. h stands for image height, w for image
-                 width and f for focal length
+            imgs (Tensor): [N, H, W, 4]. RGBa images
+            depths (Tensor): [N, H, W]. Depth maps (along z axis)
+            poses (Tensor): [N, 4, 4]. Camera poses
+            hwf (Tensor): [3,]. Camera intrinsics. It contains height, width and
+                          focal length
         """
         scene = self.scene
         root = self.root
@@ -147,27 +158,14 @@ class SyntheticRealistic(Dataset):
             fname = os.path.join(path, frame['file_path'] + '.png')
             imgs.append(iio.imread(fname)) # RGBa image
             fname = os.path.join(path, frame['file_path'] + '_depth_0001.png')
-            print(iio.imread(fname).shape)
             disps.append(iio.imread(fname)) # disparity map
 
         # convert to numpy arrays
         poses = np.stack(poses, axis=0).astype(np.float32)
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
-        disps = np.stack(disps, axis=0).astype(np.float32)
-
-        # convert disparity maps into depth maps
-        depths = 1./disps
-        depths[depths == np.inf]
-        print(depths[0, ..., 0])
-
-        plt.imshow(depths[0, ..., 0])
-        plt.savefig('depth0.png')
-        plt.imshow(depths[0, ..., 1])
-        plt.savefig('depth1.png')
-        # check if both depth maps are equal
-        if not np.allclose(depths[..., 0], depths[..., 1]):
-            print('Depth maps are not equal')
-        exit()
+        disps = (np.stack(disps, axis=0) / 255.).astype(np.float32)
+        depths = (1. - disps) * 8. # apply inverse affine transformation
+        depths[depths == 8.] = np.inf
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
@@ -176,11 +174,12 @@ class SyntheticRealistic(Dataset):
         hwf = np.array([H, W, np.array(focal)])
 
         imgs = torch.from_numpy(imgs)
+        depths = torch.from_numpy(depths[..., 0])
         poses = torch.from_numpy(poses)
         hwf = torch.from_numpy(hwf)
 
         # scale images and camera intrinsics if applicable
         if self.factor is not None:
-            imgs, hwf = self.__scale(imgs, hwf)
+            imgs, hwf = self.__scale(imgs, depths, hwf)
 
-        return imgs, poses, hwf
+        return imgs, depths, poses, hwf
