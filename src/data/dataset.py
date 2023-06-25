@@ -127,6 +127,25 @@ class SyntheticRealistic(Dataset):
 
         return new_imgs, new_depths, new_hwf
 
+    def __ray_depth(self, depths: Tensor, hwf: Tensor) -> Tensor:
+        """Given a set of depth maps using z-coords, compute depth values along
+        rays.
+        ------------------------------------------------------------------------
+        Args:
+            depths (Tensor): [N, H, W]. Depth maps
+            hwf (Tensor): [3,]. Camera intrinsics
+        Returns:
+            ray_depths (Tensor): [N, H, W]. Depth values along rays
+        """
+        H, W, f = hwf
+        H, W = int(H), int(W)
+        rays_d = U.get_rays(H, W, f) # get local ray directions
+
+        # compute depth values along rays
+        rays_d = rays_d[..., -1]
+        t_depths = -depths / rays_d[None, ...]
+
+        return t_depths
 
     def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
         """
@@ -165,7 +184,7 @@ class SyntheticRealistic(Dataset):
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
         disps = (np.stack(disps, axis=0) / 255.).astype(np.float32)
         depths = (1. - disps) * 8. # apply inverse affine transformation
-        depths[depths == 8.] = np.inf
+        #depths[depths == 8.] = np.inf
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
@@ -175,6 +194,8 @@ class SyntheticRealistic(Dataset):
 
         imgs = torch.from_numpy(imgs)
         depths = torch.from_numpy(depths[..., 0])
+        # convert z depth to along-ray depth
+        depths = self.__ray_depth(depths, hwf)
         poses = torch.from_numpy(poses)
         hwf = torch.from_numpy(hwf)
 

@@ -32,28 +32,23 @@ def save_origins_and_dirs(poses):
 
 # RAY HELPERS
 
-def get_rays(height: int,
-             width: int,
-             focal_length: float,
-             camera_pose: torch.Tensor=None,
-             local_only: bool=False
-             ) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_rays(
+        height: int,
+        width: int,
+        focal_length: float,
+        camera_pose: torch.Tensor=None
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
     '''Find origin and direction of rays through every pixel and camera origin.
     Args:
         height: Image height.
         width: Image width.
         focal_length: Focal length of the camera.
         camera_pose: [4, 4]. Camera pose matrix.
-        local_only: bool. If set, return ray dirs in camera frame.
     Returns:
         origins_world: [height, width, 3]. Coordinates of rays using world coordinates.
         directions_world: [height, width, 3]. Orientations of rays in world coordinates.
     '''
-    if camera_pose is None and not local_only:
-        raise ValueError("Non local coordinates of camera rays require camera_pose parameter.")
-
-
-    # Create grid of coordinates
+    # create grid of coordinates
     i, j = torch.meshgrid(torch.arange(width, dtype=torch.float32).to(camera_pose), 
                           torch.arange(height, dtype=torch.float32).to(camera_pose), 
                           indexing='ij')
@@ -68,7 +63,7 @@ def get_rays(height: int,
     # Normalize directions
     directions = directions / torch.norm(directions, dim=-1, keepdim=True)
 
-    if local_only:
+    if camera_pose is None:
         return directions
 
     # Apply camera rotation to ray directions
