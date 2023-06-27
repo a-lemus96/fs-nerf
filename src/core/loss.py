@@ -28,29 +28,40 @@ def gini_entropy(
     return loss 
 
 def depth(
-        depths: Tensor,
-        depths_gt: Tensor,
-        weights: Tensor
+        depth: Tensor,
+        depth_gt: Tensor,
+        weight: Tensor,
+        z_val: Tensor
         ) -> Tensor:
     """Computes the depth loss between a batch of predicted and ground truth
-    depths. Loss is defined by the sum of L1 norm between each pair of pixel
-    depths divided by the square root of the variance as computed in [1].
+    depth. Loss is defined by the sum of L1 norm between each pair of pixel
+    depth divided by the square root of the variance as computed in [1].
     ----------------------------------------------------------------------------
     Reference(s):
         [1] Dey, A., Ahmine, Y., & Comport, A. I. (2022). Mip-NeRF RGB-D: Depth
         Assisted Fast Neural Radiance Fields. arXiv preprint arXiv:2205.09351.
     ----------------------------------------------------------------------------
     Args:
-        depths (Tensor): (B,). Predicted depths for a batch of rays
-        depths_gt (Tensor): (B,). Ground truth depths for a batch of rays
-        weights (Tensor): (B, N). Weights distribution for each ray in the batch.
-                          Here, N is the number of samples along each ray.
+        depth (Tensor): (B,). Predicted depth for a batch of rays
+        depth_gt (Tensor): (B,). Ground truth depth for a batch of rays
+        weight (Tensor): (B, N). Weight distribution for each ray in the batch.
+                          Here, N is the number of samples along each ray
+        z_val (Tensor): (B, N). Depth values for each sample along each ray
     Returns:
         loss (Tensor): (1,). Depth loss for the batch of rays
     ----------------------------------------------------------------------------
     """
     # compute variance of depth distribution
-    var = torch.sum(weights * (depths - depths_gt)**2, dim=-1)
-    loss = torch.mean(torch.abs(depths - depths_gt) / torch.sqrt(var))
+    var = torch.sum(weight * (depth[..., None] - z_val)**2, dim=-1)
+    # compute background and zero-var masks
+    bkgd = torch.isinf(depth_gt)
+    is_zero = torch.isclose(var, torch.zeros_like(var), atol=1e-6)
+    # remove background and zero-var values
+    idxs = ~bkgd & ~is_zero
+    depth_gt = depth_gt[idxs]
+    depth = depth[idxs]
+    var = var[idxs]
+    # compute depth loss
+    loss = torch.mean(torch.abs(depth - depth_gt) / torch.sqrt(var))
 
     return loss

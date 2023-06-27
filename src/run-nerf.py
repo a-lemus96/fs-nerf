@@ -56,9 +56,9 @@ else:
     exit()
 
 # build base path for output directories
-out_dir = os.path.normpath(os.path.join(args.out_dir, 'nerf', 
+method = 'nerf' if args.mu is None else 'depth'
+out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
                                         args.dataset, args.scene,
-                                        'viewdirs_' + str(not args.no_dirs),
                                         'lrate_' + str(args.lrate)))
 
 # create folders
@@ -243,6 +243,15 @@ def train():
 
             if args.use_fine: # add coarse loss
                 loss += F.mse_loss(outputs['rgb_map_0'], rgb_gt) # add
+
+            # add depth loss
+            if args.mu is not None:
+                depth = outputs['depth_map']
+                weight = outputs['weights']
+                z_vals = outputs['z_vals_combined']
+                depth_gt = depth_gt.to(device)
+                depth_loss = L.depth(depth, depth_gt, weight, z_vals)
+                loss += args.mu * depth_loss
 
             # backward pass
             loss.backward()

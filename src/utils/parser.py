@@ -58,6 +58,8 @@ def config_parser() -> argparse.Namespace:
     # Optimization
     parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                         help='Learning rate')
+    parser.add_argument('--mu', dest='mu', default=None, type=float,
+                        help='Balancing hyperparameter for depth loss')
 
     # Training 
     parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,

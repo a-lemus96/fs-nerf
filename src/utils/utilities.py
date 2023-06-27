@@ -526,6 +526,7 @@ def nerf_forward(
     outputs['rgb_map'] = rgb_map
     outputs['depth_map'] = depth_map
     outputs['sigma'] = sigma
+    outputs['weights'] = weights
 
     return outputs
 

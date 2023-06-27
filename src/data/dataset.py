@@ -184,7 +184,7 @@ class SyntheticRealistic(Dataset):
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
         disps = (np.stack(disps, axis=0) / 255.).astype(np.float32)
         depths = (1. - disps) * 8. # apply inverse affine transformation
-        #depths[depths == 8.] = np.inf
+        depths[depths == 8.] = np.inf
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
