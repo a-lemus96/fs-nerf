@@ -59,6 +59,7 @@ else:
 method = 'nerf' if args.mu is None else 'depth'
 out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
                                         args.dataset, args.scene,
+                                        'n_' + str(args.n_imgs),
                                         'lrate_' + str(args.lrate)))
 
 # create folders
@@ -66,7 +67,11 @@ folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # load dataset
-dataset = D.SyntheticRealistic(args.scene, 'test', white_bkgd=args.white_bkgd)
+dataset = D.SyntheticRealistic(
+        scene=args.scene,
+        n_imgs=args.n_imgs,
+        white_bkgd=args.white_bkgd
+    )
 near, far = dataset.near, dataset.far
 H, W, focal = dataset.hwf
 H, W = int(H), int(W)

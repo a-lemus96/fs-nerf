@@ -25,7 +25,7 @@ class SyntheticRealistic(Dataset):
     """
     def __init__(self, 
             scene: str, 
-            root: str, 
+            n_imgs: int = None,
             factor: float = None,
             white_bkgd: bool = False) -> None:
         """
@@ -33,15 +33,13 @@ class SyntheticRealistic(Dataset):
         ------------------------------------------------------------------------
         Args:
             scene (str): scene name
-            root (str): root directory. It can be either 'train', 'val', or 
-                        'test'
+            n_imgs (int): number of training images
             factor (float): factor to scale images and camera intrinsics
         Returns:
             None
         """
         super(SyntheticRealistic).__init__()  # inherit from Dataset
         self.scene = scene
-        self.root = root
         self.factor = factor
         self.near = 2.0
         self.far = 6.0
@@ -59,6 +57,13 @@ class SyntheticRealistic(Dataset):
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
         self.testdepth = depths[idx]
+
+        # draw a random sample of indices
+        if n_imgs is not None:
+            idxs = np.random.choice(imgs.shape[0], n_imgs, replace=False)
+            imgs = imgs[idxs]
+            depths = depths[idxs]
+            poses = poses[idxs]
 
         # compute rays
         H, W, f = hwf
@@ -162,10 +167,9 @@ class SyntheticRealistic(Dataset):
                           focal length
         """
         scene = self.scene
-        root = self.root
         path = os.path.join('..', 'datasets', 'synthetic', scene)
         # load JSON file
-        with open(os.path.join(path, f'transforms_{root}.json'), 'r') as f:
+        with open(os.path.join(path, f'transforms_train.json'), 'r') as f:
             meta = json.load(f) # metadata
 
         # load images and camera poses
