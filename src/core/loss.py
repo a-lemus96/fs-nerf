@@ -53,11 +53,11 @@ def depth(
     """
     # compute variance of depth distribution
     var = torch.sum(weight * (depth[..., None] - z_val)**2, dim=-1)
-    # compute background and zero-var masks
-    bkgd = torch.isinf(depth_gt)
-    is_zero = torch.isclose(var, torch.zeros_like(var), atol=1e-6)
-    # remove background and zero-var values
-    idxs = ~bkgd & ~is_zero
+    bkgd = torch.isinf(depth_gt) # background pixels
+    is_zero = torch.isclose(var, torch.zeros_like(var), atol=1e-6) # 0-var pixs
+    idxs = ~is_zero
+    depth_gt[bkgd] = 0.0 # set gt background pixels to 0
+    # filter out 0-var pixels
     depth_gt = depth_gt[idxs]
     depth = depth[idxs]
     var = var[idxs]
