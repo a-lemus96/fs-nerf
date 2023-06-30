@@ -1,6 +1,8 @@
 # third-party related imports
 import torch
 from torch import Tensor
+import torch.nn.functional as F
+
 
 # REGULARIZATION TERMS
 
@@ -27,41 +29,23 @@ def gini_entropy(
 
     return loss 
 
-def depth(
+def depth_l1(
         depth: Tensor,
-        depth_gt: Tensor,
-        weight: Tensor,
-        z_val: Tensor
+        depth_gt: Tensor
         ) -> Tensor:
     """Computes the depth loss between a batch of predicted and ground truth
     depth. Loss is defined by the sum of L1 norm between each pair of pixel
-    depth divided by the square root of the variance as computed in [1].
-    ----------------------------------------------------------------------------
-    Reference(s):
-        [1] Dey, A., Ahmine, Y., & Comport, A. I. (2022). Mip-NeRF RGB-D: Depth
-        Assisted Fast Neural Radiance Fields. arXiv preprint arXiv:2205.09351.
+    depth. Background ground truth pixels are set to 0.
     ----------------------------------------------------------------------------
     Args:
         depth (Tensor): (B,). Predicted depth for a batch of rays
         depth_gt (Tensor): (B,). Ground truth depth for a batch of rays
-        weight (Tensor): (B, N). Weight distribution for each ray in the batch.
-                          Here, N is the number of samples along each ray
-        z_val (Tensor): (B, N). Depth values for each sample along each ray
     Returns:
         loss (Tensor): (1,). Depth loss for the batch of rays
     ----------------------------------------------------------------------------
     """
-    # compute variance of depth distribution
-    var = torch.sum(weight * (depth[..., None] - z_val)**2, dim=-1)
     bkgd = torch.isinf(depth_gt) # background pixels
-    is_zero = torch.isclose(var, torch.zeros_like(var), atol=1e-6) # 0-var pixs
-    idxs = ~is_zero
     depth_gt[bkgd] = 0.0 # set gt background pixels to 0
-    # filter out 0-var pixels
-    depth_gt = depth_gt[idxs]
-    depth = depth[idxs]
-    var = var[idxs]
-    # compute depth loss
-    loss = torch.mean(torch.abs(depth - depth_gt) / torch.sqrt(var))
+    loss = F.l1_loss(depth, depth_gt) # compute L1 loss
 
     return loss

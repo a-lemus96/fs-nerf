@@ -25,6 +25,7 @@ class SyntheticRealistic(Dataset):
     """
     def __init__(self, 
             scene: str, 
+            split: str,
             n_imgs: int = None,
             factor: float = None,
             white_bkgd: bool = False) -> None:
@@ -33,6 +34,7 @@ class SyntheticRealistic(Dataset):
         ------------------------------------------------------------------------
         Args:
             scene (str): scene name
+            split (str): train, val or test split
             n_imgs (int): number of training images
             factor (float): factor to scale images and camera intrinsics
         Returns:
@@ -40,6 +42,7 @@ class SyntheticRealistic(Dataset):
         """
         super(SyntheticRealistic).__init__()  # inherit from Dataset
         self.scene = scene
+        self.split = split
         self.factor = factor
         self.near = 2.0
         self.far = 6.0
@@ -172,16 +175,34 @@ class SyntheticRealistic(Dataset):
         with open(os.path.join(path, f'transforms_train.json'), 'r') as f:
             meta = json.load(f) # metadata
 
+        # get training, validation and test indices
+        train_idxs = np.arange(0, 200, 2) # training indices
+        mask = np.isin(np.arange(0, 200), train_idxs) # mask for test
+        test_idxs = np.arange(0, 200) # test indices
+        test_idxs = np.random.choice(test_idxs[~mask], 50, False) # indices
+        mask2 = mask + np.isin(np.arange(0, 200), test_idxs) # mask for val
+        vals_idxs = np.arange(0, 200) # validation indices
+        val_idxs = vals_idxs[~mask2] # indices
+
+        # create dictionary with indices
+        idxs = {'train': train_idxs, 'val': val_idxs, 'test': test_idxs}
+
         # load images and camera poses
         imgs = []
         disps = []
         poses = []
-        for frame in meta['frames']:
-            poses.append(np.array(frame['transform_matrix'])) # camera pose
-            fname = os.path.join(path, frame['file_path'] + '.png')
-            imgs.append(iio.imread(fname)) # RGBa image
-            fname = os.path.join(path, frame['file_path'] + '_depth_0001.png')
-            disps.append(iio.imread(fname)) # disparity map
+        depth_str = '_depth_0001.png'
+        for i, frame in enumerate(meta['frames']):
+            if i in idxs[self.split]:
+                # camera pose
+                poses.append(
+                        np.array(frame['transform_matrix'])
+                )
+                # frame image and depth map
+                fname = os.path.join(path, frame['file_path'] + '.png')
+                imgs.append(iio.imread(fname)) # RGBa image
+                fname = os.path.join(path, frame['file_path'] + depth_str)
+                disps.append(iio.imread(fname)) # disparity map
 
         # convert to numpy arrays
         poses = np.stack(poses, axis=0).astype(np.float32)

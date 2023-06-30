@@ -1,11 +1,14 @@
-# Standard library imports
+# stdlib imports
 from typing import Tuple, List, Union, Callable
 
-# Third-party related imports
+# third-party imports
 import matplotlib as mpl
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import numpy as np
+from numpy import ndarray
 
 def density_animate(
         curves1: np.array,
@@ -47,3 +50,35 @@ def density_animate(
                                    frames=curves1.shape[0], interval=500)
 
     return anim
+
+def maps(
+    rgb: ndarray,
+    depth: ndarray,
+    rgb_gt: ndarray,
+    depth_gt: ndarray
+    ) -> Tuple[Figure, Axes]:
+    """
+    Plot RGB and depth maps for comparison against ground truth maps.
+    ----------------------------------------------------------------------------
+    Args:
+        rgb (ndarray): (H, W, 3). Predicted RGB map
+        depth (ndarray): (H, W). Predicted depth map
+        rgb_gt (ndarray): (H, W, 3). Ground truth RGB map
+        depth_gt (ndarray): (H, W). Ground truth depth map
+    Returns:
+        fig (Figure): Figure object containing the plots
+        axs (Axes): Axes object containing the plots
+    ----------------------------------------------------------------------------
+    """
+    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+    axs[0, 0].imshow(rgb)
+    axs[0, 0].set_title("Predicted RGB")
+    axs[0, 1].imshow(depth)
+    axs[0, 1].set_title("Predicted Depth")
+    axs[1, 0].imshow(rgb_gt)
+    axs[1, 0].set_title("Ground Truth RGB")
+    axs[1, 1].imshow(depth_gt)
+    axs[1, 1].set_title("Ground Truth Depth")
+    plt.tight_layout()
+
+    return fig, axs

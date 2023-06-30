@@ -534,26 +534,28 @@ def nerf_forward(
 
 class CustomScheduler:
 
-  def __init__(
+    def __init__(
     self,
     optimizer,
     n_iters,
     etaN = 5e-6,
     lambW = 0.01,
-    n_warmup = 2500,
-  ):
-    self.optimizer = optimizer
-    self.eta0 = optimizer.param_groups[0]['lr']
-    self.etaN = etaN
-    self.lambW = lambW
-    self.n_warmup = n_warmup
-    self.iters = 0
-    self.n_iters = n_iters
+    n_warmup = 2500):
+        self.optimizer = optimizer
+        self.eta0 = optimizer.param_groups[0]['lr']
+        self.etaN = etaN
+        self.lambW = lambW
+        self.n_warmup = n_warmup
+        self.iters = 0
+        self.n_iters = n_iters
 
-  def step(self):
-    lr = (self.lambW + (1 - self.lambW) * np.sin(np.pi/2 * np.clip(self.iters/self.n_warmup,0,1)))
-    lr *= np.exp((1 - self.iters/self.n_iters)*np.log(self.eta0) + (self.iters/self.n_iters)*np.log(self.etaN))
+    def step(self):
+        lr = (self.lambW + (1 - self.lambW) * np.sin(np.pi/2 * np.clip(self.iters/self.n_warmup,0,1)))
+        lr *= np.exp((1 - self.iters/self.n_iters)*np.log(self.eta0) + (self.iters/self.n_iters)*np.log(self.etaN))
 
-    self.iters += 1
+        self.iters += 1
 
-    self.optimizer.param_groups[0]['lr'] = lr
+        self.optimizer.param_groups[0]['lr'] = lr
+
+    def get_lr(self):
+        return self.optimizer.param_groups[0]['lr']

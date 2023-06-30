@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.optim import Optimizer
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import wandb
@@ -22,16 +23,32 @@ import core.loss as L
 import data.dataset as D 
 import render.rendering as R
 import utils.parser as P
+import utils.plotting as PL
 import utils.utilities as U
 
 # RANDOM SEED
 
-seed = 42
-torch.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)
+#seed = 43
+#torch.manual_seed(seed)
+#np.random.seed(seed)
+#random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
+
+# set up wandb run to track training
+wandb.init(
+    project='depth-nerf',
+    name='nerf' if args.mu is None else 'depth',
+    config={
+        'dataset': args.dataset,
+        'scene': args.scene,
+        'use_fine': args.use_fine,
+        'n_imgs': args.n_imgs,
+        'n_iters': args.n_iters,
+        'lrate': args.lrate,
+        'mu': args.mu,
+    }
+)
 
 # Bundle the kwargs for various functions to pass all at once
 kwargs_sample_stratified = {
@@ -66,77 +83,27 @@ out_dir = os.path.normpath(os.path.join(args.out_dir, method,
 folders = ['training', 'video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
-# load dataset
-dataset = D.SyntheticRealistic(
+# load dataset(s)
+train_set = D.SyntheticRealistic(
         scene=args.scene,
+        split='train',
         n_imgs=args.n_imgs,
         white_bkgd=args.white_bkgd
     )
-near, far = dataset.near, dataset.far
-H, W, focal = dataset.hwf
+
+val_set = D.SyntheticRealistic(
+        scene=args.scene,
+        split='val',
+        n_imgs=args.n_imgs//2,
+        white_bkgd=args.white_bkgd
+    )
+
+near, far = train_set.near, train_set.far
+H, W, focal = train_set.hwf
 H, W = int(H), int(W)
 
 logger = logging.getLogger()
 base_level = logger.level
-
-# TRAINING CLASSES AND FUNCTIONS
-
-def plot_samples(
-    z_vals: torch.Tensor, 
-    z_hierarch: Optional[torch.Tensor] = None,
-    ax: Optional[np.ndarray] = None):
-    r"""
-    Plot stratified and (optional) hierarchical samples.
-    Args:
-    Returns:
-    """
-    y_vals = 1 + np.zeros_like(z_vals)
-
-    if ax is None:
-        ax = plt.subplot()
-    ax.plot(z_vals, y_vals, 'b-o')
-
-    if z_hierarch is not None:
-        y_hierarch = np.zeros_like(z_hierarch)
-        ax.plot(z_hierarch, y_hierarch, 'r-o')
-    
-    ax.set_ylim([-1, 2])
-    ax.set_title('Stratified Samples (blue) and Hierarchical Samples (red)')
-    ax.axes.yaxis.set_visible(False)
-    ax.grid(True)
-
-    return ax
-
-class EarlyStopping:
-    r"""
-    Early stopping helper class based on fitness criterion.
-    """
-    def __init__(
-        self,
-        patience: int = 30,
-        margin: float = 1e-4
-    ):
-        self.best_fitness = 0.0 # PSNR measure
-        self.best_iter = 0
-        self.margin = margin
-        self.patience = patience or float('inf') # epochs to wait after fitness
-                                                 # stops improving to stop
-
-    def __call__(
-        self,
-        iter: int,
-        fitness: float
-    ):
-        r"""
-        Check if stopping criterion is met.
-        """
-        if (fitness - self.best_fitness) > self.margin:
-            self.best_iter = iter
-            self.best_fitness = fitness
-        delta = iter - self.best_iter
-        stop = delta >= self.patience # stop training if patience is exceeded
-
-        return stop
 
 
 # MODELS INITIALIZATION
@@ -177,217 +144,248 @@ def init_models():
     
     return model, fine_model, encode, model_params, encode_viewdirs 
 
-# TRAINING LOOP
+# TRAINING FUNCTIONS
 
-# Early stopping helper
-warmup_stopper = EarlyStopping(patience=2000)
-
-def train():
-    r"""
-    Run NeRF training loop.
+def step(
+    epoch: int,
+    coarse: nn.Module,
+    optimizer: Optimizer,
+    scheduler: U.CustomScheduler,
+    loader: DataLoader,
+    device: torch.device,
+    split: str,
+    fine: Optional[nn.Module] = None,
+    verbose: bool = True,
+    ) -> Tuple[float, float, float]:
     """
-    # Create data loader
-    dataloader = DataLoader(dataset,
-                            batch_size=args.batch_size,
-                            shuffle=True,
-                            num_workers=8)
+    Training/validation/test step.
+    ----------------------------------------------------------------------------
+    Reference(s):
+        Based on 'step' function in train.py from NeRF repository by Yliess HATI. 
+        Available at https://github.com/yliess86/NeRF
+    ----------------------------------------------------------------------------
+    Args:
+        epoch (int): Current epoch
+        coarse (nn.Module): Coarse NeRF model
+        optimizer (Optimizer): Optimizer
+        scheduler (U.CustomScheduler): Learning rate scheduler
+        loader (DataLoader): Data loader
+        device (torch.device): Device to use for training
+        split (str): Either 'train', 'val' or 'test'
+        fine (Optional[nn.Module]): Fine NeRF model
+        verbose (bool): Whether to display progress bar
+    Returns:
+        
+    ----------------------------------------------------------------------------
+    """
+    train = split == 'train'
+    # set model(s) to corresponding mode
+    coarse = coarse.train(train)
+    fine = fine.train(train) if fine is not None else None
 
-    # Optimizer and scheduler
-    optimizer = torch.optim.Adam(params, lr=args.lrate)
-    scheduler = U.CustomScheduler(optimizer, args.n_iters, 
-                                  n_warmup=args.warmup_iters)
-
-    train_psnrs = []
-    val_psnrs = []
-    iternums = []
-    sigma_curves = []
+    total_loss, total_psnr = 0., 0.
     
-    testimg = dataset.testimg.to(device)
-    testpose = dataset.testpose.to(device)
-    testdepth = dataset.testdepth.to(device)
+    # set up progress bar
+    desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
+    batches = tqdm(loader, desc=desc, disable=not verbose)
 
-    # Compute number of epochs
-    steps_per_epoch = np.ceil(len(dataset)/args.batch_size)
-    epochs = np.ceil(args.n_iters / steps_per_epoch)
-
-    for i in range(int(epochs)):
-        print(f"Epoch {i + 1}")
-        model.train()
-
-        for k, batch in enumerate(tqdm(dataloader)):
-            # Compute step
-            step = int(i * steps_per_epoch + k)
-
-            # Unpack batch info
-            rays_o, rays_d, rgb_gt, depth_gt = batch
+    with torch.set_grad_enabled(train):
+        for batch in batches:
+            rays_d, rays_o, rgb_gt, depth_gt = batch
+            # send data to device
+            rays_d = rays_d.to(device)
+            rays_o = rays_o.to(device)
+            rgb_gt = rgb_gt.to(device)
+            depth_gt = depth_gt.to(device)
             
             # forward pass
-            outputs = U.nerf_forward(rays_o.to(device), rays_d.to(device),
-                           near, far, encode, model,
+            outputs = U.nerf_forward(rays_o, rays_d,
+                           near, far, encode, coarse,
                            kwargs_sample_stratified=kwargs_sample_stratified,
                            n_samples_hierarchical=args.n_samples_hierch,
                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine_model,
+                           fine_model=fine,
                            dir_fn=encode_viewdirs,
                            white_bkgd=args.white_bkgd)
 
             # check for numerical errors
             for key, val in outputs.items():
                 if torch.isnan(val).any():
-                    print(f"! [Numerical Alert] {key} contains NaN.")
+                    print(f"[Numerical Alert] {key} contains NaN.")
                 if torch.isinf(val).any():
-                    print(f"! [Numerical Alert] {key} contains Inf.")
+                    print(f"[Numerical Alert] {key} contains Inf.")
 
-            rgb_gt = rgb_gt.to(device) # ground truth rgb to device
             rgb = outputs['rgb_map'] # predicted rgb
             loss = F.mse_loss(rgb, rgb_gt) # compute loss
-            # compute PSNR
+            # add coarse RGB loss 
+            if fine is not None:
+                rgb_coarse = outputs['rgb_map_0']
+                loss += F.mse_loss(rgb_coarse, rgb_gt)
+
             with torch.no_grad():
-                psnr = -10. * torch.log10(loss)
-                train_psnrs.append(psnr.item())
+                psnr = -10. * torch.log10(loss) # compute psnr
 
-            if args.use_fine: # add coarse loss
-                loss += F.mse_loss(outputs['rgb_map_0'], rgb_gt) # add
-
-            # add depth loss
+            # add depth loss if applicable
             if args.mu is not None:
                 depth = outputs['depth_map']
-                weight = outputs['weights']
-                z_vals = outputs['z_vals_combined']
-                depth_gt = depth_gt.to(device)
-                depth_loss = L.depth(depth, depth_gt, weight, z_vals)
+                depth_loss = L.depth_l1(depth, depth_gt)
                 loss += args.mu * depth_loss
+                # add coarse depth loss 
+                if fine is not None:
+                    depth_coarse = outputs['depth_map_0']
+                    loss += args.mu * L.depth_l1(depth_coarse, depth_gt)
 
-            # backward pass
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            scheduler.step()
+            if train:
+                # backward pass
+                loss.backward()
+                optimizer.zero_grad()
+                scheduler.step()
+                lr = scheduler.get_lr()
+                # log metrics to wandb
+                wandb.log({
+                    'train_psnr': psnr.item(),
+                    'train_loss': loss.item(),
+                    'lr': lr
+                    })
 
-            if step % args.val_rate == 0:
-                with torch.no_grad():
-                    model.eval()
+            # accumulate metrics
+            total_loss += loss.item() / len(loader)
+            total_psnr += psnr.item() / len(loader)
 
-                    rays_o, rays_d = U.get_rays(H, W, focal, testpose)
-                    rays_o = rays_o.reshape([-1, 3])
-                    rays_d = rays_d.reshape([-1, 3])
-                    
-                    origins = U.get_chunks(rays_o, chunksize=args.batch_size)
-                    dirs = U.get_chunks(rays_d, chunksize=args.batch_size)
+            # update progress bar
+            batches.set_postfix(loss=loss.item(), psnr=psnr.item(), lr=lr)
+            
+    return total_loss, total_psnr, lr
 
-                    rgb = []
-                    depth = []
-                    sigma = []
-                    z_vals = []
-                    for batch_o, batch_d in zip(origins, dirs):
-                        outputs = U.nerf_forward(batch_o, batch_d,
-                               near, far, encode, model,
-                               kwargs_sample_stratified=kwargs_sample_stratified,
-                               n_samples_hierarchical=args.n_samples_hierch,
-                               kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                               fine_model=fine_model,
-                               dir_fn=encode_viewdirs,
-                               white_bkgd=args.white_bkgd)
-     
-                        rgb.append(outputs['rgb_map'])
-                        depth.append(outputs['depth_map'])
-                        sigma.append(outputs['sigma'])
-                        z_vals.append(outputs['z_vals_combined'])
+def train():
+    r"""
+    Run NeRF training loop.
+    """
+    testimg = val_set.testimg
+    testdepth = val_set.testdepth
+    testpose = val_set.testpose.to(device)
+    # log test maps to wandb
+    wandb.log({
+        'rgb_gt': wandb.Image(
+            testimg.numpy(),
+            caption='Ground Truth RGB'
+        ),
+        'depth_gt': wandb.Image(
+            testdepth.numpy(),
+            caption='Ground Truth Depth'
+        )
+    })
 
-                    rgb = torch.cat(rgb, dim=0)
-                    depth = torch.cat(depth, dim=0)
-                    sigma = torch.cat(sigma, dim=0)
-                    z_vals = torch.cat(z_vals, dim=0)
+    # data loader(s)
+    train_loader = DataLoader(
+            train_set,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=8
+    )
+    val_loader = DataLoader(
+            val_set,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=8
+    )
 
-                    val_loss = F.mse_loss(rgb, testimg.reshape(-1, 3))
-                    val_psnr = -10. * torch.log10(val_loss)
+    # optimizer and scheduler
+    optimizer = torch.optim.Adam(params, lr=args.lrate)
+    scheduler = U.CustomScheduler(optimizer, args.n_iters, 
+                                  n_warmup=args.warmup_iters)
 
-                    val_psnrs.append(val_psnr.item())
-                    iternums.append(step)
-                    if step % args.display_rate == 0:
-                        # Save density distribution along sample ray
-                        z_vals = z_vals.view(-1,
-                                args.n_samples + args.n_samples_hierch)
-                        #sample_idx = 320350
-                        red_coords = (400, 400)
-                        flatten_coords = lambda x, y: y * W + x
-                        sample_idx = flatten_coords(*red_coords)
-                        z_sample = z_vals[sample_idx].detach().cpu().numpy()
-                        sigma_sample = sigma[sample_idx].detach().cpu().numpy()
-                        curve = np.concatenate((z_sample[..., None],
-                                                sigma_sample[..., None]), -1)
-                        sigma_curves.append(curve)
+    # compute number of epochs
+    steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
+    epochs = np.ceil(args.n_iters / steps_per_epoch)
+    for e in range(int(epochs)):
+        # train for one epoch
+        train_loss, train_psnr, _ = step(
+                epoch=e, 
+                coarse=model, 
+                optimizer=optimizer,
+                scheduler=scheduler,
+                loader=train_loader, 
+                device=device, 
+                split='train', 
+                fine=fine_model
+        )
+        # validation after one epoch
+        val_loss, val_psnr, _ = step(
+                epoch=e, 
+                coarse=model, 
+                optimizer=optimizer, 
+                scheduler=scheduler, 
+                loader=val_loader, 
+                device=device, 
+                split='val', 
+                fine=fine_model
+        )
 
-                        logger.setLevel(100)
+        # log validation metrics to wandb
+        wandb.log({
+            'val_psnr': val_psnr.item(),
+            'val_loss': val_loss.item(),
+            })
 
-                        # Plot example outputs
-                        fig, ax = plt.subplots(2, 3, figsize=(25, 8),
-                                               gridspec_kw={'width_ratios': [1, 1, 3]})
-                        ax[0,0].imshow(rgb.reshape([H, W, 3]).cpu().numpy())
-                        ax[0,0].set_title(f'Iteration: {step}')
-                        ax[0,1].imshow(testimg.cpu().numpy())
-                        ax[0,1].set_title(f'G.T. RGB')
-                        ax[0,2].plot(range(0, step + 1), train_psnrs, 'r')
-                        ax[0,2].plot(iternums, val_psnrs, 'b')
-                        ax[0,2].set_title('PSNR (train=red, val=blue)')
-                        ax[1,0].plot(red_coords, marker='o', color="red")
-                        ax[1,0].imshow(depth.reshape([H, W]).cpu().numpy())
-                        ax[1,0].set_title(r'Predicted Depth')
-                        ax[1,1].plot(red_coords, marker='o', color="red")
-                        ax[1,1].imshow(testdepth.cpu().numpy())
-                        ax[1,1].set_title(r'G.T. Depth')
-                        ax[1, 2].plot(z_sample, sigma_sample)
-                        ax[1, 2].set_title('Density along sample ray (red dot)')
-                        plt.savefig(f"{out_dir}/training/iteration_{step}.png")
-                        plt.close(fig)
-                        logger.setLevel(base_level)
+        # compute test image and test depth map
+        rays_o, rays_d = U.get_rays(H, W, focal, testpose)
+        rays_o = rays_o.reshape([-1, 3])
+        rays_d = rays_d.reshape([-1, 3])
+        
+        origins = U.get_chunks(rays_o, chunksize=args.batch_size)
+        dirs = U.get_chunks(rays_d, chunksize=args.batch_size)
 
-                        # Save density curves for sample ray
-                        curves = np.array(sigma_curves)
-                        np.savez(out_dir + '/training_info',
-                                 t_psnrs=train_psnrs,
-                                 v_psnrs=val_psnrs,
-                                 curves=curves)
+        rgb = []
+        depth = []
+        for batch_o, batch_d in zip(origins, dirs):
+            outputs = U.nerf_forward(batch_o, batch_d,
+                   near, far, encode, model,
+                   kwargs_sample_stratified=kwargs_sample_stratified,
+                   n_samples_hierarchical=args.n_samples_hierch,
+                   kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                   fine_model=fine_model,
+                   dir_fn=encode_viewdirs,
+                   white_bkgd=args.white_bkgd)
 
-            # Check PSNR for issues and stop if any are found.
-            if step == args.warmup_iters - 1:
-                if val_psnr < args.min_fitness:
-                    return False, train_psnrs, val_psnrs, 0
-            elif step < args.warmup_iters:
-                if warmup_stopper is not None and warmup_stopper(step, val_psnr):
-                    return False, train_psnrs, val_psnrs, 1 
+            rgb.append(outputs['rgb_map'])
+            depth.append(outputs['depth_map'])
 
-        print("Loss:", val_loss.item())
+            rgb = torch.cat(rgb, dim=0)
+            depth = torch.cat(depth, dim=0)
+            sigma = torch.cat(sigma, dim=0)
+            z_vals = torch.cat(z_vals, dim=0)
 
-    return True, train_psnrs, val_psnrs, 2
+            logger.setLevel(100)
+
+            # log images to wandb
+            wandb.log({
+                'rgb': wandb.Image(
+                    rgb.reshape(H, W, 3).cpu().numpy(),
+                    caption='RGB'
+                ),
+                'depth': wandb.Image(
+                    depth.reshape(H, W).cpu().numpy(),
+                    caption='Depth'
+                )
+            })
+
+            logger.setLevel(base_level)
 
 if not args.render_only:
-    # Run training session(s)
-    for k in range(args.n_restarts):
-        print('Training attempt: ', k + 1)
         model, fine_model, encode, params, encode_viewdirs = init_models()
         success, train_psnrs, val_psnrs, code = train()
 
-        if success and val_psnrs[-1] >= args.min_fitness:
-            print('Training successful!')
-
-            # Save model
-            torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
-            model.eval()
+        # save model
+        torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
+        model.eval()
             
-            if fine_model is not None:
-                torch.save(fine_model.state_dict(),
-                           out_dir + '/model/nerf_fine.pt')
-                fine_model.eval()
-
-            break
-        if not success and code == 0:
-            print(f'Val PSNR {val_psnrs[-1]} below warmup_min_fitness {args.min_fitness}. Stopping...')
-        elif not success and code == 1:
-            print(f'Train PSNR flatlined for {warmup_stopper.patience} iters. Stopping...')
-
+        if fine_model is not None:
+            torch.save(fine_model.state_dict(),
+                       out_dir + '/model/nerf_fine.pt')
+            fine_model.eval()
 else:
-    model, fine_model, encode, params, encode_viewdirs = init_models()    
+    model, fine_model, encode, params, encode_viewdirs = init_models()
     # load model
     model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
     model.eval()
