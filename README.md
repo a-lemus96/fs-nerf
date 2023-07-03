@@ -1,2 +1,2 @@
-# Depth-supervised Neural Radiance Fields
-PyTorch implementation for experimenting with Depth-Supervised Neural Radiance Fields for novel view synthesis.
+# Depth-conditioned Neural Radiance Fields
+PyTorch implementation for experimenting with Neural Radiance Fields conditioned on depth priors.
