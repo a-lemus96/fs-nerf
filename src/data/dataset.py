@@ -195,9 +195,7 @@ class SyntheticRealistic(Dataset):
         for i, frame in enumerate(meta['frames']):
             if i in idxs[self.split]:
                 # camera pose
-                poses.append(
-                        np.array(frame['transform_matrix'])
-                )
+                poses.append(np.array(frame['transform_matrix']))
                 # frame image and depth map
                 fname = os.path.join(path, frame['file_path'] + '.png')
                 imgs.append(iio.imread(fname)) # RGBa image
@@ -226,6 +224,6 @@ class SyntheticRealistic(Dataset):
 
         # scale images and camera intrinsics if applicable
         if self.factor is not None:
-            imgs, hwf = self.__scale(imgs, depths, hwf)
+            imgs, depths, hwf = self.__scale(imgs, depths, hwf)
 
         return imgs, depths, poses, hwf

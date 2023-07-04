@@ -525,12 +525,13 @@ def nerf_forward(
             # store coarse model outputs
             outputs['ts_hierch'] = ts_hierch
             outputs['ts_combined'] = ts_combined
-            outputs['rgb_map_0'] = rgb0
-            outputs['depth_map_0'] = depth0
-            outputs['sigma_0'] = sigma0
+            outputs['rgb0'] = rgb0
+            outputs['depth0'] = depth0
+            outputs['weights0'] = weights0 
+            outputs['sigma0'] = sigma0
 
-    outputs['rgb_map'] = rgb
-    outputs['depth_map'] = depth
+    outputs['rgb'] = rgb
+    outputs['depth'] = depth
     outputs['sigma'] = sigma
     outputs['weights'] = weights
 

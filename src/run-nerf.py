@@ -27,7 +27,7 @@ import utils.utilities as U
 
 # RANDOM SEED
 
-seed = 42
+seed = 45
 torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
@@ -231,24 +231,25 @@ def step(
                 if torch.isinf(val).any():
                     print(f"[Numerical Alert] {key} contains Inf.")
 
-            rgb = outputs['rgb_map'] # predicted rgb
+            rgb = outputs['rgb'] # predicted rgb
             loss = F.mse_loss(rgb, rgb_gt) # compute loss
-            # add coarse RGB loss 
-            if fine is not None:
-                rgb_coarse = outputs['rgb_map_0']
-                loss += F.mse_loss(rgb_coarse, rgb_gt)
 
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss) # compute psnr
 
+            # add coarse RGB loss 
+            if fine is not None:
+                rgb_coarse = outputs['rgb0']
+                loss += F.mse_loss(rgb_coarse, rgb_gt)
+
             # add depth loss if applicable
             if args.mu is not None:
-                depth = outputs['depth_map']
+                depth = outputs['depth']
                 depth_loss = L.depth_l1(depth, depth_gt)
                 loss += args.mu * depth_loss
                 # add coarse depth loss 
                 if fine is not None:
-                    depth_coarse = outputs['depth_map_0']
+                    depth_coarse = outputs['depth0']
                     loss += args.mu * L.depth_l1(depth_coarse, depth_gt)
 
             if train:
@@ -263,7 +264,7 @@ def step(
                         'train_psnr': psnr.item(),
                         'train_loss': loss.item(),
                         'lr': lr
-                        })
+                    })
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -310,8 +311,11 @@ def train():
 
     # optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
-    scheduler = U.CustomScheduler(optimizer, args.n_iters, 
-                                  n_warmup=args.warmup_iters)
+    scheduler = U.CustomScheduler(
+            optimizer, 
+            args.n_iters, 
+            n_warmup=args.warmup_iters
+    )
 
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
@@ -367,8 +371,8 @@ def train():
                    dir_fn=encode_viewdirs,
                    white_bkgd=args.white_bkgd)
 
-            rgb.append(outputs['rgb_map'])
-            depth.append(outputs['depth_map'])
+            rgb.append(outputs['rgb'])
+            depth.append(outputs['depth'])
 
             rgb = torch.cat(rgb, dim=0)
             depth = torch.cat(depth, dim=0)
