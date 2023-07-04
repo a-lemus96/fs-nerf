@@ -219,7 +219,7 @@ def step(
                     kwargs_sample_stratified=kwargs_sample_stratified,
                     n_samples_hierarchical=args.n_samples_hierch,
                     kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                    fine_model=fine,
+                    fine=fine,
                     dir_fn=dir_fn,
                     white_bkgd=args.white_bkgd
             )

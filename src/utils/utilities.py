@@ -431,11 +431,11 @@ def nerf_forward(
     near: float,
     far: float,
     pos_fn: Callable[[torch.Tensor], torch.Tensor],
-    coarse_model: nn.Module,
+    coarse: nn.Module,
     kwargs_sample_stratified: dict = None, 
     n_samples_hierarchical: int = 0,
     kwargs_sample_hierarchical: dict = None,
-    fine_model = None,
+    fine = None,
     dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     white_bkgd = False,
     ) -> dict:
@@ -448,22 +448,25 @@ def nerf_forward(
         near: near bound
         far: far bound
         pos_fn: positional encoding function for points
-        coarse_model: coarse model
+        coarse: coarse model
         kwargs_sample_stratified: keyword arguments for stratified sampling
         n_samples_hierarchical: number of hierarchical samples
         kwargs_sample_hierarchical: keyword arguments for hierarchical sampling
-        fine_model: fine model
+        fine: fine model
         dir_fn: positional encoding function for viewdirs
         white_bkgd: whether to use white background
     Returns:
         dict: dictionary of outputs
     """
     # sample query points along each ray
-    points, z_vals = sample_stratified(rays_o, rays_d, near, far,
-                                       **kwargs_sample_stratified)
+    points, ts = sample_stratified(
+            rays_o, rays_d, 
+            near, far,
+            **kwargs_sample_stratified
+    )
     points_shape = points.shape[:2]
 
-    outputs = {'z_vals_stratified': z_vals}
+    outputs = {'t_strat': ts}
 
     # prepare viewdirs
     if dir_fn is not None:
@@ -477,23 +480,26 @@ def nerf_forward(
     points = pos_fn(points.reshape((-1, 3))) # positional encoding
 
     # coarse model pass
-    raw = coarse_model(points, viewdirs=dirs)
+    raw = coarse(points, viewdirs=dirs)
     raw = raw.reshape(list(points_shape) + [raw.shape[-1]])
     # perform differentiable volume rendering
-    data = raw2outputs(raw, z_vals, rays_d, white_bkgd=white_bkgd)
-    rgb_map, depth_map, weights, sigma = data
+    data = raw2outputs(raw, ts, rays_d, white_bkgd=white_bkgd)
+    rgb, depth, weights, sigma = data
 
-    if kwargs_sample_hierarchical is not None:
+    if fine is not None:
         # fine model pass
         if n_samples_hierarchical > 0:
             # save previous outputs to return
-            rgb_map_0, depth_map_0, sigma_0 = rgb_map, depth_map, sigma
+            rgb0, depth0, weights0, sigma0 = rgb, depth, weights, sigma
 
             # apply hierarchical sampling for fine query points
-            hierarch_data = sample_hierarchical(rays_o, rays_d, z_vals, weights, 
-                                                n_samples_hierarchical,
-                                                **kwargs_sample_hierarchical)
-            points, z_vals_combined, inds, z_hierarch = hierarch_data
+            hierch_data = sample_hierarchical(
+                    rays_o, rays_d, 
+                    ts, weights, 
+                    n_samples_hierarchical,
+                    **kwargs_sample_hierarchical
+            )
+            points, ts_combined, idxs, ts_hierch = hierch_data
             points_shape = points.shape[:2]
 
             if dir_fn is not None:
@@ -506,25 +512,25 @@ def nerf_forward(
             points = pos_fn(points.reshape((-1, 3))) # positional encoding
 
             # forward pass new samples through fine model
-            fine_model = fine_model if fine_model is not None else coarse_model
-            #predictions.append(fine_model(batch, viewdirs=batch_viewdirs))
-            raw = fine_model(points, viewdirs=dirs)
+            raw = fine(points, viewdirs=dirs)
             raw = raw.reshape(list(points_shape) + [raw.shape[-1]])
             # perform differentiable volume rendering on fine predictions
-            rgb_map, depth_map, weights, sigma = raw2outputs(raw,
-                                                             z_vals_combined,
-                                                             rays_d,
-                                                             white_bkgd=white_bkgd)
+            rgb, depth, weights, sigma = raw2outputs(
+                    raw,
+                    ts_combined,
+                    rays_d,
+                    white_bkgd=white_bkgd
+            )
 
-            # store outputs
-            outputs['z_vals_hierarchical'] = z_hierarch
-            outputs['z_vals_combined'] = z_vals_combined
-            outputs['rgb_map_0'] = rgb_map_0
-            outputs['depth_map_0'] = depth_map_0
-            outputs['sigma_0'] = sigma_0
+            # store coarse model outputs
+            outputs['ts_hierch'] = ts_hierch
+            outputs['ts_combined'] = ts_combined
+            outputs['rgb_map_0'] = rgb0
+            outputs['depth_map_0'] = depth0
+            outputs['sigma_0'] = sigma0
 
-    outputs['rgb_map'] = rgb_map
-    outputs['depth_map'] = depth_map
+    outputs['rgb_map'] = rgb
+    outputs['depth_map'] = depth
     outputs['sigma'] = sigma
     outputs['weights'] = weights
 
