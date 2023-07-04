@@ -13,6 +13,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
 from torch.utils.data import Dataset, DataLoader
+from torch import Tensor
 from tqdm import tqdm
 import wandb
 
@@ -27,7 +28,7 @@ import utils.utilities as U
 
 # RANDOM SEED
 
-seed = 45
+seed = 42
 torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
@@ -164,10 +165,10 @@ def step(
     epoch: int,
     coarse: nn.Module,
     optimizer: Optimizer,
-    scheduler: U.CustomScheduler,
     loader: DataLoader,
     device: torch.device,
     split: str,
+    testpose: Tensor,
     fine: Optional[nn.Module] = None,
     verbose: bool = True,
     ) -> Tuple[float, float, float]:
@@ -182,10 +183,10 @@ def step(
         epoch (int): Current epoch
         coarse (nn.Module): Coarse NeRF model
         optimizer (Optimizer): Optimizer
-        scheduler (U.CustomScheduler): Learning rate scheduler
         loader (DataLoader): Data loader
         device (torch.device): Device to use for training
         split (str): Either 'train', 'val' or 'test'
+        testpose (Tensor): Test pose
         fine (Optional[nn.Module]): Fine NeRF model
         verbose (bool): Whether to display progress bar
     Returns:
@@ -203,8 +204,9 @@ def step(
     desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
     batches = tqdm(loader, desc=desc, disable=not verbose)
 
+
     with torch.set_grad_enabled(train):
-        for batch in batches:
+        for i, batch in enumerate(batches):
             rays_d, rays_o, rgb_gt, depth_gt = batch
             # send data to device
             rays_d = rays_d.to(device)
@@ -223,6 +225,38 @@ def step(
                     dir_fn=dir_fn,
                     white_bkgd=args.white_bkgd
             )
+
+            if i % args.display_rate == 0:
+                with torch.no_grad():
+                    # render test image
+                    rgb, depth = U.render_frame(
+                            H, W, focal, testpose,
+                            args.batch_size, near, far,
+                            pos_fn, coarse,
+                            kwargs_sample_stratified=kwargs_sample_stratified,
+                            n_samples_hierarchical=args.n_samples_hierch,
+                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                            fine_model=fine,
+                            dir_fn=dir_fn,
+                            white_bkgd=args.white_bkgd
+                    )
+
+                    logger.setLevel(100)
+
+                    if args.debug is False:
+                        # log images to wandb
+                        wandb.log({
+                            'rgb': wandb.Image(
+                                rgb.reshape(H, W, 3).cpu().numpy(),
+                                caption='RGB'
+                            ),
+                            'depth': wandb.Image(
+                                depth.reshape(H, W).cpu().numpy(),
+                                caption='Depth'
+                            )
+                        })
+
+                    logger.setLevel(base_level)
 
             # check for numerical errors
             for key, val in outputs.items():
@@ -247,7 +281,7 @@ def step(
                 depth = outputs['depth']
                 depth_loss = L.depth_l1(depth, depth_gt)
                 loss += args.mu * depth_loss
-                # add coarse depth loss 
+                # add coarse depth loss
                 if fine is not None:
                     depth_coarse = outputs['depth0']
                     loss += args.mu * L.depth_l1(depth_coarse, depth_gt)
@@ -255,15 +289,13 @@ def step(
             if train:
                 # backward pass
                 loss.backward()
+                optimizer.step()
                 optimizer.zero_grad()
-                scheduler.step()
-                lr = scheduler.get_lr()
                 if args.debug is False:
                     # log metrics to wandb
                     wandb.log({
                         'train_psnr': psnr.item(),
                         'train_loss': loss.item(),
-                        'lr': lr
                     })
 
             # accumulate metrics
@@ -271,9 +303,9 @@ def step(
             total_psnr += psnr.item() / len(loader)
 
             # update progress bar
-            batches.set_postfix(loss=loss.item(), psnr=psnr.item(), lr=lr)
+            batches.set_postfix(loss=loss.item(), psnr=psnr.item())
             
-    return total_loss, total_psnr, lr
+    return total_loss, total_psnr
 
 def train():
     r"""
@@ -311,33 +343,27 @@ def train():
 
     # optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
-    scheduler = U.CustomScheduler(
-            optimizer, 
-            args.n_iters, 
-            n_warmup=args.warmup_iters
-    )
 
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
     epochs = np.ceil(args.n_iters / steps_per_epoch)
     for e in range(int(epochs)):
         # train for one epoch
-        train_loss, train_psnr, _ = step(
+        train_loss, train_psnr = step(
                 epoch=e, 
                 coarse=coarse, 
                 optimizer=optimizer,
-                scheduler=scheduler,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
+                testpose=testpose,
                 fine=fine
         )
         # validation after one epoch
-        val_loss, val_psnr, _ = step(
+        val_loss, val_psnr = step(
                 epoch=e, 
                 coarse=coarse, 
                 optimizer=optimizer, 
-                scheduler=scheduler, 
                 loader=val_loader, 
                 device=device, 
                 split='val', 
@@ -351,50 +377,6 @@ def train():
                 'val_loss': val_loss.item(),
             })
 
-        # compute test image and test depth map
-        rays_o, rays_d = U.get_rays(H, W, focal, testpose)
-        rays_o = rays_o.reshape([-1, 3])
-        rays_d = rays_d.reshape([-1, 3])
-        
-        origins = U.get_chunks(rays_o, chunksize=args.batch_size)
-        dirs = U.get_chunks(rays_d, chunksize=args.batch_size)
-
-        rgb = []
-        depth = []
-        for batch_o, batch_d in zip(origins, dirs):
-            outputs = U.nerf_forward(batch_o, batch_d,
-                   near, far, encode, model,
-                   kwargs_sample_stratified=kwargs_sample_stratified,
-                   n_samples_hierarchical=args.n_samples_hierch,
-                   kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                   fine_model=fine_model,
-                   dir_fn=encode_viewdirs,
-                   white_bkgd=args.white_bkgd)
-
-            rgb.append(outputs['rgb'])
-            depth.append(outputs['depth'])
-
-            rgb = torch.cat(rgb, dim=0)
-            depth = torch.cat(depth, dim=0)
-            sigma = torch.cat(sigma, dim=0)
-            z_vals = torch.cat(z_vals, dim=0)
-
-            logger.setLevel(100)
-
-            if args.debug is False:
-                # log images to wandb
-                wandb.log({
-                    'rgb': wandb.Image(
-                        rgb.reshape(H, W, 3).cpu().numpy(),
-                        caption='RGB'
-                    ),
-                    'depth': wandb.Image(
-                        depth.reshape(H, W).cpu().numpy(),
-                        caption='Depth'
-                    )
-                })
-
-            logger.setLevel(base_level)
 
 if not args.render_only:
         coarse, fine, params, pos_fn, dir_fn = init_models()

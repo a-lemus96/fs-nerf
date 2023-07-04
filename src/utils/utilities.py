@@ -412,12 +412,18 @@ def render_frame(
     img = []
     depth = []
     for chunk_o, chunk_d in zip(chunked_rays_o, chunked_rays_d):
-        output = nerf_forward(chunk_o, chunk_d, near, far, pos_fn,
-                              model, kwargs_sample_stratified,
-                              n_samples_hierarchical, kwargs_sample_hierarchical,
-                              fine_model, dir_fn, white_bkgd)
-        img.append(output['rgb_map'])
-        depth.append(output['depth_map'])
+        output = nerf_forward(
+                chunk_o, chunk_d, 
+                near, far, 
+                pos_fn, model, 
+                kwargs_sample_stratified,
+                n_samples_hierarchical, 
+                kwargs_sample_hierarchical,
+                fine_model, dir_fn, 
+                white_bkgd
+        )
+        img.append(output['rgb'])
+        depth.append(output['depth'])
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
@@ -486,7 +492,7 @@ def nerf_forward(
     data = raw2outputs(raw, ts, rays_d, white_bkgd=white_bkgd)
     rgb, depth, weights, sigma = data
 
-    if fine is not None:
+    if kwargs_sample_hierarchical is not None:
         # fine model pass
         if n_samples_hierarchical > 0:
             # save previous outputs to return
@@ -512,6 +518,7 @@ def nerf_forward(
             points = pos_fn(points.reshape((-1, 3))) # positional encoding
 
             # forward pass new samples through fine model
+            fine = fine if fine is not None else coarse
             raw = fine(points, viewdirs=dirs)
             raw = raw.reshape(list(points_shape) + [raw.shape[-1]])
             # perform differentiable volume rendering on fine predictions
@@ -536,33 +543,3 @@ def nerf_forward(
     outputs['weights'] = weights
 
     return outputs
-
-# TRAINING UTILITIES
-
-class CustomScheduler:
-
-    def __init__(
-    self,
-    optimizer,
-    n_iters,
-    etaN = 5e-6,
-    lambW = 0.01,
-    n_warmup = 2500):
-        self.optimizer = optimizer
-        self.eta0 = optimizer.param_groups[0]['lr']
-        self.etaN = etaN
-        self.lambW = lambW
-        self.n_warmup = n_warmup
-        self.iters = 0
-        self.n_iters = n_iters
-
-    def step(self):
-        lr = (self.lambW + (1 - self.lambW) * np.sin(np.pi/2 * np.clip(self.iters/self.n_warmup,0,1)))
-        lr *= np.exp((1 - self.iters/self.n_iters)*np.log(self.eta0) + (self.iters/self.n_iters)*np.log(self.etaN))
-
-        self.iters += 1
-
-        self.optimizer.param_groups[0]['lr'] = lr
-
-    def get_lr(self):
-        return self.optimizer.param_groups[0]['lr']
