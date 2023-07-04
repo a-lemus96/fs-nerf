@@ -17,7 +17,7 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--no_dirs', dest='no_dirs', action="store_true",
                         help='If set, do not model view-dependent effects')
     parser.add_argument('--n_freqs_views', dest='n_freqs_views', default=4,
-                        type=int, help='Number of encoding functions for view dirs')
+                        type=int, help='Number of encoding fns for view dirs')
 
     # Model(s)
     parser.add_argument('--d_filter', dest='d_filter', default=256, type=int,
@@ -31,7 +31,7 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--d_filter_fine', dest='d_filter_fine', default=256,
                         type=int, help='Linear layer filter dim for fine model')
     parser.add_argument('--n_layers_fine', dest='n_layers_fine', default=8,
-                        type=int, help='Number of fine layers preceding bottleneck')
+                        type=int, help='Number of fine layers before bottleneck')
 
     # Stratified sampling
     parser.add_argument('--n_samples', dest='n_samples', default=64, type=int,
@@ -44,12 +44,13 @@ def config_parser() -> argparse.Namespace:
     # Hierarchical sampling
     parser.add_argument('--n_samples_hierch', dest='n_samples_hierch', default=128,
                         type=int, help='Number of hierarchical samples per ray')
-    parser.add_argument('--perturb_hierch', dest='perturb_hierch', action="store_false", 
+    parser.add_argument('--perturb_hierch', dest='perturb_hierch',
+                        action="store_false", 
                         help='Applies noise to hierarchical samples')
 
     # Dataset
-    parser.add_argument('--dataset', dest='dataset', default='synthetic', type=str,
-                        help="Dataset to choose scenes from")
+    parser.add_argument('--dataset', dest='dataset', default='synthetic', 
+                        type=str, help="Dataset to choose scenes from")
     parser.add_argument('--scene', dest='scene', default='lego', type=str,
                         help="Scene to be used for training")
     parser.add_argument('--n_imgs', dest='n_imgs', default=100, type=int,
@@ -92,6 +93,11 @@ def config_parser() -> argparse.Namespace:
     # Video Rendering
     parser.add_argument('--render_only', dest='render_only', action='store_true',
                         help='If set, load pretrained model to render video')
+
+    # debugging
+    parser.add_argument('--debug', dest='debug', action='store_true',
+                        help='If set, run in debug mode')
+            
 
     args = parser.parse_args()
 

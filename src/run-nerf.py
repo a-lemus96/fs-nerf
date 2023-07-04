@@ -6,7 +6,6 @@ import random
 from typing import List, Tuple, Union, Optional
 
 # third-party imports
-from multiprocessing import cpu_count
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -28,29 +27,30 @@ import utils.utilities as U
 
 # RANDOM SEED
 
-#seed = 43
-#torch.manual_seed(seed)
-#np.random.seed(seed)
-#random.seed(seed)
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
 
-# set up wandb run to track training
-wandb.init(
-    project='depth-nerf',
-    name='nerf' if args.mu is None else 'depth',
-    config={
-        'dataset': args.dataset,
-        'scene': args.scene,
-        'use_fine': args.use_fine,
-        'n_imgs': args.n_imgs,
-        'n_iters': args.n_iters,
-        'lrate': args.lrate,
-        'mu': args.mu,
-    }
-)
+if args.debug is False:
+    # set up wandb run to track training
+    wandb.init(
+        project='depth-nerf',
+        name='nerf' if args.mu is None else 'depth',
+        config={
+            'dataset': args.dataset,
+            'scene': args.scene,
+            'use_fine': args.use_fine,
+            'n_imgs': args.n_imgs,
+            'n_iters': args.n_iters,
+            'lrate': args.lrate,
+            'mu': args.mu,
+        }
+    )
 
-# Bundle the kwargs for various functions to pass all at once
+# bundle kwargs
 kwargs_sample_stratified = {
     'n_samples': args.n_samples,
     'perturb': args.perturb,
@@ -61,16 +61,15 @@ kwargs_sample_hierarchical = {
     'perturb': args.perturb_hierch
 }
 
-# Use cuda device if available
+# use cuda device if available
 cuda_available = torch.cuda.is_available()
 device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
 
-# Verify CUDA availability
+# print device info or abort if no CUDA device available
 if device != 'cpu' :
-    print(f"CUDA device: {torch.cuda.get_device_name(device)}\n")
+    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
 else:
     raise RuntimeError("CUDA device not available.")
-    exit()
 
 # build base path for output directories
 method = 'nerf' if args.mu is None else 'depth'
@@ -80,7 +79,7 @@ out_dir = os.path.normpath(os.path.join(args.out_dir, method,
                                         'lrate_' + str(args.lrate)))
 
 # create folders
-folders = ['training', 'video', 'model']
+folders = ['video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
 # load dataset(s)
@@ -89,15 +88,16 @@ train_set = D.SyntheticRealistic(
         split='train',
         n_imgs=args.n_imgs,
         white_bkgd=args.white_bkgd
-    )
+)
 
 val_set = D.SyntheticRealistic(
         scene=args.scene,
         split='val',
         n_imgs=args.n_imgs//2,
         white_bkgd=args.white_bkgd
-    )
+)
 
+# get near and far bounds, image dimensions and focal length
 near, far = train_set.near, train_set.far
 H, W, focal = train_set.hwf
 H, W = int(H), int(W)
@@ -109,40 +109,54 @@ base_level = logger.level
 # MODELS INITIALIZATION
 
 def init_models():
-    r"""
+    """
     Initialize models, encoders and optimizer for NeRF training
     """
-    # Encoders
-    encoder = M.PositionalEncoder(args.d_input, args.n_freqs,
-                                  log_space=args.log_space)
-    encode = lambda x: encoder(x)
+    # encoders
+    pos_encoder = M.PositionalEncoder(
+            args.d_input, 
+            args.n_freqs,
+            log_space=args.log_space
+    )
+    pos_fn = lambda x: pos_encoder(x)
 
-    # Check if using view directions to initialize encoders
+    # check if using view directions to initialize encoders
     if args.no_dirs is False:
-        encoder_viewdirs = M.PositionalEncoder(args.d_input, args.n_freqs_views,
-                                               log_space=args.log_space)
-        encode_viewdirs = lambda x: encoder_viewdirs(x)
-        d_viewdirs = encoder_viewdirs.d_output
+        dir_encoder = M.PositionalEncoder(
+                args.d_input, 
+                args.n_freqs_views,
+                log_space=args.log_space
+        )
+        dir_fn = lambda x: dir_encoder(x)
+        d_viewdirs = dir_encoder.d_output
     else:
-        encode_viewdirs = None
+        dir_fn = None
         d_viewdirs = None
 
-    # Models
-    model = M.NeRF(encoder.d_output, n_layers=args.n_layers,
-                   d_filter=args.d_filter, skip=args.skip,
-                   d_viewdirs=d_viewdirs)
-    model.to(device)
-    model_params = list(model.parameters())
+    # models
+    coarse = M.NeRF(
+            pos_encoder.d_output, 
+            n_layers=args.n_layers,
+            d_filter=args.d_filter, 
+            skip=args.skip,
+            d_viewdirs=d_viewdirs
+    )
+    coarse.to(device)
+    params = list(coarse.parameters())
     if args.use_fine:
-        fine_model = M.NeRF(encoder.d_output, n_layers=args.n_layers,
-                            d_filter=args.d_filter_fine, skip=args.skip,
-                            d_viewdirs=d_viewdirs)
-        fine_model.to(device)
-        model_params = model_params + list(fine_model.parameters())
+        fine = M.NeRF(
+                pos_encoder.d_output, 
+                n_layers=args.n_layers,
+                d_filter=args.d_filter_fine, 
+                skip=args.skip,
+                d_viewdirs=d_viewdirs
+        )
+        fine.to(device)
+        params = params + list(fine.parameters())
     else:
-        fine_model = None
+        fine = None
     
-    return model, fine_model, encode, model_params, encode_viewdirs 
+    return coarse, fine, params, pos_fn, dir_fn
 
 # TRAINING FUNCTIONS
 
@@ -199,14 +213,16 @@ def step(
             depth_gt = depth_gt.to(device)
             
             # forward pass
-            outputs = U.nerf_forward(rays_o, rays_d,
-                           near, far, encode, coarse,
-                           kwargs_sample_stratified=kwargs_sample_stratified,
-                           n_samples_hierarchical=args.n_samples_hierch,
-                           kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                           fine_model=fine,
-                           dir_fn=encode_viewdirs,
-                           white_bkgd=args.white_bkgd)
+            outputs = U.nerf_forward(
+                    rays_o, rays_d,
+                    near, far, pos_fn, coarse,
+                    kwargs_sample_stratified=kwargs_sample_stratified,
+                    n_samples_hierarchical=args.n_samples_hierch,
+                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                    fine_model=fine,
+                    dir_fn=dir_fn,
+                    white_bkgd=args.white_bkgd
+            )
 
             # check for numerical errors
             for key, val in outputs.items():
@@ -241,12 +257,13 @@ def step(
                 optimizer.zero_grad()
                 scheduler.step()
                 lr = scheduler.get_lr()
-                # log metrics to wandb
-                wandb.log({
-                    'train_psnr': psnr.item(),
-                    'train_loss': loss.item(),
-                    'lr': lr
-                    })
+                if args.debug is False:
+                    # log metrics to wandb
+                    wandb.log({
+                        'train_psnr': psnr.item(),
+                        'train_loss': loss.item(),
+                        'lr': lr
+                        })
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -264,17 +281,18 @@ def train():
     testimg = val_set.testimg
     testdepth = val_set.testdepth
     testpose = val_set.testpose.to(device)
-    # log test maps to wandb
-    wandb.log({
-        'rgb_gt': wandb.Image(
-            testimg.numpy(),
-            caption='Ground Truth RGB'
-        ),
-        'depth_gt': wandb.Image(
-            testdepth.numpy(),
-            caption='Ground Truth Depth'
-        )
-    })
+    if args.debug is False:
+        # log test maps to wandb
+        wandb.log({
+            'rgb_gt': wandb.Image(
+                testimg.numpy(),
+                caption='Ground Truth RGB'
+            ),
+            'depth_gt': wandb.Image(
+                testdepth.numpy(),
+                caption='Ground Truth Depth'
+            )
+        })
 
     # data loader(s)
     train_loader = DataLoader(
@@ -302,30 +320,31 @@ def train():
         # train for one epoch
         train_loss, train_psnr, _ = step(
                 epoch=e, 
-                coarse=model, 
+                coarse=coarse, 
                 optimizer=optimizer,
                 scheduler=scheduler,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
-                fine=fine_model
+                fine=fine
         )
         # validation after one epoch
         val_loss, val_psnr, _ = step(
                 epoch=e, 
-                coarse=model, 
+                coarse=coarse, 
                 optimizer=optimizer, 
                 scheduler=scheduler, 
                 loader=val_loader, 
                 device=device, 
                 split='val', 
-                fine=fine_model
+                fine=fine
         )
 
-        # log validation metrics to wandb
-        wandb.log({
-            'val_psnr': val_psnr.item(),
-            'val_loss': val_loss.item(),
+        if args.debug is False:
+            # log validation metrics to wandb
+            wandb.log({
+                'val_psnr': val_psnr.item(),
+                'val_loss': val_loss.item(),
             })
 
         # compute test image and test depth map
@@ -358,22 +377,23 @@ def train():
 
             logger.setLevel(100)
 
-            # log images to wandb
-            wandb.log({
-                'rgb': wandb.Image(
-                    rgb.reshape(H, W, 3).cpu().numpy(),
-                    caption='RGB'
-                ),
-                'depth': wandb.Image(
-                    depth.reshape(H, W).cpu().numpy(),
-                    caption='Depth'
-                )
-            })
+            if args.debug is False:
+                # log images to wandb
+                wandb.log({
+                    'rgb': wandb.Image(
+                        rgb.reshape(H, W, 3).cpu().numpy(),
+                        caption='RGB'
+                    ),
+                    'depth': wandb.Image(
+                        depth.reshape(H, W).cpu().numpy(),
+                        caption='Depth'
+                    )
+                })
 
             logger.setLevel(base_level)
 
 if not args.render_only:
-        model, fine_model, encode, params, encode_viewdirs = init_models()
+        coarse, fine, params, pos_fn, dir_fn = init_models()
         success, train_psnrs, val_psnrs, code = train()
 
         # save model
