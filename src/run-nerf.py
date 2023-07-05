@@ -21,6 +21,7 @@ import wandb
 # local imports
 import core.models as M
 import core.loss as L
+import core.scheduler as S
 import data.dataset as D 
 import render.rendering as R
 import utils.parser as P
@@ -166,6 +167,7 @@ def step(
     epoch: int,
     coarse: nn.Module,
     optimizer: Optimizer,
+    scheduler: S,
     loader: DataLoader,
     device: torch.device,
     split: str,
@@ -184,6 +186,7 @@ def step(
         epoch (int): Current epoch
         coarse (nn.Module): Coarse NeRF model
         optimizer (Optimizer): Optimizer
+        scheduler (S): Learning rate scheduler
         loader (DataLoader): Data loader
         device (torch.device): Device to use for training
         split (str): Either 'train', 'val' or 'test'
@@ -292,12 +295,14 @@ def step(
                 # backward pass
                 loss.backward()
                 optimizer.step()
+                scheduler.step()
                 optimizer.zero_grad()
                 if args.debug is False:
                     # log metrics to wandb
                     wandb.log({
                         'train_psnr': psnr.item(),
                         'train_loss': loss.item(),
+                        'lr': scheduler.lr
                     })
 
             # accumulate metrics
@@ -305,7 +310,7 @@ def step(
             total_psnr += psnr.item() / len(loader)
 
             # update progress bar
-            batches.set_postfix(loss=loss.item(), psnr=psnr.item())
+            batches.set_postfix(loss=loss.item(), psnr=psnr.item(), lr=scheduler.lr)
             
     return total_loss, total_psnr
 
@@ -346,6 +351,11 @@ def train():
 
     # optimizer and scheduler
     optimizer = torch.optim.Adam(params, lr=args.lrate)
+    scheduler = S.MipNerf(
+            optimizer, 
+            args.n_iters,
+            warmup_steps=args.warmup_iters,
+    )
 
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
@@ -356,6 +366,7 @@ def train():
                 epoch=e, 
                 coarse=coarse, 
                 optimizer=optimizer,
+                scheduler=scheduler,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
@@ -367,6 +378,7 @@ def train():
                 epoch=e, 
                 coarse=coarse, 
                 optimizer=optimizer, 
+                scheduler=scheduler,
                 loader=val_loader, 
                 device=device, 
                 split='val', 

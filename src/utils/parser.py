@@ -58,39 +58,33 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--white_bkgd', dest='white_bkgd', default=False,
                         type=bool, help="Use white backgroung for training imgs")
 
-    # Optimization
+    # optimization
     parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
                         help='Learning rate')
     parser.add_argument('--mu', dest='mu', default=None, type=float,
                         help='Balancing hyperparameter for depth loss')
 
-    # Training 
+    # training 
     parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                         help='Number of training iterations')
+    parser.add_argument('--warmup_iters', dest='warmup_iters', default=2500,
+                        type=int, help='Number of iterations for warmup phase')
     parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                         help='Number of rays per optimization step')
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
 
-    # Validation
+    # validation
     parser.add_argument('--display_rate', dest='display_rate', default=1000, type=int,
                         help='Display rate for test output measured in iterations')
     parser.add_argument('--val_rate', dest='val_rate', default=100, type=int,
                         help='Test image evaluation rate')
 
-    # Early Stopping
-    parser.add_argument('--warmup_iters', dest='warmup_iters', default=1e3,
-                        type=int, help='Number of iterations for warmup phase')
-    parser.add_argument('--min_fitness', dest='min_fitness', default=10.0,
-                        type=float, help='Minimum PSNR value to continue training')
-    parser.add_argument('--n_restarts', dest='n_restarts', default=5, type=int,
-                        help='Maximum number of restarts if training stalls')
-
-    # Directories
+    # directories
     parser.add_argument('--out_dir', dest='out_dir', default="../out/",
                         type=str, help="Base directory for storing results")
 
-    # Video Rendering
+    # video Rendering
     parser.add_argument('--render_only', dest='render_only', action='store_true',
                         help='If set, load pretrained model to render video')
 
