@@ -23,12 +23,14 @@ class SyntheticRealistic(Dataset):
     Here, N is the number of training images of size H x W.
     ----------------------------------------------------------------------------
     """
-    def __init__(self, 
+    def __init__(
+            self, 
             scene: str, 
             split: str,
             n_imgs: int = None,
             factor: float = None,
-            white_bkgd: bool = False) -> None:
+            white_bkgd: bool = False
+    ) -> None:
         """
         Initialize the dataset.
         ------------------------------------------------------------------------
@@ -60,6 +62,7 @@ class SyntheticRealistic(Dataset):
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
         self.testdepth = depths[idx]
+        self.testdepth[torch.isinf(self.testdepth)] = 0.
 
         # draw a random sample of indices
         if n_imgs is not None:

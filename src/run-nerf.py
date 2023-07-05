@@ -8,6 +8,7 @@ from typing import List, Tuple, Union, Optional
 # third-party imports
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -244,6 +245,7 @@ def step(
                     logger.setLevel(100)
 
                     if args.debug is False:
+                        depth = depth.reshape(H, W).cpu().numpy()
                         # log images to wandb
                         wandb.log({
                             'rgb': wandb.Image(
@@ -251,7 +253,7 @@ def step(
                                 caption='RGB'
                             ),
                             'depth': wandb.Image(
-                                depth.reshape(H, W).cpu().numpy(),
+                                PL.apply_colormap(depth),
                                 caption='Depth'
                             )
                         })
@@ -314,6 +316,7 @@ def train():
     testimg = val_set.testimg
     testdepth = val_set.testdepth
     testpose = val_set.testpose.to(device)
+
     if args.debug is False:
         # log test maps to wandb
         wandb.log({
@@ -322,7 +325,7 @@ def train():
                 caption='Ground Truth RGB'
             ),
             'depth_gt': wandb.Image(
-                testdepth.numpy(),
+                PL.apply_colormap(testdepth.numpy()),
                 caption='Ground Truth Depth'
             )
         })

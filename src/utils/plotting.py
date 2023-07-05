@@ -4,6 +4,8 @@ from typing import Tuple, List, Union, Callable
 # third-party imports
 import matplotlib as mpl
 from matplotlib.axes import Axes
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -51,34 +53,25 @@ def density_animate(
 
     return anim
 
-def maps(
-    rgb: ndarray,
-    depth: ndarray,
-    rgb_gt: ndarray,
-    depth_gt: ndarray
-    ) -> Tuple[Figure, Axes]:
-    """
-    Plot RGB and depth maps for comparison against ground truth maps.
+def apply_colormap(
+        data: ndarray,
+        cmap: str = 'viridis',
+        norm: Normalize = None
+) -> ndarray:
+    """Apply a colormap to the data.
     ----------------------------------------------------------------------------
     Args:
-        rgb (ndarray): (H, W, 3). Predicted RGB map
-        depth (ndarray): (H, W). Predicted depth map
-        rgb_gt (ndarray): (H, W, 3). Ground truth RGB map
-        depth_gt (ndarray): (H, W). Ground truth depth map
+        data (ndarray): The data to apply the colormap to
+        cmap (str): The name of the colormap to use
+        norm (Normalize): The normalization to use
     Returns:
-        fig (Figure): Figure object containing the plots
-        axs (Axes): Axes object containing the plots
+        ndarray: The data with the colormap applied
     ----------------------------------------------------------------------------
     """
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-    axs[0, 0].imshow(rgb)
-    axs[0, 0].set_title("Predicted RGB")
-    axs[0, 1].imshow(depth)
-    axs[0, 1].set_title("Predicted Depth")
-    axs[1, 0].imshow(rgb_gt)
-    axs[1, 0].set_title("Ground Truth RGB")
-    axs[1, 1].imshow(depth_gt)
-    axs[1, 1].set_title("Ground Truth Depth")
-    plt.tight_layout()
-
-    return fig, axs
+    # get the colormap
+    cmap = plt.get_cmap(cmap)
+    # get the normalization
+    if norm is None:
+        norm = Normalize(vmin=data.min(), vmax=data.max())
+    # apply the colormap
+    return cmap(norm(data))
