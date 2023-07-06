@@ -429,7 +429,7 @@ def render_frame(
     img = torch.cat(img, dim=0)
     depth = torch.cat(depth, dim=0)
 
-    return img, depth
+    return img.reshape(H, W, 3), depth.reshape(H, W)
 
 def nerf_forward(
     rays_o: torch.Tensor,

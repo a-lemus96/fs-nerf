@@ -8,7 +8,6 @@ from typing import List, Tuple, Union, Optional
 # third-party imports
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -89,14 +88,12 @@ folders = ['video', 'model']
 train_set = D.SyntheticRealistic(
         scene=args.scene,
         split='train',
-        n_imgs=args.n_imgs,
         white_bkgd=args.white_bkgd
 )
 
 val_set = D.SyntheticRealistic(
         scene=args.scene,
         split='val',
-        n_imgs=args.n_imgs//2,
         white_bkgd=args.white_bkgd
 )
 
@@ -166,15 +163,15 @@ def init_models():
 def step(
     epoch: int,
     coarse: nn.Module,
-    optimizer: Optimizer,
-    scheduler: S,
     loader: DataLoader,
     device: torch.device,
     split: str,
-    testpose: Tensor,
+    optimizer: Optional[Optimizer] = None,
+    scheduler: Optional[S] = None,
+    testpose: Optional[Tensor] = None,
     fine: Optional[nn.Module] = None,
     verbose: bool = True,
-    ) -> Tuple[float, float, float]:
+    ) -> Tuple[float, float]:
     """
     Training/validation/test step.
     ----------------------------------------------------------------------------
@@ -183,18 +180,18 @@ def step(
         Available at https://github.com/yliess86/NeRF
     ----------------------------------------------------------------------------
     Args:
-        epoch (int): Current epoch
-        coarse (nn.Module): Coarse NeRF model
-        optimizer (Optimizer): Optimizer
-        scheduler (S): Learning rate scheduler
-        loader (DataLoader): Data loader
-        device (torch.device): Device to use for training
-        split (str): Either 'train', 'val' or 'test'
-        testpose (Tensor): Test pose
-        fine (Optional[nn.Module]): Fine NeRF model
-        verbose (bool): Whether to display progress bar
+        epoch (int): current epoch
+        coarse (nn.Module): coarse NeRF model
+        loader (DataLoader): data loader
+        device (torch.device): device to use for training
+        split (str): split to use for training/validation/test
+        optimizer (Optional[Optimizer]): optimizer to use for training
+        scheduler (Optional[S]): scheduler to use for training
+        testpose (Optional[Tensor]): test pose to use for visualization
+        fine (Optional[nn.Module]): fine NeRF model
+        verbose (bool): whether to print progress bar
     Returns:
-        
+        Tuple[float, float]: total loss, total PSNR
     ----------------------------------------------------------------------------
     """
     train = split == 'train'
@@ -211,10 +208,10 @@ def step(
 
     with torch.set_grad_enabled(train):
         for i, batch in enumerate(batches):
-            rays_d, rays_o, rgb_gt, depth_gt = batch
+            rays_o, rays_d, rgb_gt, depth_gt = batch
             # send data to device
-            rays_d = rays_d.to(device)
             rays_o = rays_o.to(device)
+            rays_d = rays_d.to(device)
             rgb_gt = rgb_gt.to(device)
             depth_gt = depth_gt.to(device)
             
@@ -229,39 +226,6 @@ def step(
                     dir_fn=dir_fn,
                     white_bkgd=args.white_bkgd
             )
-
-            if i % args.display_rate == 0:
-                with torch.no_grad():
-                    # render test image
-                    rgb, depth = U.render_frame(
-                            H, W, focal, testpose,
-                            args.batch_size, near, far,
-                            pos_fn, coarse,
-                            kwargs_sample_stratified=kwargs_sample_stratified,
-                            n_samples_hierarchical=args.n_samples_hierch,
-                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                            fine_model=fine,
-                            dir_fn=dir_fn,
-                            white_bkgd=args.white_bkgd
-                    )
-
-                    logger.setLevel(100)
-
-                    if args.debug is False:
-                        depth = depth.reshape(H, W).cpu().numpy()
-                        # log images to wandb
-                        wandb.log({
-                            'rgb': wandb.Image(
-                                rgb.reshape(H, W, 3).cpu().numpy(),
-                                caption='RGB'
-                            ),
-                            'depth': wandb.Image(
-                                PL.apply_colormap(depth),
-                                caption='Depth'
-                            )
-                        })
-
-                    logger.setLevel(base_level)
 
             # check for numerical errors
             for key, val in outputs.items():
@@ -310,7 +274,7 @@ def step(
             total_psnr += psnr.item() / len(loader)
 
             # update progress bar
-            batches.set_postfix(loss=loss.item(), psnr=psnr.item(), lr=scheduler.lr)
+            batches.set_postfix(psnr=psnr.item())
             
     return total_loss, total_psnr
 
@@ -318,9 +282,9 @@ def train():
     r"""
     Run NeRF training loop.
     """
-    testimg = val_set.testimg
-    testdepth = val_set.testdepth
-    testpose = val_set.testpose.to(device)
+    testimg = train_set.testimg
+    testdepth = train_set.testdepth
+    testpose = train_set.testpose.to(device)
 
     if args.debug is False:
         # log test maps to wandb
@@ -360,36 +324,71 @@ def train():
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
     epochs = np.ceil(args.n_iters / steps_per_epoch)
-    for e in range(int(epochs)):
+
+    # set up progress bar
+    desc = f"[NeRF] Epoch"
+    pbar = tqdm(range(int(epochs)), desc=desc)
+
+    for e in pbar:
         # train for one epoch
         train_loss, train_psnr = step(
                 epoch=e, 
                 coarse=coarse, 
-                optimizer=optimizer,
-                scheduler=scheduler,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
+                optimizer=optimizer,
+                scheduler=scheduler,
                 testpose=testpose,
                 fine=fine
         )
+
+        with torch.no_grad():
+            # render test image
+            rgb, depth = U.render_frame(
+                    H, W, focal, testpose,
+                    args.batch_size, near, far,
+                    pos_fn, coarse,
+                    kwargs_sample_stratified=kwargs_sample_stratified,
+                    n_samples_hierarchical=args.n_samples_hierch,
+                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                    fine_model=fine,
+                    dir_fn=dir_fn,
+                    white_bkgd=args.white_bkgd
+            )
+
+            logger.setLevel(100)
+
+            if args.debug is False:
+                # log images to wandb
+                wandb.log({
+                    'rgb': wandb.Image(
+                        rgb.cpu().numpy(),
+                        caption='RGB'
+                    ),
+                    'depth': wandb.Image(
+                        PL.apply_colormap(depth.cpu().numpy()),
+                        caption='Depth'
+                    )
+                })
+
+            logger.setLevel(base_level)
         # validation after one epoch
         val_loss, val_psnr = step(
                 epoch=e, 
                 coarse=coarse, 
-                optimizer=optimizer, 
-                scheduler=scheduler,
                 loader=val_loader, 
                 device=device, 
                 split='val', 
+                testpose=testpose,
                 fine=fine
         )
 
         if args.debug is False:
             # log validation metrics to wandb
             wandb.log({
-                'val_psnr': val_psnr.item(),
-                'val_loss': val_loss.item(),
+                'val_psnr': val_psnr,
+                'val_loss': val_loss,
             })
 
 
