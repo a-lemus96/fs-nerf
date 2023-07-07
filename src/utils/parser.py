@@ -73,6 +73,8 @@ def config_parser() -> argparse.Namespace:
                         help='Number of rays per optimization step')
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
+    parser.add_argument('--nerfacc', dest='nerfacc', action="store_true",
+                        help='If set, use NeRF-Acc rendering')
 
     # validation
     parser.add_argument('--display_rate', dest='display_rate', default=1000, type=int,

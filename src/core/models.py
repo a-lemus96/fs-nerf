@@ -106,7 +106,7 @@ class NeRF(nn.Module):
                 x = torch.cat([x, x_input], dim=-1)
         
         # apply bottleneck pass
-        if self.d_viewdirs is not None:
+        if viewdirs is not None:
             # get sigma from network output
             sigma = self.sigma_out(x)
 
@@ -119,6 +119,7 @@ class NeRF(nn.Module):
             # Concatenate sigma and RGB value
             x = torch.concat([x, sigma], dim=-1)
         else:
-            x = self.output(x)
+            # get sigma from network output
+            x = self.sigma_out(x)
 
         return x

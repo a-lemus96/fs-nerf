@@ -3,6 +3,8 @@ import os
 from typing import Optional, Tuple, List, Union, Callable
 
 # third-party modules
+from nerfacc.volrend import rendering
+from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
 import torch
 from torch import nn
@@ -377,7 +379,11 @@ def render_frame(
         kwargs_sample_hierarchical: dict = None,
         fine_model = None,
         dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-        white_bkgd = False) -> torch.Tensor:
+        white_bkgd = False,
+        estimator = OccGridEstimator,
+        render_step_size = None,
+        device = None
+        ) -> torch.Tensor:
     """Render an image from a given pose. Camera rays are chunkified to avoid
     memory issues.
     ----------------------------------------------------------------------------
@@ -410,24 +416,52 @@ def render_frame(
 
     # compute image and depth in chunks
     img = []
-    depth = []
-    for chunk_o, chunk_d in zip(chunked_rays_o, chunked_rays_d):
-        output = nerf_forward(
-                chunk_o, chunk_d, 
-                near, far, 
-                pos_fn, model, 
-                kwargs_sample_stratified,
-                n_samples_hierarchical, 
-                kwargs_sample_hierarchical,
-                fine_model, dir_fn, 
-                white_bkgd
+    depth_map = []
+    for rays_o, rays_d in zip(chunked_rays_o, chunked_rays_d):
+        def sigma_fn(t_starts, t_ends, ray_indices):
+            to = rays_o[ray_indices]
+            td = rays_d[ray_indices]
+            x = to + td * (t_starts + t_ends)[:, None] / 2.0
+            x = pos_fn(x) # positional encoding
+            sigmas = model(x)
+            return sigmas.squeeze(-1)
+
+        ray_indices, t_starts, t_ends = estimator.sampling(
+                rays_o, rays_d, 
+                sigma_fn=sigma_fn, 
+                render_step_size=render_step_size,
+                stratified=False
         )
-        img.append(output['rgb'])
-        depth.append(output['depth'])
+
+        def rgb_sigma_fn(t_starts, t_ends, ray_indices):
+                to = rays_o[ray_indices]
+                td = rays_d[ray_indices]
+                x = to + td * (t_starts + t_ends)[:, None] / 2.0
+                x = pos_fn(x) # positional encoding
+                td = dir_fn(td) # pos encoding
+                out = model(x, td)
+                rgbs = out[..., :3]
+                sigmas = out[..., -1]
+                return rgbs, sigmas.squeeze(-1)
+
+        rgb, opacity, depth, extras = rendering(
+                t_starts,
+                t_ends,
+                ray_indices,
+                n_rays=rays_o.shape[0],
+                rgb_sigma_fn=rgb_sigma_fn,
+                render_bkgd=torch.tensor(
+                    white_bkgd * torch.ones(3),
+                    device=device,
+                    requires_grad=True
+                )
+        )
+        img.append(rgb)
+        depth_map.append(depth)
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    depth = torch.cat(depth, dim=0)
+    depth = torch.cat(depth_map, dim=0)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
 

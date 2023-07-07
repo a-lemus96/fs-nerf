@@ -7,6 +7,8 @@ from typing import List, Tuple, Union, Optional
 
 # third-party imports
 import matplotlib.pyplot as plt
+from nerfacc.volrend import rendering
+from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
 import torch
 from torch import nn
@@ -171,6 +173,8 @@ def step(
     testpose: Optional[Tensor] = None,
     fine: Optional[nn.Module] = None,
     verbose: bool = True,
+    estimator: Optional[OccGridEstimator] = None,
+    render_step_size: Optional[float] = None,
     ) -> Tuple[float, float]:
     """
     Training/validation/test step.
@@ -190,6 +194,7 @@ def step(
         testpose (Optional[Tensor]): test pose to use for visualization
         fine (Optional[nn.Module]): fine NeRF model
         verbose (bool): whether to print progress bar
+        estimator (Optional[OccGridEstimator]): occupancy grid estimator
     Returns:
         Tuple[float, float]: total loss, total PSNR
     ----------------------------------------------------------------------------
@@ -216,27 +221,72 @@ def step(
             depth_gt = depth_gt.to(device)
             
             # forward pass
-            outputs = U.nerf_forward(
-                    rays_o, rays_d,
-                    near, far, pos_fn, coarse,
-                    kwargs_sample_stratified=kwargs_sample_stratified,
-                    n_samples_hierarchical=args.n_samples_hierch,
-                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                    fine=fine,
-                    dir_fn=dir_fn,
-                    white_bkgd=args.white_bkgd
-            )
+            if not args.nerfacc:
+                outputs = U.nerf_forward(
+                        rays_o, rays_d,
+                        near, far, pos_fn, coarse,
+                        kwargs_sample_stratified=kwargs_sample_stratified,
+                        n_samples_hierarchical=args.n_samples_hierch,
+                        kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                        fine=fine,
+                        dir_fn=dir_fn,
+                        white_bkgd=args.white_bkgd
+                )
 
-            # check for numerical errors
-            for key, val in outputs.items():
-                if torch.isnan(val).any():
-                    print(f"[Numerical Alert] {key} contains NaN.")
-                if torch.isinf(val).any():
-                    print(f"[Numerical Alert] {key} contains Inf.")
+                # check for numerical errors
+                for key, val in outputs.items():
+                    if torch.isnan(val).any():
+                        print(f"[Numerical Alert] {key} contains NaN.")
+                    if torch.isinf(val).any():
+                        print(f"[Numerical Alert] {key} contains Inf.")
 
-            rgb = outputs['rgb'] # predicted rgb
+                rgb = outputs['rgb'] # predicted rgb
+            else:
+                def occ_eval_fn(x):
+                    x = pos_fn(x)  # apply positional encoding
+                    density = coarse(x)
+                    return density * render_step_size
+
+                def sigma_fn(t_starts, t_ends, ray_indices):
+                    to = rays_o[ray_indices]
+                    td = rays_d[ray_indices]
+                    x = to + td * (t_starts + t_ends)[:, None] / 2.0
+                    x = pos_fn(x) # positional encoding
+                    sigmas = coarse(x)
+                    return sigmas.squeeze(-1)
+
+                ray_indices, t_starts, t_ends = estimator.sampling(
+                        rays_o, rays_d, 
+                        sigma_fn=sigma_fn, 
+                        render_step_size=render_step_size,
+                        stratified=train
+                )
+
+                def rgb_sigma_fn(t_starts, t_ends, ray_indices):
+                        to = rays_o[ray_indices]
+                        td = rays_d[ray_indices]
+                        x = to + td * (t_starts + t_ends)[:, None] / 2.0
+                        x = pos_fn(x) # positional encoding
+                        td = dir_fn(td) # pos encoding
+                        out = coarse(x, td)
+                        rgbs = out[..., :3]
+                        sigmas = out[..., -1]
+                        return rgbs, sigmas.squeeze(-1)
+
+                rgb, opacity, depth, extras = rendering(
+                        t_starts,
+                        t_ends,
+                        ray_indices,
+                        n_rays=rays_o.shape[0],
+                        rgb_sigma_fn=rgb_sigma_fn,
+                        render_bkgd=torch.tensor(
+                            args.white_bkgd * torch.ones(3),
+                            device=device,
+                            requires_grad=True
+                        )
+                )
+
             loss = F.mse_loss(rgb, rgb_gt) # compute loss
-
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss) # compute psnr
 
@@ -261,6 +311,14 @@ def step(
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
+
+                # update occupancy grid
+                estimator.update_every_n_steps(
+                    step=i,
+                    occ_eval_fn=occ_eval_fn,
+                    occ_thre=1e-2,
+                )
+
                 if args.debug is False:
                     # log metrics to wandb
                     wandb.log({
@@ -268,6 +326,46 @@ def step(
                         'train_loss': loss.item(),
                         'lr': scheduler.lr
                     })
+
+            if i % args.display_rate == 0:
+                with torch.no_grad():
+                    coarse.eval()
+                    fine.eval() if fine is not None else None
+
+                    # render test image
+                    rgb, depth = U.render_frame(
+                            H, W, focal, testpose,
+                            args.batch_size, near, far,
+                            pos_fn, coarse,
+                            kwargs_sample_stratified=kwargs_sample_stratified,
+                            n_samples_hierarchical=args.n_samples_hierch,
+                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
+                            fine_model=fine,
+                            dir_fn=dir_fn,
+                            white_bkgd=args.white_bkgd,
+                            estimator=estimator,
+                            render_step_size=render_step_size,
+                            device=device
+                    )
+
+                    logger.setLevel(100)
+                    logger.setLevel(base_level)
+
+                    if args.debug is False:
+                        # log images to wandb
+                        wandb.log({
+                            'rgb': wandb.Image(
+                                rgb.cpu().numpy(),
+                                caption='RGB'
+                            ),
+                            'depth': wandb.Image(
+                                PL.apply_colormap(depth.cpu().numpy()),
+                                caption='Depth'
+                            )
+                        })
+                    coarse = coarse.train(train)
+                    fine = fine.train(train) if fine is not None else None
+
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -321,6 +419,19 @@ def train():
             warmup_steps=args.warmup_iters,
     )
 
+    if args.nerfacc:
+        aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
+        # model parameters
+        grid_resolution = 128
+        grid_nlvl = 1
+        # render parameters
+        render_step_size = 5e-3
+        estimator = OccGridEstimator(
+                roi_aabb=aabb, 
+                resolution=grid_resolution, 
+                levels=grid_nlvl
+        ).to(device)
+
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
     epochs = np.ceil(args.n_iters / steps_per_epoch)
@@ -330,6 +441,7 @@ def train():
     pbar = tqdm(range(int(epochs)), desc=desc)
 
     for e in pbar:
+
         # train for one epoch
         train_loss, train_psnr = step(
                 epoch=e, 
@@ -340,39 +452,11 @@ def train():
                 optimizer=optimizer,
                 scheduler=scheduler,
                 testpose=testpose,
-                fine=fine
+                fine=fine,
+                estimator=estimator,
+                render_step_size=render_step_size,
         )
 
-        with torch.no_grad():
-            # render test image
-            rgb, depth = U.render_frame(
-                    H, W, focal, testpose,
-                    args.batch_size, near, far,
-                    pos_fn, coarse,
-                    kwargs_sample_stratified=kwargs_sample_stratified,
-                    n_samples_hierarchical=args.n_samples_hierch,
-                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                    fine_model=fine,
-                    dir_fn=dir_fn,
-                    white_bkgd=args.white_bkgd
-            )
-
-            logger.setLevel(100)
-
-            if args.debug is False:
-                # log images to wandb
-                wandb.log({
-                    'rgb': wandb.Image(
-                        rgb.cpu().numpy(),
-                        caption='RGB'
-                    ),
-                    'depth': wandb.Image(
-                        PL.apply_colormap(depth.cpu().numpy()),
-                        caption='Depth'
-                    )
-                })
-
-            logger.setLevel(base_level)
         # validation after one epoch
         val_loss, val_psnr = step(
                 epoch=e, 
@@ -381,7 +465,9 @@ def train():
                 device=device, 
                 split='val', 
                 testpose=testpose,
-                fine=fine
+                fine=fine,
+                estimator=estimator,
+                render_step_size=render_step_size
         )
 
         if args.debug is False:
