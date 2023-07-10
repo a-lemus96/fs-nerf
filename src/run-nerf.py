@@ -164,14 +164,13 @@ def init_models():
 
 def step(
     epoch: int,
-    coarse: nn.Module,
+    model: nn.Module,
     loader: DataLoader,
     device: torch.device,
     split: str,
     optimizer: Optional[Optimizer] = None,
     scheduler: Optional[S] = None,
     testpose: Optional[Tensor] = None,
-    fine: Optional[nn.Module] = None,
     verbose: bool = True,
     estimator: Optional[OccGridEstimator] = None,
     render_step_size: Optional[float] = None,
@@ -185,14 +184,13 @@ def step(
     ----------------------------------------------------------------------------
     Args:
         epoch (int): current epoch
-        coarse (nn.Module): coarse NeRF model
+        model (nn.Module): NeRF model
         loader (DataLoader): data loader
         device (torch.device): device to use for training
         split (str): split to use for training/validation/test
         optimizer (Optional[Optimizer]): optimizer to use for training
         scheduler (Optional[S]): scheduler to use for training
         testpose (Optional[Tensor]): test pose to use for visualization
-        fine (Optional[nn.Module]): fine NeRF model
         verbose (bool): whether to print progress bar
         estimator (Optional[OccGridEstimator]): occupancy grid estimator
     Returns:
@@ -200,9 +198,8 @@ def step(
     ----------------------------------------------------------------------------
     """
     train = split == 'train'
-    # set model(s) to corresponding mode
-    coarse = coarse.train(train)
-    fine = fine.train(train) if fine is not None else None
+    # set model to corresponding mode
+    model = model.train(train)
 
     total_loss, total_psnr = 0., 0.
     
@@ -210,9 +207,9 @@ def step(
     desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
     batches = tqdm(loader, desc=desc, disable=not verbose)
 
-
     with torch.set_grad_enabled(train):
         for i, batch in enumerate(batches):
+            step = e * steps_per_epoch + i
             rays_o, rays_d, rgb_gt, depth_gt = batch
             # send data to device
             rays_o = rays_o.to(device)
@@ -221,89 +218,61 @@ def step(
             depth_gt = depth_gt.to(device)
             
             # forward pass
-            if not args.nerfacc:
-                outputs = U.nerf_forward(
-                        rays_o, rays_d,
-                        near, far, pos_fn, coarse,
-                        kwargs_sample_stratified=kwargs_sample_stratified,
-                        n_samples_hierarchical=args.n_samples_hierch,
-                        kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                        fine=fine,
-                        dir_fn=dir_fn,
-                        white_bkgd=args.white_bkgd
-                )
+            def occ_eval_fn(x):
+                x = pos_fn(x)  # apply positional encoding
+                density = model(x)
+                return density * render_step_size
 
-                # check for numerical errors
-                for key, val in outputs.items():
-                    if torch.isnan(val).any():
-                        print(f"[Numerical Alert] {key} contains NaN.")
-                    if torch.isinf(val).any():
-                        print(f"[Numerical Alert] {key} contains Inf.")
+            def sigma_fn(t_starts, t_ends, ray_indices):
+                to = rays_o[ray_indices]
+                td = rays_d[ray_indices]
+                x = to + td * (t_starts + t_ends)[:, None] / 2.0
+                x = pos_fn(x) # positional encoding
+                sigmas = model(x)
+                return sigmas.squeeze(-1)
 
-                rgb = outputs['rgb'] # predicted rgb
-            else:
-                def occ_eval_fn(x):
-                    x = pos_fn(x)  # apply positional encoding
-                    density = coarse(x)
-                    return density * render_step_size
+            ray_indices, t_starts, t_ends = estimator.sampling(
+                    rays_o, rays_d,
+                    sigma_fn=sigma_fn,
+                    render_step_size=render_step_size,
+                    stratified=train
+            )
 
-                def sigma_fn(t_starts, t_ends, ray_indices):
+            def rgb_sigma_fn(t_starts, t_ends, ray_indices):
                     to = rays_o[ray_indices]
                     td = rays_d[ray_indices]
                     x = to + td * (t_starts + t_ends)[:, None] / 2.0
                     x = pos_fn(x) # positional encoding
-                    sigmas = coarse(x)
-                    return sigmas.squeeze(-1)
+                    td = dir_fn(td) # pos encoding
+                    out = model(x, td)
+                    rgbs = out[..., :3]
+                    sigmas = out[..., -1]
+                    return rgbs, sigmas.squeeze(-1)
 
-                ray_indices, t_starts, t_ends = estimator.sampling(
-                        rays_o, rays_d, 
-                        sigma_fn=sigma_fn, 
-                        render_step_size=render_step_size,
-                        stratified=train
-                )
+            render_bkgd = torch.tensor(
+                    args.white_bkgd * torch.ones(3), 
+                    device=device, 
+                    requires_grad=True
+            )
 
-                def rgb_sigma_fn(t_starts, t_ends, ray_indices):
-                        to = rays_o[ray_indices]
-                        td = rays_d[ray_indices]
-                        x = to + td * (t_starts + t_ends)[:, None] / 2.0
-                        x = pos_fn(x) # positional encoding
-                        td = dir_fn(td) # pos encoding
-                        out = coarse(x, td)
-                        rgbs = out[..., :3]
-                        sigmas = out[..., -1]
-                        return rgbs, sigmas.squeeze(-1)
-
-                rgb, opacity, depth, extras = rendering(
-                        t_starts,
-                        t_ends,
-                        ray_indices,
-                        n_rays=rays_o.shape[0],
-                        rgb_sigma_fn=rgb_sigma_fn,
-                        render_bkgd=torch.tensor(
-                            args.white_bkgd * torch.ones(3),
-                            device=device,
-                            requires_grad=True
-                        )
-                )
+            rgb, opacity, depth, extras = rendering(
+                    t_starts,
+                    t_ends,
+                    ray_indices,
+                    n_rays=rays_o.shape[0],
+                    rgb_sigma_fn=rgb_sigma_fn,
+                    render_bkgd=render_bkgd
+            )
 
             loss = F.mse_loss(rgb, rgb_gt) # compute loss
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss) # compute psnr
-
-            # add coarse RGB loss 
-            if fine is not None:
-                rgb_coarse = outputs['rgb0']
-                loss += F.mse_loss(rgb_coarse, rgb_gt)
 
             # add depth loss if applicable
             if args.mu is not None:
                 depth = outputs['depth']
                 depth_loss = L.depth_l1(depth, depth_gt)
                 loss += args.mu * depth_loss
-                # add coarse depth loss
-                if fine is not None:
-                    depth_coarse = outputs['depth0']
-                    loss += args.mu * L.depth_l1(depth_coarse, depth_gt)
 
             if train:
                 # backward pass
@@ -314,7 +283,7 @@ def step(
 
                 # update occupancy grid
                 estimator.update_every_n_steps(
-                    step=i,
+                    step=step,
                     occ_eval_fn=occ_eval_fn,
                     occ_thre=1e-2,
                 )
@@ -365,7 +334,6 @@ def step(
                         })
                     coarse = coarse.train(train)
                     fine = fine.train(train) if fine is not None else None
-
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -419,18 +387,17 @@ def train():
             warmup_steps=args.warmup_iters,
     )
 
-    if args.nerfacc:
-        aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
-        # model parameters
-        grid_resolution = 128
-        grid_nlvl = 1
-        # render parameters
-        render_step_size = 5e-3
-        estimator = OccGridEstimator(
-                roi_aabb=aabb, 
-                resolution=grid_resolution, 
-                levels=grid_nlvl
-        ).to(device)
+    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
+    # model parameters
+    grid_resolution = 128
+    grid_nlvl = 1
+    # render parameters
+    render_step_size = 5e-3
+    estimator = OccGridEstimator(
+            roi_aabb=aabb, 
+            resolution=grid_resolution, 
+            levels=grid_nlvl
+    ).to(device)
 
     # compute number of epochs
     steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
@@ -441,18 +408,16 @@ def train():
     pbar = tqdm(range(int(epochs)), desc=desc)
 
     for e in pbar:
-
         # train for one epoch
         train_loss, train_psnr = step(
                 epoch=e, 
-                coarse=coarse, 
+                model=coarse, 
                 loader=train_loader, 
                 device=device, 
                 split='train', 
                 optimizer=optimizer,
                 scheduler=scheduler,
                 testpose=testpose,
-                fine=fine,
                 estimator=estimator,
                 render_step_size=render_step_size,
         )
@@ -460,12 +425,11 @@ def train():
         # validation after one epoch
         val_loss, val_psnr = step(
                 epoch=e, 
-                coarse=coarse, 
+                model=coarse, 
                 loader=val_loader, 
                 device=device, 
                 split='val', 
                 testpose=testpose,
-                fine=fine,
                 estimator=estimator,
                 render_step_size=render_step_size
         )
