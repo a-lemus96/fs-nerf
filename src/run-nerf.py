@@ -130,7 +130,7 @@ def init_model():
             d_viewdirs=d_viewdirs
     )
     model.to(device)
-    params = list(coarse.parameters())
+    params = list(model.parameters())
     
     return model, params, pos_fn, dir_fn
 
@@ -183,7 +183,7 @@ def step(
 
     with torch.set_grad_enabled(train):
         for i, batch in enumerate(batches):
-            step = e * steps_per_epoch + i
+            step = epoch * len(loader) + i
             rays_o, rays_d, rgb_gt, depth_gt = batch
             # send data to device
             rays_o = rays_o.to(device)
@@ -197,7 +197,7 @@ def step(
                 density = model(x)
                 return density * render_step_size
 
-            depth, rgb, _, _ = R.render_rays(
+            rgb, _, depth, _ = R.render_rays(
                     rays_o=rays_o,
                     rays_d=rays_d,
                     estimator=estimator,
@@ -318,7 +318,7 @@ def train():
         # train for one epoch
         train_loss, train_psnr = step(
                 epoch=e, 
-                model=coarse, 
+                model=model, 
                 loader=train_loader, 
                 device=device, 
                 split='train', 
@@ -332,7 +332,7 @@ def train():
         # validation after one epoch
         val_loss, val_psnr = step(
                 epoch=e, 
-                model=coarse, 
+                model=model, 
                 loader=val_loader, 
                 device=device, 
                 split='val', 
@@ -377,14 +377,14 @@ def train():
 
 
 if not args.render_only:
-    model, params, pos_fn, dir_fn = init_models()
+    model, params, pos_fn, dir_fn = init_model()
     success, train_psnrs, val_psnrs, code = train()
 
     # save model
     torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
     model.eval()
 else:
-    model, params, pos_fn, dir_fn = init_models()
+    model, params, pos_fn, dir_fn = init_model()
     # load model
     model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
     model.eval()

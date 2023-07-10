@@ -98,7 +98,7 @@ def render_rays(
         pos_fn: Callable[[Tensor], Tensor],
         dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
         train: bool = False,
-        white_bkgd: bool = False
+        white_bkgd: bool = False,
         render_step_size: float = 5e-3
 ) -> Tuple[Tensor]:
     """Renders rays using a given NeRF model.
@@ -145,11 +145,7 @@ def render_rays(
             sigmas = out[..., -1]
             return rgbs, sigmas.squeeze(-1)
 
-    render_bkgd = torch.tensor(
-            white_bkgd * torch.ones(3), 
-            device=device, 
-            requires_grad=train
-    )
+    render_bkgd = white_bkgd * torch.ones(3, device=device, requires_grad=train)
 
     rgb, opacity, depth, extras = rendering(
             t_starts,
@@ -173,7 +169,7 @@ def render_frame(
         pos_fn: Callable[[Tensor], Tensor],
         dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
         train: bool = False,
-        white_bkgd: bool = False
+        white_bkgd: bool = False,
         render_step_size: float = 5e-3
         ) -> torch.Tensor:
     """Render an image from a given pose. Camera rays are chunkified to avoid

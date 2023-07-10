@@ -194,7 +194,7 @@ class SyntheticRealistic(Dataset):
         # convert to numpy arrays
         poses = np.stack(poses, axis=0).astype(np.float32)
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
-        depths = (np.stack(disps, axis=0) / 255.).astype(np.float32)
+        depths = (np.stack(depths, axis=0) / 255.).astype(np.float32)
         depths = (1. - depths) * 8. # apply inverse affine transformation
         depths[depths == 8.] = np.inf
 
