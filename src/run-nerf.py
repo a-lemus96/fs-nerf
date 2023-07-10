@@ -54,18 +54,7 @@ if args.debug is False:
         }
     )
 
-# bundle kwargs
-kwargs_sample_stratified = {
-    'n_samples': args.n_samples,
-    'perturb': args.perturb,
-    'inverse_depth': args.inv_depth
-}
-
-kwargs_sample_hierarchical = {
-    'perturb': args.perturb_hierch
-}
-
-# use cuda device if available
+# select device
 cuda_available = torch.cuda.is_available()
 device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
 
@@ -82,7 +71,7 @@ out_dir = os.path.normpath(os.path.join(args.out_dir, method,
                                         'n_' + str(args.n_imgs),
                                         'lrate_' + str(args.lrate)))
 
-# create folders
+# create output directories
 folders = ['video', 'model']
 [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
@@ -99,20 +88,18 @@ val_set = D.SyntheticRealistic(
         white_bkgd=args.white_bkgd
 )
 
-# get near and far bounds, image dimensions and focal length
-near, far = train_set.near, train_set.far
+# retrieve camera intrinsics
 H, W, focal = train_set.hwf
 H, W = int(H), int(W)
 
 logger = logging.getLogger()
 base_level = logger.level
 
+# MODEL INITIALIZATION
 
-# MODELS INITIALIZATION
-
-def init_models():
+def init_model():
     """
-    Initialize models, encoders and optimizer for NeRF training
+    Initialize model, encoders and optimizer for NeRF training
     """
     # encoders
     pos_encoder = M.PositionalEncoder(
@@ -135,30 +122,18 @@ def init_models():
         dir_fn = None
         d_viewdirs = None
 
-    # models
-    coarse = M.NeRF(
+    # model
+    model = M.NeRF(
             pos_encoder.d_output, 
             n_layers=args.n_layers,
             d_filter=args.d_filter, 
             skip=args.skip,
             d_viewdirs=d_viewdirs
     )
-    coarse.to(device)
+    model.to(device)
     params = list(coarse.parameters())
-    if args.use_fine:
-        fine = M.NeRF(
-                pos_encoder.d_output, 
-                n_layers=args.n_layers,
-                d_filter=args.d_filter_fine, 
-                skip=args.skip,
-                d_viewdirs=d_viewdirs
-        )
-        fine.to(device)
-        params = params + list(fine.parameters())
-    else:
-        fine = None
     
-    return coarse, fine, params, pos_fn, dir_fn
+    return model, params, pos_fn, dir_fn
 
 # TRAINING FUNCTIONS
 
@@ -298,8 +273,7 @@ def step(
 
             if i % args.display_rate == 0:
                 with torch.no_grad():
-                    coarse.eval()
-                    fine.eval() if fine is not None else None
+                    model.eval()
 
                     # render test image
                     rgb, depth = U.render_frame(
@@ -328,8 +302,7 @@ def step(
                                 caption='Depth'
                             )
                         })
-                    coarse = coarse.train(train)
-                    fine = fine.train(train) if fine is not None else None
+                    model = model.train(train)
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -439,25 +412,17 @@ def train():
 
 
 if not args.render_only:
-        coarse, fine, params, pos_fn, dir_fn = init_models()
+        model, params, pos_fn, dir_fn = init_models()
         success, train_psnrs, val_psnrs, code = train()
 
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
         model.eval()
-            
-        if fine_model is not None:
-            torch.save(fine_model.state_dict(),
-                       out_dir + '/model/nerf_fine.pt')
-            fine_model.eval()
 else:
-    model, fine_model, encode, params, encode_viewdirs = init_models()
+    model, params, pos_fn, dir_fn = init_models()
     # load model
     model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
     model.eval()
-    if fine_model is not None:
-        fine_model.load_state_dict(torch.load(out_dir + '/model/nerf_fine.pt'))
-        fine_model.eval()
 
 # compute path poses for rendering video output
 render_poses = R.sphere_path()
