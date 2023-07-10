@@ -45,7 +45,6 @@ if args.debug is False:
         config={
             'dataset': args.dataset,
             'scene': args.scene,
-            'use_fine': args.use_fine,
             'n_imgs': args.n_imgs,
             'n_iters': args.n_iters,
             'lrate': args.lrate,
