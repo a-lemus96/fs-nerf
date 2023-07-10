@@ -428,23 +428,22 @@ else:
 render_poses = R.sphere_path()
 render_poses = render_poses.to(device)
 
-# Render frames for all rendering poses
-output = R.render_path(render_poses=render_poses,
-                       near=near,
-                       far=far,
-                       hwf=[H, W, focal],
-                       chunksize=args.batch_size,
-                       encode=encode,
-                       model=model,
-                       kwargs_sample_stratified=kwargs_sample_stratified,
-                       n_samples_hierarchical=args.n_samples_hierch,
-                       kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                       fine_model=fine_model,
-                       encode_viewdirs=encode_viewdirs)
+# render frames for all rendering poses
+output = R.render_path(
+        render_poses=render_poses,
+        hwf=[H, W, focal],
+        chunksize=args.batch_size,
+        model=model,
+        pos_fn=pos_fn,
+        dir_fn=dir_fn,
+        white_bkgd=args.white_bkgd,
+)
 
 frames, d_frames = output
 
 # Now we put together frames and save result into .mp4 file
-R.render_video(basedir=f'{out_dir}/video/',
-               frames=frames,
-               d_frames=d_frames)
+R.render_video(
+        basedir=f'{out_dir}/video/',
+        frames=frames,
+        d_frames=d_frames
+)

@@ -87,60 +87,44 @@ to8b = lambda x : (255 * np.clip(x, 0, 1)).astype(np.uint8)
 
 def render_path(
     render_poses: torch.Tensor,
-    near: float,
-    far: float,
     hwf: torch.Tensor,
     chunksize: int,
-    encode: Callable[[torch.Tensor], torch.Tensor], 
     model: nn.Module,
-    kwargs_sample_stratified: dict = None,
-    n_samples_hierarchical: int = 0,
-    kwargs_sample_hierarchical: dict = None,
-    fine_model: nn.Module = None,
-    encode_viewdirs: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    pos_fn: Callable[[torch.Tensor], torch.Tensor], 
+    dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
     white_bkgd: bool = False
-    ) -> Tuple[torch.Tensor]:
-    r"""Render video outputs for the incoming camera poses.
+) -> Tuple[torch.Tensor]:
+    """Renders a video from a given path of camera poses.
     ----------------------------------------------------------------------------
     Args:
         render_poses: (frames, 4, 4)-shape tensor containing poses to render
-        near: float. Near clipping plane
-        far: float. Far clipping plane
-        hwf: [3,]. Height, width and focal length of the camera
-        chunksize: int. Number of rays to process in parallel
-        encode: Callable. Function to encode input rays
-        model: nn.Module. NeRF model
-        kwargs_sample_stratified: dict. Keyword arguments for stratified sampling
-        n_samples_hierarchical: int. Number of hierarchical samples
-        kwargs_sample_hierarchical: dict. Keyword arguments for hierarchical sampling
-        fine_model: nn.Module. Fine NeRF model
-        encode_viewdirs: Callable. Function to encode input view directions
+        hwf: [3]-shape tensor containing height, width and focal length
+        chunksize int: Number of rays to render in parallel
+        model: nn.Module. NeRF model to use for rendering
+        pos_fn: Callable. Pos encoding for spatial inputs
+        dir_fn: Optional Callable. Pos encoding for direction inputs
         white_bkgd: bool. Whether to use white background
     Returns:
-        frames: (frames, H, W, 3)-shape tensor containing rendered frames
-        d_frames: (frames, H, W)-shape tensor containing rendered depth frames
+        frames: [N, H, W, 3]. N rgb frames
+    ----------------------------------------------------------------------------
     """
-
     H, W, focal = hwf
-    model.eval()
 
     frames, d_frames = [], []
     print("Rendering frames...")
     for i, pose in enumerate(tqdm(render_poses)):
         with torch.no_grad():
-            # Get rays
-
+            # render frame
             rgb, depth = U.render_frame(
-                    H, W, focal, pose, chunksize=chunksize,
-                    near=near, far=far, pos_fn=encode,
-                    model=model,
-                    kwargs_sample_stratified=kwargs_sample_stratified,
-                    n_samples_hierarchical=n_samples_hierarchical,
-                    kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                    fine_model=fine_model,
-                    dir_fn=encode_viewdirs,
-                    white_bkgd=white_bkgd
-                    )
+                    H, W, focal, pose,
+                    args.batch_size,
+                    pos_fn, model,
+                    dir_fn=dir_fn,
+                    white_bkgd=args.white_bkgd,
+                    estimator=estimator,
+                    render_step_size=render_step_size,
+                    device=device
+            )
 
             # read predicted rgb frame
             rgb = rgb.reshape([H, W, 3]).detach().cpu().numpy()
@@ -162,8 +146,8 @@ def render_video(
     basedir: str,
     frames: torch.Tensor,
     d_frames: torch.Tensor
-    ) -> None:
-    r"""Video rendering functionality. It takes a series of frames and joins
+) -> None:
+    """Video rendering functionality. It takes a series of frames and joins
     them in .mp4 files.
     ----------------------------------------------------------------------------
     Args:
