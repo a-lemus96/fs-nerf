@@ -245,7 +245,6 @@ def step(
 
             # add depth loss if applicable
             if args.mu is not None:
-                depth = outputs['depth']
                 depth_loss = L.depth_l1(depth, depth_gt)
                 loss += args.mu * depth_loss
 
@@ -270,39 +269,6 @@ def step(
                         'train_loss': loss.item(),
                         'lr': scheduler.lr
                     })
-
-            if i % args.display_rate == 0:
-                with torch.no_grad():
-                    model.eval()
-
-                    # render test image
-                    rgb, depth = U.render_frame(
-                            H, W, focal, testpose,
-                            args.batch_size,
-                            pos_fn, model,
-                            dir_fn=dir_fn,
-                            white_bkgd=args.white_bkgd,
-                            estimator=estimator,
-                            render_step_size=render_step_size,
-                            device=device
-                    )
-
-                    logger.setLevel(100)
-                    logger.setLevel(base_level)
-
-                    if args.debug is False:
-                        # log images to wandb
-                        wandb.log({
-                            'rgb': wandb.Image(
-                                rgb.cpu().numpy(),
-                                caption='RGB'
-                            ),
-                            'depth': wandb.Image(
-                                PL.apply_colormap(depth.cpu().numpy()),
-                                caption='Depth'
-                            )
-                        })
-                    model = model.train(train)
 
             # accumulate metrics
             total_loss += loss.item() / len(loader)
@@ -403,6 +369,33 @@ def train():
                 render_step_size=render_step_size
         )
 
+        # render test image
+        with torch.no_grad():
+            model.eval()
+            rgb, depth = U.render_frame(
+                    H, W, focal, testpose,
+                    args.batch_size,
+                    pos_fn, model,
+                    dir_fn=dir_fn,
+                    white_bkgd=args.white_bkgd,
+                    estimator=estimator,
+                    render_step_size=render_step_size,
+                    device=device
+            )
+
+            if args.debug is False:
+                # log images to wandb
+                wandb.log({
+                    'rgb': wandb.Image(
+                        rgb.cpu().numpy(),
+                        caption='RGB'
+                    ),
+                    'depth': wandb.Image(
+                        PL.apply_colormap(depth.cpu().numpy()),
+                        caption='Depth'
+                    )
+                })
+
         if args.debug is False:
             # log validation metrics to wandb
             wandb.log({
@@ -412,12 +405,12 @@ def train():
 
 
 if not args.render_only:
-        model, params, pos_fn, dir_fn = init_models()
-        success, train_psnrs, val_psnrs, code = train()
+    model, params, pos_fn, dir_fn = init_models()
+    success, train_psnrs, val_psnrs, code = train()
 
-        # save model
-        torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
-        model.eval()
+    # save model
+    torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
+    model.eval()
 else:
     model, params, pos_fn, dir_fn = init_models()
     # load model
