@@ -131,7 +131,6 @@ class SyntheticRealistic(Dataset):
         new_W, new_H = H // factor, W // factor
         new_focal = hwf[2] / float(factor)
         new_hwf = torch.Tensor((new_H, new_W, new_focal))
-
         # downsample images
         new_imgs = Resize((new_H, new_W))(imgs)
         new_depths = Resize((new_H, new_W))(depths)
@@ -178,40 +177,26 @@ class SyntheticRealistic(Dataset):
         with open(os.path.join(path, f'transforms_{self.split}.json'), 'r') as f:
             meta = json.load(f) # metadata
 
-        # get training, validation and test indices
-        '''train_idxs = np.arange(0, 200, 2) # training indices
-        mask = np.isin(np.arange(0, 200), train_idxs) # mask for test
-        test_idxs = np.arange(0, 200) # test indices
-        test_idxs = np.random.choice(test_idxs[~mask], 50, False) # indices
-        mask2 = mask + np.isin(np.arange(0, 200), test_idxs) # mask for val
-        vals_idxs = np.arange(0, 200) # validation indices
-        val_idxs = vals_idxs[~mask2] # indices
-
-        # create dictionary with indices
-        idxs = {'train': train_idxs, 'val': val_idxs, 'test': test_idxs}'''
-
         # load images and camera poses
         imgs = []
-        #disps = []
+        depths = []
         poses = []
-        #depth_str = '_depth_0001.png'
+        depth_str = '_depth_0001.png' # depth map end of file name
         for i, frame in enumerate(meta['frames']):
-            #if i in idxs[self.split]:
             # camera pose
             poses.append(np.array(frame['transform_matrix']))
             # frame image and depth map
             fname = os.path.join(path, frame['file_path'] + '.png')
             imgs.append(iio.imread(fname)) # RGBa image
-            #fname = os.path.join(path, frame['file_path'] + depth_str)
-            #disps.append(iio.imread(fname)) # disparity map
+            fname = os.path.join(path, frame['file_path'] + depth_str)
+            depths.append(iio.imread(fname)) # depth map
 
         # convert to numpy arrays
         poses = np.stack(poses, axis=0).astype(np.float32)
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
-        #disps = (np.stack(disps, axis=0) / 255.).astype(np.float32)
-        #depths = (1. - disps) * 8. # apply inverse affine transformation
-        #depths[depths == 8.] = np.inf
-        depths = np.zeros(imgs.shape[:-1] + (1,)).astype(np.float32)
+        depths = (np.stack(disps, axis=0) / 255.).astype(np.float32)
+        depths = (1. - depths) * 8. # apply inverse affine transformation
+        depths[depths == 8.] = np.inf
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
@@ -219,11 +204,12 @@ class SyntheticRealistic(Dataset):
         focal = 0.5 * W / np.tan(0.5 * fov_x)
         hwf = np.array([H, W, np.array(focal)])
 
+        # create tensors
+        poses = torch.from_numpy(poses)
         imgs = torch.from_numpy(imgs)
         depths = torch.from_numpy(depths[..., 0])
         # convert z depth to along-ray depth
         depths = self.__ray_depth(depths, hwf)
-        poses = torch.from_numpy(poses)
         hwf = torch.from_numpy(hwf)
 
         # scale images and camera intrinsics if applicable
