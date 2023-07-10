@@ -304,12 +304,8 @@ def step(
                     # render test image
                     rgb, depth = U.render_frame(
                             H, W, focal, testpose,
-                            args.batch_size, near, far,
-                            pos_fn, coarse,
-                            kwargs_sample_stratified=kwargs_sample_stratified,
-                            n_samples_hierarchical=args.n_samples_hierch,
-                            kwargs_sample_hierarchical=kwargs_sample_hierarchical,
-                            fine_model=fine,
+                            args.batch_size,
+                            pos_fn, model,
                             dir_fn=dir_fn,
                             white_bkgd=args.white_bkgd,
                             estimator=estimator,

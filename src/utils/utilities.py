@@ -370,14 +370,8 @@ def render_frame(
         focal: float,
         pose: torch.Tensor, 
         chunksize: int,
-        near: float,
-        far: float,
         pos_fn: Callable[[torch.Tensor], torch.Tensor],
         model: nn.Module,
-        kwargs_sample_stratified: dict = None, 
-        n_samples_hierarchical: int = 0,
-        kwargs_sample_hierarchical: dict = None,
-        fine_model = None,
         dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         white_bkgd = False,
         estimator = OccGridEstimator,
@@ -393,15 +387,9 @@ def render_frame(
         focal: focal length of the camera
         pose: [4, 4] tensor with the camera pose
         chunksize: size of the chunks to be processed
-        near: near clipping plane
-        far: far clipping plane
-        pos_fn: positional encoding function
+        pos_fn: positional encoding for spatial inputs
         model: coarse model
-        kwargs_sample_stratified: keyword arguments for stratified sampling
-        n_samples_hierarchical: number of samples for hierarchical sampling
-        kwargs_sample_hierarchical: keyword arguments for hierarchical sampling
-        fine_model: fine model
-        dir_fn: directional encoding function
+        dir_fn: positional encoding for directional inputs
         white_bkgd: whether to use a white background
     Returns:
         img: [H, W, 3] tensor with the rendered image
