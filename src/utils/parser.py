@@ -32,7 +32,7 @@ def config_parser() -> argparse.Namespace:
                         type=str, help="Dataset to choose scenes from")
     parser.add_argument('--scene', dest='scene', default='lego', type=str,
                         help="Scene to be used for training")
-    parser.add_argument('--n_imgs', dest='n_imgs', default=100, type=int,
+    parser.add_argument('--n_imgs', dest='n_imgs', default=None, type=int,
                         help="Number of images to be used for training")
     parser.add_argument('--white_bkgd', dest='white_bkgd', action="store_true",
                         help="Use white backgroung for training imgs")
