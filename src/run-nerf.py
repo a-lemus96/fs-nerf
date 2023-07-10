@@ -30,7 +30,6 @@ import utils.plotting as PL
 import utils.utilities as U
 
 # RANDOM SEED
-
 seed = 42
 torch.manual_seed(seed)
 np.random.seed(seed)
@@ -198,50 +197,23 @@ def step(
                 density = model(x)
                 return density * render_step_size
 
-            def sigma_fn(t_starts, t_ends, ray_indices):
-                to = rays_o[ray_indices]
-                td = rays_d[ray_indices]
-                x = to + td * (t_starts + t_ends)[:, None] / 2.0
-                x = pos_fn(x) # positional encoding
-                sigmas = model(x)
-                return sigmas.squeeze(-1)
-
-            ray_indices, t_starts, t_ends = estimator.sampling(
-                    rays_o, rays_d,
-                    sigma_fn=sigma_fn,
-                    render_step_size=render_step_size,
-                    stratified=train
+            depth, rgb, _, _ = R.render_rays(
+                    rays_o=rays_o,
+                    rays_d=rays_d,
+                    estimator=estimator,
+                    device=device,
+                    model=model,
+                    pos_fn=pos_fn,
+                    dir_fn=dir_fn,
+                    train=train,
+                    white_bkgd=args.white_bkgd,
+                    render_step_size=render_step_size
             )
 
-            def rgb_sigma_fn(t_starts, t_ends, ray_indices):
-                    to = rays_o[ray_indices]
-                    td = rays_d[ray_indices]
-                    x = to + td * (t_starts + t_ends)[:, None] / 2.0
-                    x = pos_fn(x) # positional encoding
-                    td = dir_fn(td) # pos encoding
-                    out = model(x, td)
-                    rgbs = out[..., :3]
-                    sigmas = out[..., -1]
-                    return rgbs, sigmas.squeeze(-1)
-
-            render_bkgd = torch.tensor(
-                    args.white_bkgd * torch.ones(3), 
-                    device=device, 
-                    requires_grad=True
-            )
-
-            rgb, opacity, depth, extras = rendering(
-                    t_starts,
-                    t_ends,
-                    ray_indices,
-                    n_rays=rays_o.shape[0],
-                    rgb_sigma_fn=rgb_sigma_fn,
-                    render_bkgd=render_bkgd
-            )
-
-            loss = F.mse_loss(rgb, rgb_gt) # compute loss
+            # compute loss and psnr
+            loss = F.mse_loss(rgb, rgb_gt)
             with torch.no_grad():
-                psnr = -10. * torch.log10(loss) # compute psnr
+                psnr = -10. * torch.log10(loss)
 
             # add depth loss if applicable
             if args.mu is not None:

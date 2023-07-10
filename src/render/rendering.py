@@ -5,11 +5,14 @@ from typing import Callable, Optional, Tuple
 
 # third-party modules
 import imageio
+from nerfacc.volrend import rendering
+from nerfacc.estimators.occ_grid import OccGridEstimator
 import matplotlib
 import matplotlib.cm as cm
 import numpy as np
 import torch 
 from torch import nn
+from torch import Tensor
 from tqdm import tqdm
 
 # custom modules
@@ -85,14 +88,70 @@ def sphere_path(radius: float = 3.5,
 # Function to map float values to [0, 255] integer range
 to8b = lambda x : (255 * np.clip(x, 0, 1)).astype(np.uint8)
 
+def render_rays(
+        rays_o: Tensor,
+        rays_d: Tensor,
+        estimator: OccGridEstimator,
+        device: str,
+        model: nn.Module,
+        pos_fn: Callable[[Tensor], Tensor],
+        dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
+        train: bool = False,
+        white_bkgd: bool = False
+        render_step_size: float = 5e-3
+) -> Tuple[Tensor]:
+    """Renders rays using a given model."""
+    def sigma_fn(t_starts, t_ends, ray_indices):
+        to = rays_o[ray_indices]
+        td = rays_d[ray_indices]
+        x = to + td * (t_starts + t_ends)[:, None] / 2.0
+        x = pos_fn(x) # positional encoding
+        sigmas = model(x)
+        return sigmas.squeeze(-1)
+
+    ray_indices, t_starts, t_ends = estimator.sampling(
+            rays_o, rays_d,
+            sigma_fn=sigma_fn,
+            render_step_size=render_step_size,
+            stratified=train
+    )
+
+    def rgb_sigma_fn(t_starts, t_ends, ray_indices):
+            to = rays_o[ray_indices]
+            td = rays_d[ray_indices]
+            x = to + td * (t_starts + t_ends)[:, None] / 2.0
+            x = pos_fn(x) # positional encoding
+            td = dir_fn(td) # pos encoding
+            out = model(x, td)
+            rgbs = out[..., :3]
+            sigmas = out[..., -1]
+            return rgbs, sigmas.squeeze(-1)
+
+    render_bkgd = torch.tensor(
+            white_bkgd * torch.ones(3), 
+            device=device, 
+            requires_grad=train
+    )
+
+    rgb, opacity, depth, extras = rendering(
+            t_starts,
+            t_ends,
+            ray_indices,
+            n_rays=rays_o.shape[0],
+            rgb_sigma_fn=rgb_sigma_fn,
+            render_bkgd=render_bkgd
+    )
+    return rgb, opacity, depth, extras
+        
+
 def render_path(
-    render_poses: torch.Tensor,
-    hwf: torch.Tensor,
-    chunksize: int,
-    model: nn.Module,
-    pos_fn: Callable[[torch.Tensor], torch.Tensor], 
-    dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-    white_bkgd: bool = False
+        render_poses: torch.Tensor,
+        hwf: torch.Tensor,
+        chunksize: int,
+        model: nn.Module,
+        pos_fn: Callable[[torch.Tensor], torch.Tensor], 
+        dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+        white_bkgd: bool = False
 ) -> Tuple[torch.Tensor]:
     """Renders a video from a given path of camera poses.
     ----------------------------------------------------------------------------
