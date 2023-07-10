@@ -62,10 +62,11 @@ def pose_from_spherical(
 
 # RENDERING PATH UTILITIES
 
-def sphere_path(radius: float = 3.5,
-                theta: float = 45.,
-                frames: int = 40
-                ) -> torch.Tensor:
+def sphere_path(
+        radius: float = 3.5,
+        theta: float = 45.,
+        frames: int = 40
+) -> torch.Tensor:
     r"""Computes set of frames for inward facing camera poses using constant
     radius and theta, while varying azimutal angle within the interval [0,360].
     ----------------------------------------------------------------------------
@@ -100,7 +101,24 @@ def render_rays(
         white_bkgd: bool = False
         render_step_size: float = 5e-3
 ) -> Tuple[Tensor]:
-    """Renders rays using a given model."""
+    """Renders rays using a given NeRF model.
+    ----------------------------------------------------------------------------
+    Args:
+        rays_o: (n_rays, 3)-shape tensor containing ray origins
+        rays_d: (n_rays, 3)-shape tensor containing ray directions
+        estimator: OccGridEstimator object
+        device: Device to use for rendering
+        model: NeRF model
+        pos_fn: Positional encoding function
+        dir_fn: Positional encoding function for dirs
+        train: Whether to train model
+    Returns:
+        rgb: (n_rays, 3)-shape tensor containing RGB values
+        opacity: (n_rays,)-shape tensor containing opacity values
+        depth: (n_rays,)-shape tensor containing depth values
+        extras
+    ----------------------------------------------------------------------------
+    """
     def sigma_fn(t_starts, t_ends, ray_indices):
         to = rays_o[ray_indices]
         td = rays_d[ray_indices]
@@ -142,6 +160,73 @@ def render_rays(
             render_bkgd=render_bkgd
     )
     return rgb, opacity, depth, extras
+
+def render_frame(
+        H: int,
+        W: int,
+        focal: float,
+        pose: torch.Tensor, 
+        chunksize: int,
+        estimator: OccGridEstimator,
+        device: str,
+        model: nn.Module,
+        pos_fn: Callable[[Tensor], Tensor],
+        dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
+        train: bool = False,
+        white_bkgd: bool = False
+        render_step_size: float = 5e-3
+        ) -> torch.Tensor:
+    """Render an image from a given pose. Camera rays are chunkified to avoid
+    memory issues.
+    ----------------------------------------------------------------------------
+    Args:
+        H: height of the image
+        W: width of the image
+        focal: focal length of the camera
+        pose: [4, 4] tensor with the camera pose
+        chunksize: size of the chunks to be processed
+        estimator: OccGridEstimator object
+        device: device to use for rendering
+        model: model to use for rendering
+        pos_fn: positional encoding fn for positional coords
+        dir_fn: positional encoding fn for directional coords
+        train: whether the model is in training mode
+        white_bkgd: whether to use a white background
+        render_step_size: step size for rendering
+    Returns:
+        img: [H, W, 3] tensor with the rendered image
+        depth: [H, W] tensor with the depth map
+    ----------------------------------------------------------------------------
+    """
+    rays_o, rays_d = get_rays(H, W, focal, pose) # compute rays
+    rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
+
+    # chunkify rays to avoid memory issues
+    chunked_rays_o = get_chunks(rays_o, chunksize=chunksize)
+    chunked_rays_d = get_chunks(rays_d, chunksize=chunksize)
+
+    # compute image and depth in chunks
+    img = []
+    depth_map = []
+    for rays_o, rays_d in zip(chunked_rays_o, chunked_rays_d):
+        rgb, opacity, depth, extras = render_rays(
+                rays_o, rays_d,
+                estimator,
+                device,
+                model,
+                pos_fn, dir_fn,
+                white_bkgd,
+                render_step_size=render_step_size
+        )
+
+        img.append(rgb)
+        depth_map.append(depth)
+
+    # aggregate chunks
+    img = torch.cat(img, dim=0)
+    depth = torch.cat(depth_map, dim=0)
+
+    return img.reshape(H, W, 3), depth.reshape(H, W)
         
 
 def render_path(
@@ -174,7 +259,7 @@ def render_path(
     for i, pose in enumerate(tqdm(render_poses)):
         with torch.no_grad():
             # render frame
-            rgb, depth = U.render_frame(
+            rgb, depth = render_frame(
                     H, W, focal, pose,
                     args.batch_size,
                     pos_fn, model,
