@@ -31,11 +31,13 @@ def gini_entropy(
 
 def depth_l1(
         depth: Tensor,
-        depth_gt: Tensor
+        depth_gt: Tensor,
+        use_bkgd: bool = False
         ) -> Tensor:
     """Computes the depth loss between a batch of predicted and ground truth
     depth. Loss is defined by the sum of L1 norm between each pair of pixel
-    depth. Background ground truth pixels are set to 0.
+    depth. Background ground truth pixels are ignored by default, otherwise are
+    set to zero.
     ----------------------------------------------------------------------------
     Args:
         depth (Tensor): (B,). Predicted depth for a batch of rays
@@ -45,7 +47,12 @@ def depth_l1(
     ----------------------------------------------------------------------------
     """
     bkgd = torch.isinf(depth_gt) # background pixels
-    depth_gt[bkgd] = 0.0 # set gt background pixels to 0
+    if use_bkgd:
+        depth_gt[bkgd] = 0.0 # set gt background pixels to 0
+    else:
+        # remove background pixels
+        depth_gt = depth_gt[~bkgd]
+        depth = depth[~bkgd]
     loss = F.l1_loss(depth, depth_gt) # compute L1 loss
 
     return loss

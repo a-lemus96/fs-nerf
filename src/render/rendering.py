@@ -129,6 +129,7 @@ def render_rays(
         x = to + td * (t_starts + t_ends)[:, None] / 2.0
         x = pos_fn(x) # positional encoding
         sigmas = model(x)
+
         return sigmas.squeeze(-1)
 
     ray_indices, t_starts, t_ends = estimator.sampling(
@@ -147,6 +148,7 @@ def render_rays(
             out = model(x, td)
             rgbs = out[..., :3]
             sigmas = out[..., -1]
+
             return rgbs, sigmas.squeeze(-1)
 
     render_bkgd = white_bkgd * torch.ones(3, device=device, requires_grad=train)

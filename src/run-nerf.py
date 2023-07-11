@@ -217,7 +217,7 @@ def step(
 
             # add depth loss if applicable
             if args.mu is not None:
-                depth_loss = L.depth_l1(depth, depth_gt)
+                depth_loss = L.depth_l1(depth.squeeze(-1), depth_gt)
                 loss += args.mu * depth_loss
 
             if train:
