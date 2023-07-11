@@ -397,6 +397,7 @@ output = R.render_path(
         render_poses=render_poses,
         hwf=[H, W, focal],
         chunksize=args.batch_size,
+        device=device,
         model=model,
         pos_fn=pos_fn,
         dir_fn=dir_fn,
