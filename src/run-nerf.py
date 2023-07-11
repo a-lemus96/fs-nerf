@@ -49,7 +49,7 @@ if args.debug is not True:
             'n_iters': args.n_iters,
             'lrate': args.lrate,
             'mu': args.mu,
-            'white_bkgd': args.white_bkgd
+            'white_bkgd': args.white_bkgd,
             'use_bkgd': args.use_bkgd
         }
     )
