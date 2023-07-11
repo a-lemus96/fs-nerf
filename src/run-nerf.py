@@ -50,6 +50,7 @@ if args.debug is not True:
             'lrate': args.lrate,
             'mu': args.mu,
             'white_bkgd': args.white_bkgd
+            'use_bkgd': args.use_bkgd
         }
     )
 
@@ -215,9 +216,13 @@ def step(
             with torch.no_grad():
                 psnr = -10. * torch.log10(loss)
 
-            # add depth loss if applicable
+            # add depth loss if using depth supervision
             if args.mu is not None:
-                depth_loss = L.depth_l1(depth.squeeze(-1), depth_gt)
+                depth_loss = L.depth_l1(
+                        depth.squeeze(-1), 
+                        depth_gt,
+                        use_bkgd=args.use_bkgd
+                )
                 loss += args.mu * depth_loss
 
             if train:

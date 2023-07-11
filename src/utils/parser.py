@@ -53,6 +53,10 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
 
+    # depth supervision
+    parser.add_argument('--use_bkgd', dest='use_bkgd', action="store_true",
+                        help='If set, use background pixels for depth supervision')
+
     # validation
     parser.add_argument('--val_ratio', dest='val_ratio', 
                         default=0.2, type=float,
