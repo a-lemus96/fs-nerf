@@ -14,7 +14,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 from torch import Tensor
 from tqdm import tqdm
 import wandb
@@ -37,7 +37,7 @@ random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
 
-if args.debug is False:
+if args.debug is not True:
     # set up wandb run to track training
     wandb.init(
         project='depth-nerf',
@@ -49,6 +49,7 @@ if args.debug is False:
             'n_iters': args.n_iters,
             'lrate': args.lrate,
             'mu': args.mu,
+            'white_bkgd': args.white_bkgd
         }
     )
 
@@ -76,12 +77,14 @@ folders = ['video', 'model']
 # load dataset(s)
 train_set = D.SyntheticRealistic(
         scene=args.scene,
+        n_imgs=args.n_imgs,
         split='train',
         white_bkgd=args.white_bkgd
 )
 
 val_set = D.SyntheticRealistic(
         scene=args.scene,
+        n_imgs=args.n_imgs,
         split='val',
         white_bkgd=args.white_bkgd
 )
@@ -143,7 +146,6 @@ def step(
     split: str,
     optimizer: Optional[Optimizer] = None,
     scheduler: Optional[S] = None,
-    testpose: Optional[Tensor] = None,
     verbose: bool = True,
     estimator: Optional[OccGridEstimator] = None,
     render_step_size: Optional[float] = None,
@@ -184,11 +186,6 @@ def step(
         for i, batch in enumerate(batches):
             step = epoch * len(loader) + i
             rays_o, rays_d, rgb_gt, depth_gt = batch
-            # send data to device
-            rays_o = rays_o.to(device)
-            rays_d = rays_d.to(device)
-            rgb_gt = rgb_gt.to(device)
-            depth_gt = depth_gt.to(device)
             
             # forward pass
             def occ_eval_fn(x):
@@ -208,6 +205,10 @@ def step(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
+
+            # send g.t. data to device
+            rgb_gt = rgb_gt.to(device)
+            depth_gt = depth_gt.to(device)
 
             # compute loss and psnr
             loss = F.mse_loss(rgb, rgb_gt)
@@ -256,7 +257,7 @@ def train():
     """
     testimg = train_set.testimg
     testdepth = train_set.testdepth
-    testpose = train_set.testpose.to(device)
+    testpose = train_set.testpose
 
     if args.debug is False:
         # log test maps to wandb
@@ -314,7 +315,7 @@ def train():
     pbar = tqdm(range(int(epochs)), desc=desc)
 
     for e in pbar:
-        # train for one epoch
+        # iterate over one epoch
         train_loss, train_psnr = step(
                 epoch=e, 
                 model=model, 
@@ -323,19 +324,17 @@ def train():
                 split='train', 
                 optimizer=optimizer,
                 scheduler=scheduler,
-                testpose=testpose,
                 estimator=estimator,
                 render_step_size=render_step_size,
         )
 
-        # validation after one epoch
+        # compute an estimate for val metrics
         val_loss, val_psnr = step(
                 epoch=e, 
                 model=model, 
                 loader=val_loader, 
                 device=device, 
                 split='val', 
-                testpose=testpose,
                 estimator=estimator,
                 render_step_size=render_step_size
         )
@@ -343,15 +342,17 @@ def train():
         # render test image
         with torch.no_grad():
             model.eval()
-            rgb, depth = U.render_frame(
+            rgb, depth = R.render_frame(
                     H, W, focal, testpose,
                     args.batch_size,
-                    pos_fn, model,
+                    estimator,
+                    device,
+                    model,
+                    pos_fn=pos_fn,
                     dir_fn=dir_fn,
+                    train=False,
                     white_bkgd=args.white_bkgd,
-                    estimator=estimator,
-                    render_step_size=render_step_size,
-                    device=device
+                    render_step_size=render_step_size
             )
 
             if args.debug is False:

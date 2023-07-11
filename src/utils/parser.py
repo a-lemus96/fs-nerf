@@ -53,6 +53,11 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
 
+    # validation
+    parser.add_argument('--val_ratio', dest='val_ratio', 
+                        default=0.2, type=float,
+                        help='Ratio of val data to be used in between epochs')
+
     # directories
     parser.add_argument('--out_dir', dest='out_dir', default="../out/",
                         type=str, help="Base directory for storing results")

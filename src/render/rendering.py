@@ -119,6 +119,10 @@ def render_rays(
         extras
     ----------------------------------------------------------------------------
     """
+    # send rays to device
+    rays_o = rays_o.to(device)
+    rays_d = rays_d.to(device)
+
     def sigma_fn(t_starts, t_ends, ray_indices):
         to = rays_o[ray_indices]
         td = rays_d[ray_indices]
@@ -175,31 +179,14 @@ def render_frame(
     """Render an image from a given pose. Camera rays are chunkified to avoid
     memory issues.
     ----------------------------------------------------------------------------
-    Args:
-        H: height of the image
-        W: width of the image
-        focal: focal length of the camera
-        pose: [4, 4] tensor with the camera pose
-        chunksize: size of the chunks to be processed
-        estimator: OccGridEstimator object
-        device: device to use for rendering
-        model: model to use for rendering
-        pos_fn: positional encoding fn for positional coords
-        dir_fn: positional encoding fn for directional coords
-        train: whether the model is in training mode
-        white_bkgd: whether to use a white background
-        render_step_size: step size for rendering
-    Returns:
-        img: [H, W, 3] tensor with the rendered image
-        depth: [H, W] tensor with the depth map
     ----------------------------------------------------------------------------
     """
-    rays_o, rays_d = get_rays(H, W, focal, pose) # compute rays
+    rays_o, rays_d = U.get_rays(H, W, focal, pose) # compute rays
     rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
 
     # chunkify rays to avoid memory issues
-    chunked_rays_o = get_chunks(rays_o, chunksize=chunksize)
-    chunked_rays_d = get_chunks(rays_d, chunksize=chunksize)
+    chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
+    chunked_rays_d = U.get_chunks(rays_d, chunksize=chunksize)
 
     # compute image and depth in chunks
     img = []
@@ -229,6 +216,7 @@ def render_path(
         render_poses: torch.Tensor,
         hwf: torch.Tensor,
         chunksize: int,
+        device: str,
         model: nn.Module,
         pos_fn: Callable[[torch.Tensor], torch.Tensor], 
         dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
@@ -240,6 +228,7 @@ def render_path(
         render_poses: (frames, 4, 4)-shape tensor containing poses to render
         hwf: [3]-shape tensor containing height, width and focal length
         chunksize int: Number of rays to render in parallel
+        device: str. Device to use for rendering
         model: nn.Module. NeRF model to use for rendering
         pos_fn: Callable. Pos encoding for spatial inputs
         dir_fn: Optional Callable. Pos encoding for direction inputs
