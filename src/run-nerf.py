@@ -377,17 +377,16 @@ def train():
 
 
 if not args.render_only:
-    model, params, pos_fn, dir_fn = init_model()
-    success, train_psnrs, val_psnrs, code = train()
-
+    model, params, pos_fn, dir_fn = init_model() # initialize model
+    train() # train model
     # save model
     torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
-    model.eval()
 else:
     model, params, pos_fn, dir_fn = init_model()
     # load model
     model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
-    model.eval()
+
+model.eval()
 
 # compute path poses for rendering video output
 render_poses = R.sphere_path()
