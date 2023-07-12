@@ -251,7 +251,7 @@ def render_path(
                     chunksize,
                     pos_fn, model,
                     dir_fn=dir_fn,
-                    white_bkgd=args.white_bkgd,
+                    white_bkgd=white_bkgd,
                     estimator=estimator,
                     render_step_size=render_step_size,
                     device=device
