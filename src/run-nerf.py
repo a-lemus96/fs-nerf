@@ -177,7 +177,7 @@ def step(
     # set model to corresponding mode
     model = model.train(train)
 
-    total_loss, total_psnr = 0., 0.
+    total_mae, total_psnr = 0., 0.
     
     # set up progress bar
     desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
@@ -225,6 +225,18 @@ def step(
                 )
                 loss += args.mu * depth_loss
 
+            with torch.no_grad():
+                # remove bkgd if necessary
+                depth = depth.squeeze(-1)
+                mask = ~torch.isinf(depth_gt)
+                mask = mask | ~mask if args.use_bkgd else mask
+                depth = depth[mask]
+                depth_gt = depth_gt[mask]
+                # mean absolute error
+                mae = torch.abs(depth - depth_gt)
+                mae = torch.mean(mae)
+
+
             if train:
                 # backward pass
                 loss.backward()
@@ -243,18 +255,18 @@ def step(
                     # log metrics to wandb
                     wandb.log({
                         'train_psnr': psnr.item(),
-                        'train_loss': loss.item(),
+                        'train_depth_mae': mae.item(),
                         'lr': scheduler.lr
                     })
 
             # accumulate metrics
-            total_loss += loss.item() / len(loader)
             total_psnr += psnr.item() / len(loader)
+            total_mae += mae.item() / len(loader)
 
             # update progress bar
             batches.set_postfix(psnr=psnr.item())
             
-    return total_loss, total_psnr
+    return total_psnr, total_mae
 
 def train():
     r"""
@@ -262,6 +274,8 @@ def train():
     """
     testimg = train_set.testimg
     testdepth = train_set.testdepth
+    bkgd = torch.isinf(testdepth)
+    testdepth[bkgd] = 0.
     testpose = train_set.testpose
 
     if args.debug is False:
@@ -334,15 +348,23 @@ def train():
         )
 
         # compute an estimate for val metrics
-        val_loss, val_psnr = step(
-                epoch=e, 
-                model=model, 
-                loader=val_loader, 
-                device=device, 
-                split='val', 
+        val_psnr, val_mae = step(
+                epoch=e,
+                model=model,
+                loader=val_loader,
+                device=device,
+                split='val',
                 estimator=estimator,
                 render_step_size=render_step_size
         )
+
+        if args.debug is False:
+            # log validation metrics to wandb
+            wandb.log({
+                'val_psnr': val_psnr,
+                'val_mae': val_mae,
+            })
+
 
         # render test image
         with torch.no_grad():
@@ -360,6 +382,8 @@ def train():
                     render_step_size=render_step_size
             )
 
+            # remove bkgd for depth visualization
+            depth[bkgd] = 0.
             if args.debug is False:
                 # log images to wandb
                 wandb.log({
@@ -372,13 +396,6 @@ def train():
                         caption='Depth'
                     )
                 })
-
-        if args.debug is False:
-            # log validation metrics to wandb
-            wandb.log({
-                'val_psnr': val_psnr,
-                'val_loss': val_loss,
-            })
 
 
 if not args.render_only:

@@ -248,7 +248,7 @@ def render_path(
             # render frame
             rgb, depth = render_frame(
                     H, W, focal, pose,
-                    args.batch_size,
+                    chunksize,
                     pos_fn, model,
                     dir_fn=dir_fn,
                     white_bkgd=args.white_bkgd,

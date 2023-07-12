@@ -62,7 +62,6 @@ class SyntheticRealistic(Dataset):
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
         self.testdepth = depths[idx]
-        self.testdepth[torch.isinf(self.testdepth)] = 0.
 
         # draw a random sample of indices
         if n_imgs is not None:
