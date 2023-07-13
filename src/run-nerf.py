@@ -37,65 +37,6 @@ random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
 
-if args.debug is not True:
-    # set up wandb run to track training
-    wandb.init(
-        project='depth-nerf',
-        name='nerf' if args.mu is None else 'depth',
-        config={
-            'dataset': args.dataset,
-            'scene': args.scene,
-            'n_imgs': args.n_imgs,
-            'n_iters': args.n_iters,
-            'lrate': args.lrate,
-            'mu': args.mu,
-            'white_bkgd': args.white_bkgd,
-            'use_bkgd': args.use_bkgd
-        }
-    )
-
-# select device
-cuda_available = torch.cuda.is_available()
-device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
-
-# print device info or abort if no CUDA device available
-if device != 'cpu' :
-    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
-else:
-    raise RuntimeError("CUDA device not available.")
-
-# build base path for output directories
-method = 'nerf' if args.mu is None else 'depth'
-out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
-                                        args.dataset, args.scene,
-                                        'n_' + str(args.n_imgs),
-                                        'lrate_' + str(args.lrate)))
-
-# create output directories
-folders = ['video', 'model']
-[os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
-
-# load dataset(s)
-train_set = D.SyntheticRealistic(
-        scene=args.scene,
-        n_imgs=args.n_imgs,
-        split='train',
-        white_bkgd=args.white_bkgd
-)
-
-val_set = D.SyntheticRealistic(
-        scene=args.scene,
-        n_imgs=args.n_imgs,
-        split='val',
-        white_bkgd=args.white_bkgd
-)
-
-# retrieve camera intrinsics
-H, W, focal = train_set.hwf
-H, W = int(H), int(W)
-
-logger = logging.getLogger()
-base_level = logger.level
 
 # MODEL INITIALIZATION
 
@@ -133,15 +74,16 @@ def init_model():
             d_viewdirs=d_viewdirs
     )
     model.to(device)
-    params = list(model.parameters())
     
-    return model, params, pos_fn, dir_fn
+    return model, pos_fn, dir_fn
 
 # TRAINING FUNCTIONS
 
 def step(
     epoch: int,
     model: nn.Module,
+    pos_fn: nn.Module,
+    dir_fn: nn.Module,
     loader: DataLoader,
     device: torch.device,
     split: str,
@@ -268,10 +210,19 @@ def step(
             
     return total_psnr, total_mae
 
-def train():
+def train(
+        model,
+        pos_fn,
+        dir_fn,
+        train_set, 
+        val_set):
     r"""
     Run NeRF training loop.
     """
+    # retrieve camera intrinsics
+    H, W, focal = train_set.hwf
+    H, W = int(H), int(W)
+
     testimg = train_set.testimg
     testdepth = train_set.testdepth
     bkgd = torch.isinf(testdepth)
@@ -306,6 +257,7 @@ def train():
     )
 
     # optimizer and scheduler
+    params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=args.lrate)
     scheduler = S.MipNerf(
             optimizer, 
@@ -338,6 +290,8 @@ def train():
         train_loss, train_psnr = step(
                 epoch=e, 
                 model=model, 
+                pos_fn=pos_fn,
+                dir_fn=dir_fn,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
@@ -351,6 +305,8 @@ def train():
         val_psnr, val_mae = step(
                 epoch=e,
                 model=model,
+                pos_fn=pos_fn,
+                dir_fn=dir_fn,
                 loader=val_loader,
                 device=device,
                 split='val',
@@ -397,40 +353,137 @@ def train():
                     )
                 })
 
+    return val_psnr, val_mae
 
-if not args.render_only:
-    model, params, pos_fn, dir_fn = init_model() # initialize model
-    train() # train model
-    # save model
-    torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
+
+def main():
+    if args.debug is not True:
+        wandb.login()
+        # set up wandb run to track training
+        wandb.init(
+            project='depth-nerf',
+            name='nerf' if args.mu is None else 'depth',
+            config={
+                'dataset': args.dataset,
+                'scene': args.scene,
+                'n_iters': args.n_iters,
+                'lrate': args.lrate,
+                'mu': args.mu,
+                'white_bkgd': args.white_bkgd,
+                'use_bkgd': args.use_bkgd
+            }
+        )
+
+    n_imgs = wandb.config.n_imgs if args.debug is False else args.n_imgs
+
+
+    # build base path for output directories
+    method = 'nerf' if args.mu is None else 'depth'
+    out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
+                                            args.dataset, args.scene,
+                                            'n_' + str(n_imgs),
+                                            'lrate_' + str(args.lrate)))
+
+    # create output directories
+    folders = ['video', 'model']
+    [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
+
+    # load dataset(s)
+    train_set = D.SyntheticRealistic(
+            scene=args.scene,
+            n_imgs=n_imgs,
+            split='train',
+            white_bkgd=args.white_bkgd
+    )
+
+    val_set = D.SyntheticRealistic(
+            scene=args.scene,
+            n_imgs=n_imgs,
+            split='val',
+            white_bkgd=args.white_bkgd
+    )
+
+
+    if not args.render_only:
+        model, pos_fn, dir_fn = init_model() # initialize model
+        # train model
+        final_psnr, final_mae = train(
+                model=model,
+                pos_fn=pos_fn,
+                dir_fn=dir_fn,
+                train_set=train_set,
+                val_set=val_set
+        )
+        wandb.log({
+            'final_val_psnr': final_psnr,
+            'final_val_mae': final_mae
+        })
+        # save model
+        torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
+    else:
+        model, params, pos_fn, dir_fn = init_model()
+        # load model
+        model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
+
+    model.eval()
+
+    # compute path poses for rendering video output
+    render_poses = R.sphere_path()
+    render_poses = render_poses.to(device)
+
+    # render frames for all rendering poses
+    output = R.render_path(
+            render_poses=render_poses,
+            hwf=[H, W, focal],
+            chunksize=args.batch_size,
+            device=device,
+            model=model,
+            pos_fn=pos_fn,
+            dir_fn=dir_fn,
+            white_bkgd=args.white_bkgd,
+    )
+
+    frames, d_frames = output
+
+    # Now we put together frames and save result into .mp4 file
+    R.render_video(
+            basedir=f'{out_dir}/video/',
+            frames=frames,
+            d_frames=d_frames
+    )
+
+if not args.debug:
+    sweep_config = {
+        "program": "run-nerf.py",
+        "method": "grid",
+        "metric": {
+            "name": "final_val_psnr",
+            "goal": "maximize"
+        },
+        "parameters": {
+            "n_imgs": {
+                "values": [80, 60, 40, 20]
+            }
+        }
+    }
+
+    # initialize sweep
+    sweep_id = wandb.sweep(
+        sweep_config,
+        project="depth-nerf"
+    )
+
+# select device
+cuda_available = torch.cuda.is_available()
+device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
+
+# print device info or abort if no CUDA device available
+if device != 'cpu' :
+    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
 else:
-    model, params, pos_fn, dir_fn = init_model()
-    # load model
-    model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
+    raise RuntimeError("CUDA device not available.")
 
-model.eval()
-
-# compute path poses for rendering video output
-render_poses = R.sphere_path()
-render_poses = render_poses.to(device)
-
-# render frames for all rendering poses
-output = R.render_path(
-        render_poses=render_poses,
-        hwf=[H, W, focal],
-        chunksize=args.batch_size,
-        device=device,
-        model=model,
-        pos_fn=pos_fn,
-        dir_fn=dir_fn,
-        white_bkgd=args.white_bkgd,
-)
-
-frames, d_frames = output
-
-# Now we put together frames and save result into .mp4 file
-R.render_video(
-        basedir=f'{out_dir}/video/',
-        frames=frames,
-        d_frames=d_frames
-)
+if not args.debug:
+    wandb.agent(sweep_id, function=main)
+else:
+    main()
