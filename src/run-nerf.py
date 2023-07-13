@@ -215,10 +215,18 @@ def train(
         pos_fn,
         dir_fn,
         train_set, 
-        val_set):
-    r"""
-    Run NeRF training loop.
-    """
+        val_set
+) -> Tuple[float, float]:
+    """Train NeRF model.
+    ----------------------------------------------------------------------------
+    Args:
+        model (nn.Module): NeRF model
+        pos_fn (nn.Module): positional encoding function for spatial coords
+        dir_fn (nn.Module): positional encoding function for directional coords
+        train_set (Dataset): training dataset
+        val_set (Dataset): validation dataset
+    Returns:
+        Tuple[float, float]: best validation PSNR, best validation MAE"""
     # retrieve camera intrinsics
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
@@ -285,8 +293,12 @@ def train(
     desc = f"[NeRF] Epoch"
     pbar = tqdm(range(int(epochs)), desc=desc)
 
+    # initialize best validation metrics
+    best_psnr = 0.
+    best_mae = float('inf')
+    # iterate over epochs
     for e in pbar:
-        # iterate over one epoch
+        # training step
         train_loss, train_psnr = step(
                 epoch=e, 
                 model=model, 
@@ -300,8 +312,7 @@ def train(
                 estimator=estimator,
                 render_step_size=render_step_size,
         )
-
-        # compute an estimate for val metrics
+        # validation step
         val_psnr, val_mae = step(
                 epoch=e,
                 model=model,
@@ -313,6 +324,9 @@ def train(
                 estimator=estimator,
                 render_step_size=render_step_size
         )
+        # update best validation metrics
+        best_psnr = max(best_psnr, val_psnr)
+        best_mae = min(best_mae, val_mae)
 
         if args.debug is False:
             # log validation metrics to wandb
@@ -320,8 +334,6 @@ def train(
                 'val_psnr': val_psnr,
                 'val_mae': val_mae,
             })
-
-
         # render test image
         with torch.no_grad():
             model.eval()
@@ -337,7 +349,6 @@ def train(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
-
             # remove bkgd for depth visualization
             depth[bkgd] = 0.
             if args.debug is False:
@@ -353,7 +364,7 @@ def train(
                     )
                 })
 
-    return val_psnr, val_mae
+    return best_psnr, best_mae
 
 
 def main():
