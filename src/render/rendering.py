@@ -153,14 +153,19 @@ def render_rays(
 
     render_bkgd = white_bkgd * torch.ones(3, device=device, requires_grad=train)
 
-    rgb, opacity, depth, extras = rendering(
-            t_starts,
-            t_ends,
-            ray_indices,
-            n_rays=rays_o.shape[0],
-            rgb_sigma_fn=rgb_sigma_fn,
-            render_bkgd=render_bkgd
-    )
+    try:
+        rgb, opacity, depth, extras = rendering(
+                t_starts,
+                t_ends,
+                ray_indices,
+                n_rays=rays_o.shape[0],
+                rgb_sigma_fn=rgb_sigma_fn,
+                render_bkgd=render_bkgd
+        )
+    except AssertionError as e:
+        print(f"Assertion error while rendering: {e}")
+        return
+
     return rgb, opacity, depth, extras
 
 def render_frame(

@@ -136,7 +136,7 @@ def step(
                 density = model(x)
                 return density * render_step_size
 
-            rgb, _, depth, _ = R.render_rays(
+            outputs = R.render_rays(
                     rays_o=rays_o,
                     rays_d=rays_d,
                     estimator=estimator,
@@ -148,6 +148,7 @@ def step(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
+            rgb, _, depth, _ = outputs if outpus is not None
 
             # send g.t. data to device
             rgb_gt = rgb_gt.to(device)
