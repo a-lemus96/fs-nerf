@@ -73,6 +73,8 @@ def config_parser() -> argparse.Namespace:
     # debugging
     parser.add_argument('--debug', dest='debug', action='store_true',
                         help='If set, run in debug mode')
+    parser.add_argument('--sweep', dest='sweep', action='store_true',
+                        help='If set, run in W&B sweep mode')
             
 
     args = parser.parse_args()

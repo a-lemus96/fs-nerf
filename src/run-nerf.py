@@ -374,8 +374,10 @@ def main():
             }
         )
 
-    n_imgs = wandb.config.n_imgs if args.debug is False else args.n_imgs
-
+    if args.sweep:
+        n_imgs = wandb.config.n_imgs
+    else:
+        n_imgs = args.n_imgs
 
     # build base path for output directories
     method = 'nerf' if args.mu is None else 'depth'
@@ -452,7 +454,20 @@ def main():
             d_frames=d_frames
     )
 
-if not args.debug:
+# select device
+cuda_available = torch.cuda.is_available()
+device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
+
+# print device info or abort if no CUDA device available
+if device != 'cpu' :
+    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
+else:
+    raise RuntimeError("CUDA device not available.")
+
+
+# run in sweep mode or not
+if not args.debug and args.sweep:
+    # define sweep config
     sweep_config = {
         "program": "run-nerf.py",
         "method": "grid",
@@ -466,24 +481,12 @@ if not args.debug:
             }
         }
     }
-
     # initialize sweep
     sweep_id = wandb.sweep(
         sweep_config,
         project="depth-nerf"
     )
-
-# select device
-cuda_available = torch.cuda.is_available()
-device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
-
-# print device info or abort if no CUDA device available
-if device != 'cpu' :
-    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
-else:
-    raise RuntimeError("CUDA device not available.")
-
-if not args.debug:
+    # run sweep
     wandb.agent(sweep_id, function=main)
 else:
     main()
