@@ -92,6 +92,7 @@ def step(
     verbose: bool = True,
     estimator: Optional[OccGridEstimator] = None,
     render_step_size: Optional[float] = None,
+    mu: Optional[float] = None
     ) -> Tuple[float, float]:
     """
     Training/validation/test step.
@@ -111,6 +112,8 @@ def step(
         testpose (Optional[Tensor]): test pose to use for visualization
         verbose (bool): whether to print progress bar
         estimator (Optional[OccGridEstimator]): occupancy grid estimator
+        render_step_size (Optional[float]): step size for rendering
+        mu (Optional[float]): weight for depth loss
     Returns:
         Tuple[float, float]: total loss, total PSNR
     ----------------------------------------------------------------------------
@@ -136,7 +139,7 @@ def step(
                 density = model(x)
                 return density * render_step_size
 
-            outputs = R.render_rays(
+            rgb, _, depth, _ = R.render_rays(
                     rays_o=rays_o,
                     rays_d=rays_d,
                     estimator=estimator,
@@ -148,7 +151,6 @@ def step(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
-            rgb, _, depth, _ = outputs if outpus is not None
 
             # send g.t. data to device
             rgb_gt = rgb_gt.to(device)
@@ -160,13 +162,13 @@ def step(
                 psnr = -10. * torch.log10(loss)
 
             # add depth loss if using depth supervision
-            if args.mu is not None:
+            if mu is not None:
                 depth_loss = L.depth_l1(
                         depth.squeeze(-1), 
                         depth_gt,
                         use_bkgd=args.use_bkgd
                 )
-                loss += args.mu * depth_loss
+                loss += mu * depth_loss
 
             with torch.no_grad():
                 # remove bkgd if necessary
@@ -216,7 +218,8 @@ def train(
         pos_fn,
         dir_fn,
         train_set, 
-        val_set
+        val_set,
+        mu: Optional[float] = None
 ) -> Tuple[float, float]:
     """Train NeRF model.
     ----------------------------------------------------------------------------
@@ -226,6 +229,7 @@ def train(
         dir_fn (nn.Module): positional encoding function for directional coords
         train_set (Dataset): training dataset
         val_set (Dataset): validation dataset
+        mu (Optional[float]): weight for depth loss
     Returns:
         Tuple[float, float]: best validation PSNR, best validation MAE"""
     # retrieve camera intrinsics
@@ -312,6 +316,7 @@ def train(
                 scheduler=scheduler,
                 estimator=estimator,
                 render_step_size=render_step_size,
+                mu=mu
         )
         # validation step
         val_psnr, val_mae = step(
@@ -323,7 +328,8 @@ def train(
                 device=device,
                 split='val',
                 estimator=estimator,
-                render_step_size=render_step_size
+                render_step_size=render_step_size,
+                mu=mu
         )
         # update best validation metrics
         best_psnr = max(best_psnr, val_psnr)
@@ -380,16 +386,17 @@ def main():
                 'scene': args.scene,
                 'n_iters': args.n_iters,
                 'lrate': args.lrate,
-                'mu': args.mu,
                 'white_bkgd': args.white_bkgd,
                 'use_bkgd': args.use_bkgd
             }
         )
 
     if args.sweep:
-        n_imgs = wandb.config.n_imgs
+        mu = wandb.config.mu
     else:
-        n_imgs = args.n_imgs
+        mu = args.mu
+        
+    n_imgs = args.n_imgs
 
     # build base path for output directories
     method = 'nerf' if args.mu is None else 'depth'
@@ -426,7 +433,8 @@ def main():
                 pos_fn=pos_fn,
                 dir_fn=dir_fn,
                 train_set=train_set,
-                val_set=val_set
+                val_set=val_set,
+                mu=mu
         )
         wandb.log({
             'final_val_psnr': final_psnr,
@@ -482,14 +490,18 @@ if not args.debug and args.sweep:
     # define sweep config
     sweep_config = {
         "program": "run-nerf.py",
-        "method": "grid",
+        "method": "random",
         "metric": {
             "name": "final_val_psnr",
             "goal": "maximize"
         },
         "parameters": {
-            "n_imgs": {
-                "values": [80, 60, 40, 20]
+            "mu": {
+                "values": [1e-8, 1e-7, 1e-6, 1e-5]
+            },
+            "beta": {
+                "min": 0.02,
+                "max": 0.5
             }
         }
     }
@@ -499,6 +511,6 @@ if not args.debug and args.sweep:
         project="depth-nerf"
     )
     # run sweep
-    wandb.agent(sweep_id, function=main)
+    wandb.agent(sweep_id, function=main, count=10)
 else:
     main()

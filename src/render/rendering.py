@@ -154,7 +154,7 @@ def render_rays(
     render_bkgd = white_bkgd * torch.ones(3, device=device, requires_grad=train)
 
     try:
-        rgb, opacity, depth, extras = rendering(
+        output = rendering(
                 t_starts,
                 t_ends,
                 ray_indices,
@@ -163,10 +163,15 @@ def render_rays(
                 render_bkgd=render_bkgd
         )
     except AssertionError as e:
-        print(f"Assertion error while rendering: {e}")
-        return
+        output = (
+                torch.ones_like(rays_o) * white_bkgd,
+                None,
+                torch.zeros_like(rays_o[:, 0], dtype=torch.float32),
+                None,
+        )
 
-    return rgb, opacity, depth, extras
+    return output
+
 
 def render_frame(
         H: int,
