@@ -1,3 +1,6 @@
+# stdlib modules
+from typing import Tuple
+
 # third-party modules
 import torch
 from torch import nn
@@ -50,76 +53,90 @@ class NeRF(nn.Module):
     """Neural Radiance Field model definition.
     ----------------------------------------------------------------------------
     """
-    def __init__(self, 
-                 d_input=3,
-                 n_layers=8,
-                 d_filter=256,
-                 skip=(4,),
-                 d_viewdirs=None):
+    def __init__(
+            self, 
+            d_pos: int = 3,
+            d_dir: int = 3,
+            n_layers: int = 8,
+            d_hidden: int = 256,
+            skip: Tuple[int] = (4,),
+            **kwargs: dict 
+    ) -> None:
         """Constructor method. Builds a fully connected network as that of
         original NeRF paper using ReLU activation functions.
         ------------------------------------------------------------------------
         Args:
-            d_input: int. Dimension of spatial (with viewing dir) coords
+            d_pos: int. Dimension of spatial coordinates
+            d_dir: int. Dimension of viewing directions
             n_layers: int. Number of hidden layers before applying bottleneck
-            d_filter: int. Width of hidden layers
+            d_hidden: int. Width of hidden layers
             skip: Tuple[int]. Layer positions at where to concatenate input
-            d_viewdirs: Optional[int]. Dimension of viewing direction coords""" 
+            **kwargs: dict. Positional encoding keyword arguments
+        ------------------------------------------------------------------------
+        """
         super().__init__()
-        self.d_input = d_input
+        self.d_pos = d_pos
+        self.d_dir = d_dir
         self.skip = skip
         self.activation = nn.functional.relu # use ReLU activation fn
-        self.d_viewdirs = d_viewdirs
 
-        # create model layers
-        hidden_layers = [nn.Linear(d_filter + self.d_input, d_filter) if i in skip 
-                         else nn.Linear(d_filter, d_filter) for i in range(n_layers - 1)]
-        self.layers = nn.ModuleList([nn.Linear(self.d_input, d_filter)] + hidden_layers)
+        # encoder for spatial coordinates
+        n_freqs = kwargs['pos_fn']['n_freqs']
+        log_space = kwargs['pos_fn']['log_space']
+        self.__pos_encoder = PositionalEncoder(d_pos, n_freqs, log_space)
+        d_pos_encoded = self.__pos_encoder.d_output # encoded output dim
+        # encoder for viewing directions
+        n_freqs = kwargs['dir_fn']['n_freqs']
+        log_space = kwargs['dir_fn']['log_space']
+        self.__dir_encoder = PositionalEncoder(d_dir, n_freqs, log_space)
+        d_dir_encoded = self.__dir_encoder.d_output # encoded output dim
 
-        # create last layers
-        if self.d_viewdirs is not None:
-            # field has view-dependent effects, split density and color
-            self.sigma_out = nn.Linear(d_filter, 1)
-            self.rgb_layer = nn.Linear(d_filter, d_filter)
-            self.branch = nn.Linear(d_filter + self.d_viewdirs, d_filter // 2)
-            self.output = nn.Linear(d_filter // 2, 3)
-        else:
-            # if the vield has no view-dependency, use simpler output
-            self.output = nn.Linear(d_filter, 4)
+        # hidden layers
+        hidden_layers = [
+                nn.Linear(d_hidden + d_pos_encoded, d_hidden) if i in skip 
+                else nn.Linear(d_hidden, d_hidden) for i in range(n_layers - 1)
+        ]
+        self.layers = nn.ModuleList(
+                [nn.Linear(d_pos_encoded, d_hidden)] + hidden_layers
+        )
 
-    def forward(self, x, viewdirs=None):
+        # last layers
+        self.sigma = nn.Linear(d_hidden, 1)
+        self.connection = nn.Linear(d_hidden, d_hidden)
+        self.branch = nn.Linear(d_hidden + d_dir_encoded, d_hidden // 2)
+        self.rgb = nn.Linear(d_hidden // 2, 3)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x, dirs = None):
         """Forward pass method with optional view directions argument.
         ------------------------------------------------------------------------
         Args:
             x: (N, 3)-shape torch.Tensor. Space coordinates
-            viewdirs: Optional[(N, 3)-shape torch.Tensor]. Viewing directions"""
-        # check if view directions are not required but given as input
-        if self.d_viewdirs is None and viewdirs is not None:
-            err_msg = "Model does not have view-dependent effects but viewing directions were given."
-            raise ValueError(err_msg)
-
+            dirs: Optional[(N, 3)-shape torch.Tensor]. Viewing directions"""
         # apply forward pass up to the immediate layer before the bottleneck
-        x_input = x
+        x_in = self.__pos_encoder(x)
+        x = x_in
         for i, layer in enumerate(self.layers):
             x = self.activation(layer(x))
             if i in self.skip:
-                x = torch.cat([x, x_input], dim=-1)
+                x = torch.cat([x, x_in], dim=-1)
         
-        # apply bottleneck pass
-        if viewdirs is not None:
+        if dirs is not None:
             # get sigma from network output
-            sigma = self.sigma_out(x)
+            sigma = self.sigma(x)
 
             # get RGB value
-            x = self.rgb_layer(x)
-            x = torch.concat([x, viewdirs], dim=-1)
+            x = self.connection(x)
+            dir_in = self.__dir_encoder(dirs)
+            x = torch.concat([x, dir_in], dim=-1)
             x = self.activation(self.branch(x)) 
-            x = self.output(x)
+            x = self.rgb(x)
+            x = self.sigmoid(x)
 
             # Concatenate sigma and RGB value
             x = torch.concat([x, sigma], dim=-1)
         else:
             # get sigma from network output
-            x = self.sigma_out(x)
+            x = self.sigma(x)
 
         return x

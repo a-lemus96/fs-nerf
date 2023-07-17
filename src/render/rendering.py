@@ -95,8 +95,6 @@ def render_rays(
         estimator: OccGridEstimator,
         device: str,
         model: nn.Module,
-        pos_fn: Callable[[Tensor], Tensor],
-        dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
         train: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
@@ -109,8 +107,6 @@ def render_rays(
         estimator: OccGridEstimator object
         device: Device to use for rendering
         model: NeRF model
-        pos_fn: Positional encoding function
-        dir_fn: Positional encoding function for dirs
         train: Whether to train model
     Returns:
         rgb: (n_rays, 3)-shape tensor containing RGB values
@@ -127,7 +123,6 @@ def render_rays(
         to = rays_o[ray_indices]
         td = rays_d[ray_indices]
         x = to + td * (t_starts + t_ends)[:, None] / 2.0
-        x = pos_fn(x) # positional encoding
         sigmas = model(x)
 
         return sigmas.squeeze(-1)
@@ -143,8 +138,6 @@ def render_rays(
             to = rays_o[ray_indices]
             td = rays_d[ray_indices]
             x = to + td * (t_starts + t_ends)[:, None] / 2.0
-            x = pos_fn(x) # positional encoding
-            td = dir_fn(td) # pos encoding
             out = model(x, td)
             rgbs = out[..., :3]
             sigmas = out[..., -1]
@@ -182,8 +175,6 @@ def render_frame(
         estimator: OccGridEstimator,
         device: str,
         model: nn.Module,
-        pos_fn: Callable[[Tensor], Tensor],
-        dir_fn: Optional[Callable[[Tensor], Tensor]] = None,
         train: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
@@ -209,7 +200,6 @@ def render_frame(
                 estimator,
                 device,
                 model,
-                pos_fn, dir_fn,
                 white_bkgd,
                 render_step_size=render_step_size
         )
@@ -230,8 +220,6 @@ def render_path(
         chunksize: int,
         device: str,
         model: nn.Module,
-        pos_fn: Callable[[torch.Tensor], torch.Tensor], 
-        dir_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         white_bkgd: bool = False
 ) -> Tuple[torch.Tensor]:
     """Renders a video from a given path of camera poses.
@@ -242,8 +230,6 @@ def render_path(
         chunksize int: Number of rays to render in parallel
         device: str. Device to use for rendering
         model: nn.Module. NeRF model to use for rendering
-        pos_fn: Callable. Pos encoding for spatial inputs
-        dir_fn: Optional Callable. Pos encoding for direction inputs
         white_bkgd: bool. Whether to use white background
     Returns:
         frames: [N, H, W, 3]. N rgb frames
@@ -259,12 +245,12 @@ def render_path(
             rgb, depth = render_frame(
                     H, W, focal, pose,
                     chunksize,
-                    pos_fn, model,
-                    dir_fn=dir_fn,
+                    estimator,
+                    device,
+                    model,
+                    train,
                     white_bkgd=white_bkgd,
-                    estimator=estimator,
                     render_step_size=render_step_size,
-                    device=device
             )
 
             # read predicted rgb frame

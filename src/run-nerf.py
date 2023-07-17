@@ -44,46 +44,36 @@ def init_model():
     """
     Initialize model, encoders and optimizer for NeRF training
     """
-    # encoders
-    pos_encoder = M.PositionalEncoder(
-            args.d_input, 
-            args.n_freqs,
-            log_space=args.log_space
-    )
-    pos_fn = lambda x: pos_encoder(x)
+    # keyword args for positional encoding
+    kwargs = {
+            'pos_fn': {
+                'n_freqs': args.n_freqs,
+                'log_space': args.log_space
+            },
+            'dir_fn': {
+                'n_freqs': args.n_freqs_views,
+                'log_space': args.log_space
+            }
+    }
 
-    # check if using view directions to initialize encoders
-    if args.no_dirs is False:
-        dir_encoder = M.PositionalEncoder(
-                args.d_input, 
-                args.n_freqs_views,
-                log_space=args.log_space
-        )
-        dir_fn = lambda x: dir_encoder(x)
-        d_viewdirs = dir_encoder.d_output
-    else:
-        dir_fn = None
-        d_viewdirs = None
-
-    # model
+    # instantiate model
     model = M.NeRF(
-            pos_encoder.d_output, 
-            n_layers=args.n_layers,
-            d_filter=args.d_filter, 
-            skip=args.skip,
-            d_viewdirs=d_viewdirs
+            args.d_input,
+            args.d_input,
+            args.n_layers,
+            args.d_filter, 
+            args.skip,
+            **kwargs
     )
-    model.to(device)
+    model.to(device) # move model to device
     
-    return model, pos_fn, dir_fn
+    return model
 
 # TRAINING FUNCTIONS
 
 def step(
     epoch: int,
     model: nn.Module,
-    pos_fn: nn.Module,
-    dir_fn: nn.Module,
     loader: DataLoader,
     device: torch.device,
     split: str,
@@ -135,7 +125,6 @@ def step(
             
             # forward pass
             def occ_eval_fn(x):
-                x = pos_fn(x)  # apply positional encoding
                 density = model(x)
                 return density * render_step_size
 
@@ -145,8 +134,6 @@ def step(
                     estimator=estimator,
                     device=device,
                     model=model,
-                    pos_fn=pos_fn,
-                    dir_fn=dir_fn,
                     train=train,
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
@@ -215,8 +202,6 @@ def step(
 
 def train(
         model,
-        pos_fn,
-        dir_fn,
         train_set, 
         val_set,
         mu: Optional[float] = None
@@ -225,13 +210,13 @@ def train(
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF model
-        pos_fn (nn.Module): positional encoding function for spatial coords
-        dir_fn (nn.Module): positional encoding function for directional coords
         train_set (Dataset): training dataset
         val_set (Dataset): validation dataset
         mu (Optional[float]): weight for depth loss
     Returns:
-        Tuple[float, float]: best validation PSNR, best validation MAE"""
+        Tuple[float, float]: best validation PSNR, best validation MAE
+    ----------------------------------------------------------------------------
+    """
     # retrieve camera intrinsics
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
@@ -291,8 +276,7 @@ def train(
     ).to(device)
 
     # compute number of epochs
-    steps_per_epoch = np.ceil(len(train_set)/args.batch_size)
-    epochs = np.ceil(args.n_iters / steps_per_epoch)
+    epochs = args.n_iters // len(train_loader)
 
     # set up progress bar
     desc = f"[NeRF] Epoch"
@@ -307,8 +291,6 @@ def train(
         train_loss, train_psnr = step(
                 epoch=e, 
                 model=model, 
-                pos_fn=pos_fn,
-                dir_fn=dir_fn,
                 loader=train_loader, 
                 device=device, 
                 split='train', 
@@ -322,8 +304,6 @@ def train(
         val_psnr, val_mae = step(
                 epoch=e,
                 model=model,
-                pos_fn=pos_fn,
-                dir_fn=dir_fn,
                 loader=val_loader,
                 device=device,
                 split='val',
@@ -350,8 +330,6 @@ def train(
                     estimator,
                     device,
                     model,
-                    pos_fn=pos_fn,
-                    dir_fn=dir_fn,
                     train=False,
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
@@ -426,12 +404,10 @@ def main():
 
 
     if not args.render_only:
-        model, pos_fn, dir_fn = init_model() # initialize model
+        model = init_model() # initialize model
         # train model
         final_psnr, final_mae = train(
                 model=model,
-                pos_fn=pos_fn,
-                dir_fn=dir_fn,
                 train_set=train_set,
                 val_set=val_set,
                 mu=mu
@@ -443,7 +419,7 @@ def main():
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
     else:
-        model, params, pos_fn, dir_fn = init_model()
+        model = init_model()
         # load model
         model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
 
