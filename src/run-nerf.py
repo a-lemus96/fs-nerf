@@ -37,7 +37,6 @@ random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
 
-
 # MODEL INITIALIZATION
 
 def init_model():
@@ -112,7 +111,7 @@ def step(
     # set model to corresponding mode
     model = model.train(train)
 
-    total_mae, total_psnr = 0., 0.
+    avg_mae, avg_psnr = 0., 0.
     
     # set up progress bar
     desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
@@ -192,13 +191,10 @@ def step(
                     })
 
             # accumulate metrics
-            total_psnr += psnr.item() / len(loader)
-            total_mae += mae.item() / len(loader)
+            avg_psnr += psnr.item() / len(loader)
+            avg_mae += mae.item() / len(loader)
 
-            # update progress bar
-            batches.set_postfix(psnr=psnr.item())
-            
-    return total_psnr, total_mae
+    return avg_psnr, avg_mae
 
 def train(
         model,
@@ -288,7 +284,7 @@ def train(
     # iterate over epochs
     for e in pbar:
         # training step
-        train_loss, train_psnr = step(
+        _, _ = step(
                 epoch=e, 
                 model=model, 
                 loader=train_loader, 
@@ -334,8 +330,6 @@ def train(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
-            # remove bkgd for depth visualization
-            depth[bkgd] = 0.
             if args.debug is False:
                 # log images to wandb
                 wandb.log({
@@ -436,9 +430,9 @@ def main():
             chunksize=args.batch_size,
             device=device,
             model=model,
-            pos_fn=pos_fn,
-            dir_fn=dir_fn,
+            train=False,
             white_bkgd=args.white_bkgd,
+            render_step_size=render_step_size
     )
 
     frames, d_frames = output

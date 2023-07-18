@@ -220,7 +220,9 @@ def render_path(
         chunksize: int,
         device: str,
         model: nn.Module,
-        white_bkgd: bool = False
+        train: bool = False,
+        white_bkgd: bool = False,
+        render_step_size: float = 5e-3
 ) -> Tuple[torch.Tensor]:
     """Renders a video from a given path of camera poses.
     ----------------------------------------------------------------------------
@@ -230,7 +232,9 @@ def render_path(
         chunksize int: Number of rays to render in parallel
         device: str. Device to use for rendering
         model: nn.Module. NeRF model to use for rendering
+        train: bool. Whether to train model
         white_bkgd: bool. Whether to use white background
+        render_step_size: float. Step size for rendering
     Returns:
         frames: [N, H, W, 3]. N rgb frames
     ----------------------------------------------------------------------------
@@ -238,8 +242,8 @@ def render_path(
     H, W, focal = hwf
 
     frames, d_frames = [], []
-    print("Rendering frames...")
-    for i, pose in enumerate(tqdm(render_poses)):
+    pbar = tqdm(total=len(render_poses))
+    for i, pose in enumerate(pbar):
         with torch.no_grad():
             # render frame
             rgb, depth = render_frame(
