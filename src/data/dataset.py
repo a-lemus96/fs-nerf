@@ -8,6 +8,7 @@ import imageio as iio
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from sklearn.cluster import KMeans
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.transforms import Resize
@@ -57,18 +58,30 @@ class SyntheticRealistic(Dataset):
             imgs = imgs[..., :3] * imgs[..., -1:] + (1. - imgs[..., -1:])
         else:
             imgs = imgs[..., :3]
-        # choose random index for test image, pose and depth map
+        # choose random index for display image, pose and depth map
         idx = np.random.randint(0, imgs.shape[0])
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
         self.testdepth = depths[idx]
 
-        # draw a random sample of indices
-        if n_imgs is not None:
-            idxs = np.random.choice(imgs.shape[0], n_imgs, replace=False)
-            imgs = imgs[idxs]
-            depths = depths[idxs]
-            poses = poses[idxs]
+        # apply K-means to draw N views and ensure maximum scene coverage
+        x = poses[:, :3, 3]
+        kmeans = KMeans(n_clusters=n_imgs,  n_init=10).fit(x) # kmeans model
+        labels = kmeans.labels_
+        # compute distances to cluster centers
+        dists = np.linalg.norm(x - kmeans.cluster_centers_[labels], axis=1)
+        # choose the closest view for every cluster center
+        idxs = np.empty((n_imgs,), dtype=int) # array for indices of views
+
+        for i in range(n_imgs):
+            cluster_dists = np.where(labels == i, dists, np.inf)
+            idxs[i] = np.argmin(cluster_dists[labels == i])
+
+        print(idxs)
+        imgs = imgs[idxs]
+        depths = depths[idxs]
+        poses = poses[idxs]
+        self.poses = poses
 
         # compute rays
         H, W, f = hwf

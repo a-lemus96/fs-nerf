@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 def gini_entropy(
         sigmas: Tensor
-        ) -> Tensor:
+) -> Tensor:
     r"""Regularization function based on Gini's impurity index. Specifically,
     the negative of the Herfindahl index for the proportions of density along a
     batch of rays.
