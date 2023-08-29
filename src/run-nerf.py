@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 from nerfacc.volrend import rendering
 from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
+import plotly.graph_objects as go
+from skimage.metrics import structural_similarity as ssim
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -23,7 +25,7 @@ import wandb
 import core.models as M
 import core.loss as L
 import core.scheduler as S
-import data.dataset as D 
+import data.dataset as D
 import render.rendering as R
 import utils.parser as P
 import utils.plotting as PL
@@ -41,7 +43,7 @@ args = P.config_parser() # parse command line arguments
 
 def init_model():
     """
-    Initialize model, encoders and optimizer for NeRF training
+    Initialize model for NeRF training
     """
     # keyword args for positional encoding
     kwargs = {
@@ -381,21 +383,37 @@ def main():
     folders = ['video', 'model']
     [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
-    # load dataset(s)
+    # load training data
     train_set = D.SyntheticRealistic(
             scene=args.scene,
             n_imgs=n_imgs,
             split='train',
             white_bkgd=args.white_bkgd
     )
+    # log interactive 3D plot of camera positions
+    fig = go.Figure(
+            data=[go.Scatter3d(
+                x=train_set.poses[:, 0, 3],
+                y=train_set.poses[:, 1, 3],
+                z=train_set.poses[:, 2, 3],
+                mode='markers',
+                marker=dict(size=8, opacity=0.5)
+            )],
+            layout=go.Layout(
+                margin=dict(l=20,r=20, t=20, b=20)
+            )
+    )
+    wandb.log({
+        'camera_positions': fig
+    })
 
+    # load validation data
     val_set = D.SyntheticRealistic(
             scene=args.scene,
             n_imgs=n_imgs,
             split='val',
             white_bkgd=args.white_bkgd
     )
-
 
     if not args.render_only:
         model = init_model() # initialize model

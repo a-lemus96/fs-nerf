@@ -75,9 +75,8 @@ class SyntheticRealistic(Dataset):
 
         for i in range(n_imgs):
             cluster_dists = np.where(labels == i, dists, np.inf)
-            idxs[i] = np.argmin(cluster_dists[labels == i])
+            idxs[i] = np.argmin(cluster_dists)
 
-        print(idxs)
         imgs = imgs[idxs]
         depths = depths[idxs]
         poses = poses[idxs]
