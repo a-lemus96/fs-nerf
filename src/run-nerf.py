@@ -397,12 +397,24 @@ def main():
                 y=train_set.poses[:, 1, 3],
                 z=train_set.poses[:, 2, 3],
                 mode='markers',
-                marker=dict(size=8, opacity=0.5)
+                marker=dict(size=7, opacity=0.8, color='red'),
             )],
             layout=go.Layout(
-                margin=dict(l=20,r=20, t=20, b=20)
+                margin=dict(l=20,r=20, t=20, b=20),
             )
     )
+    # set fixed axis scales
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(range=[-5, 5]),
+            yaxis=dict(range=[-5, 5]),
+            zaxis=dict(range=[0, 5]),
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z'
+        )
+    )
+
     wandb.log({
         'camera_positions': fig
     })
