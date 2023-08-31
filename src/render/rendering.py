@@ -1,5 +1,4 @@
-# stdlib modules
-import argparse
+# stdlib modules import argparse
 import os
 from typing import Callable, Optional, Tuple
 
@@ -159,7 +158,7 @@ def render_rays(
         output = (
                 torch.ones_like(rays_o) * white_bkgd,
                 None,
-                torch.zeros_like(rays_o[:, 0], dtype=torch.float32),
+                torch.zeros_like(rays_o[:, 0].unsqueeze(1), dtype=torch.float32),
                 None,
         )
 
@@ -209,7 +208,13 @@ def render_frame(
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    depth = torch.cat(depth_map, dim=0)
+    try:
+        depth = torch.cat(depth_map, dim=0)
+    except RuntimeError as e:
+        # print depth_map shapes
+        for d in depth_map:
+            print(d.shape)
+        raise e
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
         
