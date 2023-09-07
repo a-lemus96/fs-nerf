@@ -169,7 +169,6 @@ def step(
                 mae = torch.abs(depth - depth_gt)
                 mae = torch.mean(mae)
 
-
             if train:
                 # backward pass
                 loss.backward()
@@ -225,7 +224,7 @@ def train(
     testdepth[bkgd] = 0.
     testpose = train_set.testpose
 
-    if args.debug is False:
+    if not args.debug:
         # log test maps to wandb
         wandb.log({
             'rgb_gt': wandb.Image(
@@ -354,11 +353,13 @@ def main():
         # set up wandb run to track training
         wandb.init(
             project='depth-nerf',
-            name='nerf' if args.mu is None else 'depth',
+            name='NeRF' if args.mu is None else 'Depth',
             config={
                 'dataset': args.dataset,
                 'scene': args.scene,
                 'n_iters': args.n_iters,
+                'n_imgs': args.n_imgs,
+                'batch_size': args.batch_size,
                 'lrate': args.lrate,
                 'white_bkgd': args.white_bkgd,
                 'use_bkgd': args.use_bkgd
@@ -485,7 +486,7 @@ else:
     raise RuntimeError("CUDA device not available.")
 
 
-# run in sweep mode or not
+# either sweep or single training run
 if not args.debug and args.sweep:
     # define sweep config
     sweep_config = {

@@ -11,7 +11,7 @@ import torch
 from sklearn.cluster import KMeans
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.transforms import Resize
+from torchvision.transforms import GaussianBlur, Resize
 
 # custom modules
 import utils.utilities as U
@@ -58,6 +58,7 @@ class SyntheticRealistic(Dataset):
             imgs = imgs[..., :3] * imgs[..., -1:] + (1. - imgs[..., -1:])
         else:
             imgs = imgs[..., :3]
+
         # choose random index for display image, pose and depth map
         idx = np.random.randint(0, imgs.shape[0])
         self.testimg = imgs[idx]
@@ -77,8 +78,8 @@ class SyntheticRealistic(Dataset):
             cluster_dists = np.where(labels == i, dists, np.inf)
             idxs[i] = np.argmin(cluster_dists)
 
-        imgs = imgs[idxs]
-        depths = depths[idxs]
+        self.imgs = imgs[idxs]
+        self.depths = depths[idxs]
         poses = poses[idxs]
         self.poses = poses
 
@@ -93,7 +94,6 @@ class SyntheticRealistic(Dataset):
         # add pixel colors and depth values
         self.rgb = imgs.reshape(-1, 3)
         self.depth = depths.reshape(-1)
-
 
     def __len__(self) -> int:
         """Compute the number of training samples.
@@ -228,3 +228,50 @@ class SyntheticRealistic(Dataset):
             imgs, depths, hwf = self.__scale(imgs, depths, hwf)
 
         return imgs, depths, poses, hwf
+
+
+    def gaussian_downsample(self, t: int) -> None:
+        """
+        Applies Gaussian blur to images and depth maps using a kernel of size t.
+        It also downsamples images and depth maps by a factor parameterized by t
+        ------------------------------------------------------------------------
+        Args:
+            t (int): Gaussian blur kernel size
+        Returns:
+            None
+        """    
+        if int(self.hwf[0]) % t != 0 or int(self.hwf[1]) % t != 0:
+            s = 'Gaussian blur kernel size must be a divisor of image height
+                 and width'
+            raise ValueError(s)
+
+        self.t = t
+        # permute images and depths to [N, C, H, W] format
+        imgs = torch.permute(self.imgs, (0, 3, 1, 2)) # [N, 3, H, W]
+        depths = torch.unsqueeze(self.depths, 1) # [N, 1, H, W]
+
+        # apply Gaussian blur
+        blur = GaussianBlur((t, t), sigma=(t, t))
+        imgs = blur(imgs) # [N, 3, H, W]
+        depths = blur(depths) # [N, 1, H, W]
+
+        # permute images and depths to [N, H, W, C] format
+        imgs = torch.permute(imgs, (0, 2, 3, 1)) # [N, H, W, 3]
+        depths = torch.squeeze(depths, 1) # [N, H, W]
+
+        # compute rays
+        H, W, f = hwf
+        rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1) 
+                            for p in poses], 0)
+        # skip rays, images and depths
+        rays = rays[:, ::t, ::t, :]
+        imgs = imgs[:, ::t, ::t, :]
+        depths = depths[:, ::t, ::t]
+
+        rays = rays.reshape(-1, 6)
+        self.rays_o = rays[..., :3]
+        self.rays_d = rays[..., 3:]
+
+        # add pixel colors and depth values
+        self.rgb = imgs.reshape(-1, 3)
+        self.depth = depths.reshape(-1)
