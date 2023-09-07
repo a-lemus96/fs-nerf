@@ -130,14 +130,20 @@ def render_rays(
             rays_o, rays_d,
             sigma_fn=sigma_fn,
             render_step_size=render_step_size,
-            stratified=train
+            stratified=train,
+            far_plane=8.
     )
 
     def rgb_sigma_fn(t_starts, t_ends, ray_indices):
             to = rays_o[ray_indices]
             td = rays_d[ray_indices]
             x = to + td * (t_starts + t_ends)[:, None] / 2.0
-            out = model(x, td)
+            try:
+                out = model(x, td)
+            except:
+                print(x.shape, td.shape)
+                raise
+
             rgbs = out[..., :3]
             sigmas = out[..., -1]
 
@@ -208,13 +214,7 @@ def render_frame(
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    try:
-        depth = torch.cat(depth_map, dim=0)
-    except RuntimeError as e:
-        # print depth_map shapes
-        for d in depth_map:
-            print(d.shape)
-        raise e
+    depth = torch.cat(depth_map, dim=0)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
         
