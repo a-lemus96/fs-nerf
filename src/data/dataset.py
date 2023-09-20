@@ -84,7 +84,7 @@ class SyntheticRealistic(Dataset):
         self.poses = poses[idxs]
         
         # create training samples
-        self.__build_samples()
+        self.__build_samples(self.imgs, self.depths, self.poses, self.hwf)
 
     def __len__(self) -> int:
         """Compute the number of training samples.
