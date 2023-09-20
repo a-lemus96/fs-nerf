@@ -20,6 +20,8 @@ def config_parser() -> argparse.Namespace:
                         type=int, help='Number of encoding fns for view dirs')
 
     # model
+    parser.add_argument('--model', dest='model', default='nerf', type=str,
+                        help='Model to be used for training')
     parser.add_argument('--d_filter', dest='d_filter', default=256, type=int,
                         help='Linear layer filter dimension')
     parser.add_argument('--n_layers', dest='n_layers', default=8, type=int,
@@ -44,6 +46,8 @@ def config_parser() -> argparse.Namespace:
                         help='Balancing hyperparameter for depth loss')
 
     # training 
+    parser.add_argument('--scheduler', dest='scheduler', default='mip', type=str,
+                        help='Learning rate scheduler')
     parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                         help='Number of training iterations')
     parser.add_argument('--warmup_iters', dest='warmup_iters', default=2500,
