@@ -40,26 +40,28 @@ def config_parser() -> argparse.Namespace:
                         help="Use white backgroung for training imgs")
 
     # optimization
-    parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
-                        help='Learning rate')
-    parser.add_argument('--mu', dest='mu', default=None, type=float,
-                        help='Balancing hyperparameter for depth loss')
-
-    # training 
-    parser.add_argument('--scheduler', dest='scheduler', default='mip', type=str,
-                        help='Learning rate scheduler')
     parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                         help='Number of training iterations')
     parser.add_argument('--warmup_iters', dest='warmup_iters', default=2500,
                         type=int, help='Number of iterations for warmup phase')
     parser.add_argument('--batch_size', dest='batch_size', default=2**12, type=int,
                         help='Number of rays per optimization step')
+    parser.add_argument('--lrate', dest='lrate', default=5e-4, type=float,
+                        help='Learning rate')
+    parser.add_argument('--scheduler', dest='scheduler', default='mip', type=str,
+                        help='Learning rate scheduler')
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
+
+    # scale-space
+    parser.add_argument('--scale_space', dest='scale_space', action="store_true",
+                        help='If set, use scale-space for training')
 
     # depth supervision
     parser.add_argument('--use_bkgd', dest='use_bkgd', action="store_true",
                         help='If set, use background pixels for depth supervision')
+    parser.add_argument('--mu', dest='mu', default=None, type=float,
+                        help='Balancing hyperparameter for depth loss')
 
     # validation
     parser.add_argument('--val_ratio', dest='val_ratio', 
