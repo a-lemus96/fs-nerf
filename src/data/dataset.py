@@ -29,8 +29,8 @@ class SyntheticRealistic(Dataset):
             scene: str, 
             split: str,
             n_imgs: int = None,
-            factor: float = None,
-            white_bkgd: bool = False
+            white_bkgd: bool = False,
+            img_mode: bool = False
     ) -> None:
         """
         Initialize the dataset.
@@ -39,16 +39,17 @@ class SyntheticRealistic(Dataset):
             scene (str): scene name
             split (str): train, val or test split
             n_imgs (int): number of training images
-            factor (float): factor to scale images and camera intrinsics
+            white_bkgd (bool): whether to use white background
+            img_mode (bool): wether to iterate over rays or images
         Returns:
             None
         """
         super(SyntheticRealistic).__init__()  # inherit from Dataset
         self.scene = scene
         self.split = split
-        self.factor = factor
         self.near = 2.0
         self.far = 8.0
+        self.img_mode = img_mode
 
         # load the dataset
         imgs, depths, poses, hwf = self.__load()
@@ -94,6 +95,9 @@ class SyntheticRealistic(Dataset):
         Returns:
             N (int): number of training samples
         """
+        if self.img_mode:
+            return self.imgs.shape[0]
+
         return self.rgb.shape[0]
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -107,6 +111,9 @@ class SyntheticRealistic(Dataset):
             rgb (Tensor): [3,]. Pixel RGB color
             depth (Tensor): [1,]. Pixel depth value
         """
+        if self.img_mode:
+            return self.imgs[idx], self.depths[idx]
+
         return self.rays_o[idx], self.rays_d[idx], self.rgb[idx], self.depth[idx]
 
     def __build_samples(
