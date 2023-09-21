@@ -138,12 +138,7 @@ def render_rays(
             to = rays_o[ray_indices]
             td = rays_d[ray_indices]
             x = to + td * (t_starts + t_ends)[:, None] / 2.0
-            try:
-                out = model(x, td)
-            except:
-                print(x.shape, td.shape)
-                raise
-
+            out = model(x, td)
             rgbs = out[..., :3]
             sigmas = out[..., -1]
 
