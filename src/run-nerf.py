@@ -75,6 +75,7 @@ def init_model():
                 args.d_input,
                 args.d_input,
                 args.d_filter,
+                [35., 1., 1., 1., 1., 1., 1., 1.]
         )
 
     model.to(device) # move model to device
@@ -269,7 +270,7 @@ def train(
         scheduler = S.ExponentialDecay(
                 optimizer,
                 args.n_iters,
-                (args.lrate, 5e-5)
+                (args.lrate, 5e-4)
         )
 
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
@@ -364,7 +365,7 @@ def train(
 
 
 def main():
-    if args.debug is not True:
+    if not args.debug:
         wandb.login()
         # set up wandb run to track training
         wandb.init(
@@ -374,20 +375,20 @@ def main():
                 'dataset': args.dataset,
                 'scene': args.scene,
                 'img_mode': args.img_mode,
+                'white_bkgd': args.white_bkgd,
+                'model': args.model,
+                'img_mode': args.img_mode,
+                'scheduler': args.scheduler,
                 'n_iters': args.n_iters,
                 'n_imgs': args.n_imgs,
                 'batch_size': args.batch_size,
                 'lrate': args.lrate,
-                'white_bkgd': args.white_bkgd,
-                'use_bkgd': args.use_bkgd
+                'use_bkgd': args.use_bkgd,
+                'val_ratio': args.val_ratio
             }
         )
 
-    if args.sweep:
-        mu = wandb.config.mu
-    else:
-        mu = args.mu
-        
+    mu = args.mu
     n_imgs = args.n_imgs
 
     # build base path for output directories
@@ -485,7 +486,7 @@ def main():
             model=model,
             train=False,
             white_bkgd=args.white_bkgd,
-            render_step_size=render_step_size
+            render_step_size=5e-3
     )
 
     frames, d_frames = output
