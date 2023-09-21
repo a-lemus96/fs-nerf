@@ -16,7 +16,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
-from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
+from torch.utils.data import Dataset, DataLoader, Subset
 from torch import Tensor
 from tqdm import tqdm
 import wandb
@@ -30,6 +30,9 @@ import render.rendering as R
 import utils.parser as P
 import utils.plotting as PL
 import utils.utilities as U
+
+# GLOBAL VARIABLES
+k = 0 # global step counter
 
 # RANDOM SEED
 seed = 42
@@ -58,14 +61,22 @@ def init_model():
     }
 
     # instantiate model
-    model = M.NeRF(
-            args.d_input,
-            args.d_input,
-            args.n_layers,
-            args.d_filter, 
-            args.skip,
-            **kwargs
-    )
+    if args.model == 'nerf':
+        model = M.NeRF(
+                args.d_input,
+                args.d_input,
+                args.n_layers,
+                args.d_filter, 
+                args.skip,
+                **kwargs
+        )
+    elif args.model == 'sinerf':
+        model = M.SiNeRF(
+                args.d_input,
+                args.d_input,
+                args.d_filter,
+        )
+
     model.to(device) # move model to device
     
     return model
@@ -73,7 +84,6 @@ def init_model():
 # TRAINING FUNCTIONS
 
 def step(
-    epoch: int,
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
@@ -93,7 +103,6 @@ def step(
         Available at https://github.com/yliess86/NeRF
     ----------------------------------------------------------------------------
     Args:
-        epoch (int): current epoch
         model (nn.Module): NeRF model
         loader (DataLoader): data loader
         device (torch.device): device to use for training
@@ -109,6 +118,7 @@ def step(
         Tuple[float, float]: total loss, total PSNR
     ----------------------------------------------------------------------------
     """
+    global k
     train = split == 'train'
     # set model to corresponding mode
     model = model.train(train)
@@ -116,13 +126,12 @@ def step(
     avg_mae, avg_psnr = 0., 0.
     
     # set up progress bar
-    desc = f"[NeRF] {split.capitalize()} {epoch + 1}"
+    desc = f"[NeRF]"
     batches = tqdm(loader, desc=desc, disable=not verbose)
 
     with torch.set_grad_enabled(train):
         for i, batch in enumerate(batches):
-            step = epoch * len(loader) + i
-            rays_o, rays_d, rgb_gt, depth_gt = batch
+            rays_o, rays_d, rgb_gt, depth_gt = batch # unpack batch
             
             # forward pass
             def occ_eval_fn(x):
@@ -175,10 +184,11 @@ def step(
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
+                k += 1 # increment global step counter
 
                 # update occupancy grid
                 estimator.update_every_n_steps(
-                    step=step,
+                    step=k,
                     occ_eval_fn=occ_eval_fn,
                     occ_thre=1e-2,
                 )
@@ -244,21 +254,23 @@ def train(
             shuffle=True,
             num_workers=8
     )
-    val_loader = DataLoader(
-            val_set,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=8
-    )
+    val_samples = int(args.val_ratio * len(val_set))
 
     # optimizer and scheduler
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=args.lrate)
-    scheduler = S.MipNerf(
-            optimizer, 
-            args.n_iters,
-            warmup_steps=args.warmup_iters,
-    )
+    if args.scheduler == 'mip':
+        scheduler = S.MipNerf(
+                optimizer, 
+                args.n_iters,
+                warmup_steps=args.warmup_iters,
+        )
+    elif args.scheduler == 'exp':
+        scheduler = S.ExponentialDecay(
+                optimizer,
+                args.n_iters,
+                (args.lrate, 5e-5)
+        )
 
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
     # model parameters
@@ -272,24 +284,19 @@ def train(
             levels=grid_nlvl
     ).to(device)
 
-    # compute number of epochs
-    epochs = args.n_iters // len(train_loader)
-
-    # set up progress bar
-    desc = f"[NeRF] Epoch"
-    pbar = tqdm(range(int(epochs)), desc=desc)
-
     # initialize best validation metrics
     best_psnr = 0.
     best_mae = float('inf')
-    # iterate over epochs
-    for e in pbar:
+
+    while k < args.n_iters: # loop over epochs
+        #train_set.gaussian_downsample(t) # use Gaussian downsampling
+        #t /= 2.
+
         # training step
         _, _ = step(
-                epoch=e, 
-                model=model, 
-                loader=train_loader, 
-                device=device, 
+                model=model,
+                loader=train_loader,
+                device=device,
                 split='train', 
                 optimizer=optimizer,
                 scheduler=scheduler,
@@ -297,9 +304,17 @@ def train(
                 render_step_size=render_step_size,
                 mu=mu
         )
+
         # validation step
+        rand_idxs = torch.randperm(len(val_set))[:val_samples]
+        val_subset = Subset(val_set, rand_idxs) # val subset
+        val_loader = DataLoader(
+                val_subset,
+                batch_size=args.batch_size,
+                shuffle=True,
+                num_workers=8
+        )
         val_psnr, val_mae = step(
-                epoch=e,
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -318,6 +333,7 @@ def train(
                 'val_psnr': val_psnr,
                 'val_mae': val_mae,
             })
+
         # render test image
         with torch.no_grad():
             model.eval()
@@ -331,7 +347,7 @@ def train(
                     white_bkgd=args.white_bkgd,
                     render_step_size=render_step_size
             )
-            if args.debug is False:
+            if not args.debug:
                 # log images to wandb
                 wandb.log({
                     'rgb': wandb.Image(
@@ -357,6 +373,7 @@ def main():
             config={
                 'dataset': args.dataset,
                 'scene': args.scene,
+                'img_mode': args.img_mode,
                 'n_iters': args.n_iters,
                 'n_imgs': args.n_imgs,
                 'batch_size': args.batch_size,
@@ -389,7 +406,8 @@ def main():
             scene=args.scene,
             n_imgs=n_imgs,
             split='train',
-            white_bkgd=args.white_bkgd
+            white_bkgd=args.white_bkgd,
+            img_mode=args.img_mode
     )
     # log interactive 3D plot of camera positions
     fig = go.Figure(
@@ -423,9 +441,10 @@ def main():
     # load validation data
     val_set = D.SyntheticRealistic(
             scene=args.scene,
-            n_imgs=n_imgs,
+            n_imgs=25,
             split='val',
-            white_bkgd=args.white_bkgd
+            white_bkgd=args.white_bkgd,
+            img_mode=args.img_mode
     )
 
     if not args.render_only:
@@ -453,6 +472,9 @@ def main():
     # compute path poses for rendering video output
     render_poses = R.sphere_path()
     render_poses = render_poses.to(device)
+
+    H, W, focal = train_set.hwf
+    H, W = int(H), int(W)
 
     # render frames for all rendering poses
     output = R.render_path(

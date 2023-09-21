@@ -38,8 +38,10 @@ def config_parser() -> argparse.Namespace:
                         help="Number of images to be used for training")
     parser.add_argument('--white_bkgd', dest='white_bkgd', action="store_true",
                         help="Use white backgroung for training imgs")
+    parser.add_argument('--img_mode', dest='img_mode', action="store_true",
+                        help="If set, iterate over images instead of rays")
 
-    # optimization
+    # training
     parser.add_argument('--n_iters', dest='n_iters', default=10**5, type=int,
                         help='Number of training iterations')
     parser.add_argument('--warmup_iters', dest='warmup_iters', default=2500,
@@ -53,6 +55,11 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--device_num', dest='device_num', default=1, type=int,
                         help="Number of CUDA device to be used for training")
 
+    # validation
+    parser.add_argument('--val_ratio', dest='val_ratio', 
+                        default=0.25, type=float,
+                        help='Ratio of val data to be used in between epochs')
+
     # scale-space
     parser.add_argument('--scale_space', dest='scale_space', action="store_true",
                         help='If set, use scale-space for training')
@@ -63,10 +70,6 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument('--mu', dest='mu', default=None, type=float,
                         help='Balancing hyperparameter for depth loss')
 
-    # validation
-    parser.add_argument('--val_ratio', dest='val_ratio', 
-                        default=0.2, type=float,
-                        help='Ratio of val data to be used in between epochs')
 
     # directories
     parser.add_argument('--out_dir', dest='out_dir', default="../out/",
