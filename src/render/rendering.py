@@ -144,7 +144,7 @@ def render_rays(
 
             return rgbs, sigmas.squeeze(-1)
 
-    render_bkgd = white_bkgd * torch.ones(3, device=device, requires_grad=train)
+    render_bkgd = white_bkgd * torch.ones((3,), device=device, requires_grad=train)
 
     try:
         output = rendering(

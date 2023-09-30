@@ -51,26 +51,26 @@ def get_rays(
         directions_world: [height, width, 3]. Orientations of rays in world coordinates.
     '''
     # create grid of coordinates
-    i, j = torch.meshgrid(torch.arange(width, dtype=torch.float32).to(camera_pose), 
-                          torch.arange(height, dtype=torch.float32).to(camera_pose), 
+    i, j = torch.meshgrid(torch.arange(width, dtype=torch.float32).to(camera_pose),
+                          torch.arange(height, dtype=torch.float32).to(camera_pose),
                           indexing='ij')
     i, j = torch.transpose(i, -1, -2), torch.transpose(j, -1, -2)
 
-    # Use pinhole camera model to represent grid in terms of camera coordinate frame
+    # use pinhole model to represent grid in terms of camera coordinate frame
     focal = focal_length.item()
     directions = torch.stack([(i - width * 0.5) / focal, 
                                -(j - height * 0.5) / focal,
                                -torch.ones_like(i)], dim=-1)
 
-    # Normalize directions
+    # normalize directions
     directions = directions / torch.norm(directions, dim=-1, keepdim=True)
 
     if camera_pose is None:
         return directions
 
-    # Apply camera rotation to ray directions
-    directions_world = torch.sum(directions[..., None, :] * camera_pose[:3, :3], axis=-1) 
-    # Apply camera translation to ray origin
+    # apply camera rotation to ray directions
+    directions_world = torch.sum(directions[..., None, :] * camera_pose[:3, :3], axis=-1)
+    # apply camera translation to ray origin
     origins_world = camera_pose[:3, -1].expand(directions_world.shape)
 
     return origins_world, directions_world 

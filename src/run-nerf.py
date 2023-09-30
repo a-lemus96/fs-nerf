@@ -6,12 +6,12 @@ import random
 from typing import List, Tuple, Union, Optional
 
 # third-party imports
+from lpips import LPIPS
 import matplotlib.pyplot as plt
 from nerfacc.volrend import rendering
 from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
 import plotly.graph_objects as go
-from skimage.metrics import structural_similarity as ssim
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -84,130 +84,6 @@ def init_model():
 
 # TRAINING FUNCTIONS
 
-def step(
-    model: nn.Module,
-    loader: DataLoader,
-    device: torch.device,
-    split: str,
-    optimizer: Optional[Optimizer] = None,
-    scheduler: Optional[S] = None,
-    verbose: bool = True,
-    estimator: Optional[OccGridEstimator] = None,
-    render_step_size: Optional[float] = None,
-    mu: Optional[float] = None
-    ) -> Tuple[float, float]:
-    """
-    Training/validation/test step.
-    ----------------------------------------------------------------------------
-    Reference(s):
-        Based on 'step' function in train.py from NeRF repository by Yliess HATI. 
-        Available at https://github.com/yliess86/NeRF
-    ----------------------------------------------------------------------------
-    Args:
-        model (nn.Module): NeRF model
-        loader (DataLoader): data loader
-        device (torch.device): device to use for training
-        split (str): split to use for training/validation/test
-        optimizer (Optional[Optimizer]): optimizer to use for training
-        scheduler (Optional[S]): scheduler to use for training
-        testpose (Optional[Tensor]): test pose to use for visualization
-        verbose (bool): whether to print progress bar
-        estimator (Optional[OccGridEstimator]): occupancy grid estimator
-        render_step_size (Optional[float]): step size for rendering
-        mu (Optional[float]): weight for depth loss
-    Returns:
-        Tuple[float, float]: total loss, total PSNR
-    ----------------------------------------------------------------------------
-    """
-    global k
-    train = split == 'train'
-    # set model to corresponding mode
-    model = model.train(train)
-
-    avg_mae, avg_psnr = 0., 0.
-    
-    # set up progress bar
-    desc = f"[NeRF]"
-    batches = tqdm(loader, desc=desc, disable=not verbose)
-
-    with torch.set_grad_enabled(train):
-        for i, batch in enumerate(batches):
-            rays_o, rays_d, rgb_gt, depth_gt = batch # unpack batch
-            
-            # forward pass
-            def occ_eval_fn(x):
-                density = model(x)
-                return density * render_step_size
-
-            rgb, _, depth, _ = R.render_rays(
-                    rays_o=rays_o,
-                    rays_d=rays_d,
-                    estimator=estimator,
-                    device=device,
-                    model=model,
-                    train=train,
-                    white_bkgd=args.white_bkgd,
-                    render_step_size=render_step_size
-            )
-
-            # send g.t. data to device
-            rgb_gt = rgb_gt.to(device)
-            depth_gt = depth_gt.to(device)
-
-            # compute loss and psnr
-            loss = F.mse_loss(rgb, rgb_gt)
-            with torch.no_grad():
-                psnr = -10. * torch.log10(loss)
-
-            # add depth loss if using depth supervision
-            if mu is not None:
-                depth_loss = L.depth_l1(
-                        depth.squeeze(-1), 
-                        depth_gt,
-                        use_bkgd=args.use_bkgd
-                )
-                loss += mu * depth_loss
-
-            with torch.no_grad():
-                # remove bkgd if necessary
-                depth = depth.squeeze(-1)
-                mask = ~torch.isinf(depth_gt)
-                mask = mask | ~mask if args.use_bkgd else mask
-                depth = depth[mask]
-                depth_gt = depth_gt[mask]
-                # mean absolute error
-                mae = torch.abs(depth - depth_gt)
-                mae = torch.mean(mae)
-
-            if train:
-                # backward pass
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                k += 1 # increment global step counter
-
-                # update occupancy grid
-                estimator.update_every_n_steps(
-                    step=k,
-                    occ_eval_fn=occ_eval_fn,
-                    occ_thre=1e-2,
-                )
-
-                if args.debug is False:
-                    # log metrics to wandb
-                    wandb.log({
-                        'train_psnr': psnr.item(),
-                        'train_depth_mae': mae.item(),
-                        'lr': scheduler.lr
-                    })
-
-            # accumulate metrics
-            avg_psnr += psnr.item() / len(loader)
-            avg_mae += mae.item() / len(loader)
-
-    return avg_psnr, avg_mae
-
 def train(
         model,
         train_set, 
@@ -255,7 +131,13 @@ def train(
             shuffle=True,
             num_workers=8
     )
-    val_samples = int(args.val_ratio * len(val_set))
+    val_samples = int(args.val_ratio * len(val_set)) # % of val samples
+    val_loader = DataLoader(
+            val_set,
+            batch_size=1,
+            shuffle=True,
+            num_workers=8
+    )
 
     # optimizer and scheduler
     params = list(model.parameters())
@@ -289,80 +171,130 @@ def train(
     best_psnr = 0.
     best_mae = float('inf')
 
-    while k < args.n_iters: # loop over epochs
-        #train_set.gaussian_downsample(t) # use Gaussian downsampling
-        #t /= 2.
+    pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
+    iterator = iter(train_loader)
+    for k in pbar: # loop over the number of iterations
+        # get next batch of data
+        try:
+            rays_o, rays_d, rgb_gt, depth_gt = next(iterator)
+        except StopIteration:
+            iterator = iter(train_loader)
+            rays_o, rays_d, rgb_gt, depth_gt = next(iterator)
 
-        # training step
-        _, _ = step(
-                model=model,
-                loader=train_loader,
-                device=device,
-                split='train', 
-                optimizer=optimizer,
-                scheduler=scheduler,
+        # render rays
+        model.train()
+        rgb, _, depth, _ = R.render_rays(
+                rays_o=rays_o,
+                rays_d=rays_d,
                 estimator=estimator,
-                render_step_size=render_step_size,
-                mu=mu
-        )
-
-        # validation step
-        rand_idxs = torch.randperm(len(val_set))[:val_samples]
-        val_subset = Subset(val_set, rand_idxs) # val subset
-        val_loader = DataLoader(
-                val_subset,
-                batch_size=args.batch_size,
-                shuffle=True,
-                num_workers=8
-        )
-        val_psnr, val_mae = step(
-                model=model,
-                loader=val_loader,
                 device=device,
-                split='val',
-                estimator=estimator,
-                render_step_size=render_step_size,
-                mu=mu
+                model=model,
+                train=True,
+                white_bkgd=args.white_bkgd,
+                render_step_size=render_step_size
         )
-        # update best validation metrics
-        best_psnr = max(best_psnr, val_psnr)
-        best_mae = min(best_mae, val_mae)
+        # compute loss, PSNR, and MAE
+        rgb_gt = rgb_gt.to(device)
+        depth_gt = depth_gt.to(device)
+        loss = F.mse_loss(rgb, rgb_gt)
+        with torch.no_grad():
+            psnr = -10. * torch.log10(loss)
+            # remove bkgd if necessary
+            depth = depth.squeeze(-1)
+            mask = ~torch.isinf(depth_gt)
+            mask = mask | ~mask if args.use_bkgd else mask
+            depth = depth[mask]
+            depth_gt = depth_gt[mask]
+            # mean absolute error
+            mae = torch.abs(depth - depth_gt)
+            mae = torch.mean(mae)
 
-        if args.debug is False:
-            # log validation metrics to wandb
+        # backpropagate loss
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+
+        # define occupancy evaluation function
+        def occ_eval_fn(x):
+            density = model(x)
+            return density * render_step_size
+
+        # update occupancy grid
+        estimator.update_every_n_steps(
+                step=k,
+                occ_eval_fn=occ_eval_fn,
+                occ_thre=1e-2
+        )
+
+        # log metrics
+        if not args.debug:
             wandb.log({
-                'val_psnr': val_psnr,
-                'val_mae': val_mae,
+                'train_psnr': psnr.item(),
+                'train_depth_mae': mae.item(),
+                'lr': scheduler.lr
             })
 
-        # render test image
-        with torch.no_grad():
+        # switch to validation mode
+        mod = k % args.val_rate
+        if mod == 0 and k > 0:
             model.eval()
-            rgb, depth = R.render_frame(
-                    H, W, focal, testpose,
-                    args.batch_size,
-                    estimator,
-                    device,
-                    model,
-                    train=False,
-                    white_bkgd=args.white_bkgd,
-                    render_step_size=render_step_size
-            )
-            if not args.debug:
-                # log images to wandb
-                wandb.log({
-                    'rgb': wandb.Image(
-                        rgb.cpu().numpy(),
-                        caption='RGB'
-                    ),
-                    'depth': wandb.Image(
-                        PL.apply_colormap(depth.cpu().numpy()),
-                        caption='Depth'
+            with torch.no_grad():
+                val_iterator = iter(val_loader)
+                rgbs = []
+                rgbs_gt = []
+                for v in range(val_samples):
+                    rgb_gt, depth_gt, pose = next(val_iterator)
+                    rgbs_gt.append(rgb_gt) # append ground truth rgb
+                    rgb, depth = R.render_frame(
+                            H, W, focal, pose[0],
+                            args.batch_size,
+                            estimator,
+                            device,
+                            model,
+                            train=False,
+                            white_bkgd=args.white_bkgd,
+                            render_step_size=render_step_size
                     )
-                })
+                    rgbs.append(rgb) # append rendered rgb
+                # compute validation metrics
+                rgbs = torch.stack(rgbs, dim=0)
+                rgbs_gt = torch.cat(rgbs_gt, dim=0).to(device)
+                val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+                # update best validation metrics
+                best_psnr = max(best_psnr, val_psnr)
+
+                # log validation metrics to wandb
+                if not args.debug:
+                    wandb.log({
+                        'val_psnr': val_psnr
+                    })
+
+                # render test image
+                rgb, depth = R.render_frame(
+                        H, W, focal, testpose,
+                        args.batch_size,
+                        estimator,
+                        device,
+                        model,
+                        train=False,
+                        white_bkgd=args.white_bkgd,
+                        render_step_size=render_step_size
+                )
+                # log images to wandb
+                if not args.debug:
+                    wandb.log({
+                        'rgb': wandb.Image(
+                            rgb.cpu().numpy(),
+                            caption='RGB'
+                        ),
+                        'depth': wandb.Image(
+                            PL.apply_colormap(depth.cpu().numpy()),
+                            caption='Depth'
+                        )
+                    })
 
     return best_psnr, best_mae
-
 
 def main():
     if not args.debug:
@@ -370,7 +302,7 @@ def main():
         # set up wandb run to track training
         wandb.init(
             project='depth-nerf',
-            name='NeRF' if args.mu is None else 'Depth',
+            name='NeRF' if args.mu is None else 'FS',
             config={
                 'dataset': args.dataset,
                 'scene': args.scene,
@@ -392,7 +324,7 @@ def main():
     n_imgs = args.n_imgs
 
     # build base path for output directories
-    method = 'nerf' if args.mu is None else 'depth'
+    method = 'nerf' if args.mu is None else 'fs'
     out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
                                             args.dataset, args.scene,
                                             'n_' + str(n_imgs),
@@ -435,9 +367,10 @@ def main():
         )
     )
 
-    wandb.log({
-        'camera_positions': fig
-    })
+    if not args.debug:
+        wandb.log({
+            'camera_positions': fig
+        })
 
     # load validation data
     val_set = D.SyntheticRealistic(
@@ -445,7 +378,7 @@ def main():
             n_imgs=25,
             split='val',
             white_bkgd=args.white_bkgd,
-            img_mode=args.img_mode
+            img_mode=True
     )
 
     if not args.render_only:

@@ -56,6 +56,8 @@ def config_parser() -> argparse.Namespace:
                         help="Number of CUDA device to be used for training")
 
     # validation
+    parser.add_argument('--val_rate', dest='val_rate', default=500, type=int,
+                        help='Number of iterations between validation steps')
     parser.add_argument('--val_ratio', dest='val_ratio', 
                         default=0.25, type=float,
                         help='Ratio of val data to be used in between epochs')

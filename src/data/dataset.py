@@ -74,7 +74,6 @@ class SyntheticRealistic(Dataset):
         dists = np.linalg.norm(x - kmeans.cluster_centers_[labels], axis=1)
         # choose the closest view for every cluster center
         idxs = np.empty((n_imgs,), dtype=int) # array for indices of views
-
         for i in range(n_imgs):
             cluster_dists = np.where(labels == i, dists, np.inf)
             idxs[i] = np.argmin(cluster_dists)
@@ -84,8 +83,9 @@ class SyntheticRealistic(Dataset):
         self.depths = depths[idxs]
         self.poses = poses[idxs]
         
-        # create training samples
-        self.__build_data(self.imgs, self.depths, self.poses, self.hwf)
+        if not self.img_mode:
+            # split images into individual per-ray samples
+            self.__build_data(self.imgs, self.depths, self.poses, self.hwf)
 
     def __len__(self) -> int:
         """Compute the number of training samples.
@@ -111,6 +111,8 @@ class SyntheticRealistic(Dataset):
             rgb (Tensor): [3,]. Pixel RGB color
             depth (Tensor): [1,]. Pixel depth value
         """
+        if self.img_mode:
+            return self.imgs[idx], self.depths[idx], self.poses[idx]
 
         return self.rays_o[idx], self.rays_d[idx], self.rgb[idx], self.depth[idx]
 
@@ -135,15 +137,9 @@ class SyntheticRealistic(Dataset):
         rays = rays.reshape(-1, 6)
         self.rays_o = rays[:, :3]
         self.rays_d = rays[:, 3:]
-
-        if self.img_mode:
-            self.rays_o = self.rays_o.reshape(-1, H, W, 3)
-            self.rays_d = self.rays_d.reshape(-1, H, W, 3)
-            self.rgb = imgs
-            self.depth = depths
-        else:
-            self.rgb = imgs.reshape(-1, 3)
-            self.depth = depths.reshape(-1)
+        # reshape images and depths
+        self.rgb = imgs.reshape(-1, 3)
+        self.depth = depths.reshape(-1)
 
     def __downsample(
             self, 
