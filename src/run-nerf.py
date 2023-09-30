@@ -12,6 +12,7 @@ from nerfacc.volrend import rendering
 from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
 import plotly.graph_objects as go
+from skimage.metrics import structural_similarity as SSIM
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -167,6 +168,8 @@ def train(
             levels=grid_nlvl
     ).to(device)
 
+    # lpips network
+    lpips_net = LPIPS(net='vgg').to(device)
     # initialize best validation metrics
     best_psnr = 0.
     best_mae = float('inf')
@@ -237,7 +240,8 @@ def train(
 
         # switch to validation mode
         mod = k % args.val_rate
-        if mod == 0 and k > 0:
+        #if mod == 0 and k > 0:
+        if mod == 0:
             model.eval()
             with torch.no_grad():
                 val_iterator = iter(val_loader)
@@ -258,16 +262,30 @@ def train(
                     )
                     rgbs.append(rgb) # append rendered rgb
                 # compute validation metrics
-                rgbs = torch.stack(rgbs, dim=0)
-                rgbs_gt = torch.cat(rgbs_gt, dim=0).to(device)
+                rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
+                rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+                rgbs_gt = rgbs_gt.to(device)
                 val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+                val_lpips = lpips_net(rgbs, rgbs_gt).mean()
+                rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
+                rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
+                val_ssim = np.mean(
+                        SSIM(
+                            rgbs, 
+                            rgbs_gt, 
+                            channel_axis=-1, 
+                            gaussian_weights=True
+                        )
+                )
                 # update best validation metrics
                 best_psnr = max(best_psnr, val_psnr)
 
                 # log validation metrics to wandb
                 if not args.debug:
                     wandb.log({
-                        'val_psnr': val_psnr
+                        'val_psnr': val_psnr,
+                        'val_lpips': val_lpips,
+                        'val_ssim': val_ssim
                     })
 
                 # render test image
