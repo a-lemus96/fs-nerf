@@ -269,14 +269,16 @@ def train(
                 val_lpips = lpips_net(rgbs, rgbs_gt).mean()
                 rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
                 rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-                val_ssim = np.mean(
-                        SSIM(
-                            rgbs, 
-                            rgbs_gt, 
+                ssims = np.zeros((rgbs.shape[0],))
+                for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
+                    ssims[i] = SSIM(
+                            rgb, 
+                            rgb_gt, 
                             channel_axis=-1, 
+                            data_range=1.,
                             gaussian_weights=True
-                        )
-                )
+                    )
+                val_ssim = np.mean(ssims)
                 # update best validation metrics
                 best_psnr = max(best_psnr, val_psnr)
 
