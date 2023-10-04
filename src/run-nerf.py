@@ -141,8 +141,9 @@ def train(
     )
 
     # optimizer and scheduler
+    lro, lrf = args.lrates
     params = list(model.parameters())
-    optimizer = torch.optim.Adam(params, lr=args.lrate)
+    optimizer = torch.optim.Adam(params, lr=lro)
     if args.scheduler == 'mip':
         scheduler = S.MipNerf(
                 optimizer, 
@@ -153,7 +154,7 @@ def train(
         scheduler = S.ExponentialDecay(
                 optimizer,
                 args.n_iters,
-                (args.lrate, 5e-4)
+                (args.lro, lrf)
         )
 
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
@@ -211,6 +212,16 @@ def train(
             # mean absolute error
             mae = torch.abs(depth - depth_gt)
             mae = torch.mean(mae)
+
+        # weight decay regularization
+        if args.weight_decay is not None:
+            l2_reg = torch.tensor(0.).to(device)
+            for name, param in model.named_parameters():
+                if name in ['weight']:
+                    print(name, param.shape)
+                    l2_reg += torch.square(param).sum().sqrt()
+
+            loss += args.weight_decay * l2_reg
 
         # backpropagate loss
         loss.backward()
@@ -334,7 +345,7 @@ def main():
                 'n_iters': args.n_iters,
                 'n_imgs': args.n_imgs,
                 'batch_size': args.batch_size,
-                'lrate': args.lrate,
+                'lrates': args.lrates,
                 'use_bkgd': args.use_bkgd,
                 'val_ratio': args.val_ratio
             }
@@ -348,7 +359,7 @@ def main():
     out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
                                             args.dataset, args.scene,
                                             'n_' + str(n_imgs),
-                                            'lrate_' + str(args.lrate)))
+                                            'lrates_' + str(args.lrates)))
 
     # create output directories
     folders = ['video', 'model']

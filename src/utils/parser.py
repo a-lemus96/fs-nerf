@@ -36,7 +36,7 @@ def config_parser() -> argparse.Namespace:
     #--------------------------------model-------------------------------------#
 
     parser.add_argument(
-            '--model', choices=['nerf', 'freenerf', 'sinerf'], default='nerf',
+            '--model', choices=['nerf', 'sinerf'], default='nerf',
             help='Model to be used for training'
     )
     parser.add_argument(
@@ -49,7 +49,7 @@ def config_parser() -> argparse.Namespace:
     )
     parser.add_argument(
             '--skip', default=[4], type=list,
-            help='Layers at which to apply input residual'
+            help='Layers at which to apply input residual for NeRF'
     )
 
     #---------------------------------data-------------------------------------#
@@ -59,7 +59,7 @@ def config_parser() -> argparse.Namespace:
             type=str, help="Dataset to choose scenes from"
     )
     parser.add_argument(
-            '--scene' default='lego', type=str,
+            '--scene', default='lego', type=str,
             help="Scene to be used for training"
     )
     parser.add_argument(
@@ -72,7 +72,7 @@ def config_parser() -> argparse.Namespace:
     )
     parser.add_argument(
             '--img_mode', action="store_true",
-            help="If set, iterate over images instead of rays")
+            help="If set, iterate over images instead of rays for training")
 
     #-------------------------------training-----------------------------------#
 
@@ -85,19 +85,19 @@ def config_parser() -> argparse.Namespace:
             help="Number of iterations for mip scheduler's warmup phase"
     )
     parser.add_argument(
-            '--batch_size', default=2**12, type=int,
+            '--batch_size', default=1024, type=int,
             help='Number of rays per optimization step'
     )
     parser.add_argument(
-            '--lrate', default=5e-4, type=float,
-            help='Learning rate'
+            '--lrates', nargs=2, default=[5e-4, 5e-5], type=float,
+            help='Learning rate bounds'
     )
     parser.add_argument(
             '--scheduler', choices=['exp', 'mip'], default='exp',
             help='Learning rate scheduler'
     )
     parser.add_argument(
-            '--device_num', default=1, type=int,
+            '--device_num', default=0, type=int,
             help="Number of CUDA device to be used for training"
     )
 
@@ -112,11 +112,11 @@ def config_parser() -> argparse.Namespace:
             help='Ratio of val data to be used in between epochs'
     )
 
-    #--------------------------------scale-------------------------------------#
+    #-----------------------------regularizers---------------------------------#
 
     parser.add_argument(
-            '--scale_space', action="store_true",
-            help='If set, use scale-space for training'
+            '--weight_decay', default=None, type=float,
+            help='Weight decay for model parameters'
     )
 
     #---------------------------------depth------------------------------------#
