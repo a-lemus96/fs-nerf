@@ -154,7 +154,7 @@ def train(
         scheduler = S.ExponentialDecay(
                 optimizer,
                 args.n_iters,
-                (args.lro, lrf)
+                (lro, lrf)
         )
 
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
@@ -217,8 +217,7 @@ def train(
         if args.weight_decay is not None:
             l2_reg = torch.tensor(0.).to(device)
             for name, param in model.named_parameters():
-                if name in ['weight']:
-                    print(name, param.shape)
+                if 'weight' in name and param.shape[0] > 3:
                     l2_reg += torch.square(param).sum().sqrt()
 
             loss += args.weight_decay * l2_reg
