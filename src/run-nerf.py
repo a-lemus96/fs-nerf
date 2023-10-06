@@ -214,13 +214,17 @@ def train(
             mae = torch.mean(mae)
 
         # weight decay regularization
-        if args.weight_decay is not None:
-            l2_reg = torch.tensor(0.).to(device)
+        if args.alpha is not None:
+            freq_reg = torch.tensor(0.).to(device)
             for name, param in model.named_parameters():
-                if 'weight' in name and param.shape[0] > 3:
-                    l2_reg += torch.square(param).sum().sqrt()
+                #if 'weight' in name and param.shape[0] > 3:
+                if param.shape[0] > 3:
+                    if args.reg == 'l1':
+                        freq_reg += torch.abs(param).sum()
+                    else:
+                        freq_reg += torch.square(param).sum().sqrt()
 
-            loss += args.weight_decay * l2_reg
+            loss += args.alpha * freq_reg
 
         # backpropagate loss
         loss.backward()

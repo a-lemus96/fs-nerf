@@ -78,14 +78,16 @@ class SyntheticRealistic(Dataset):
             cluster_dists = np.where(labels == i, dists, np.inf)
             idxs[i] = np.argmin(cluster_dists)
 
+
         # full resolution images
         self.imgs = imgs[idxs]
         self.depths = depths[idxs]
         self.poses = poses[idxs]
-        
+
         if not self.img_mode:
             # split images into individual per-ray samples
             self.__build_data(self.imgs, self.depths, self.poses, self.hwf)
+
 
     def __len__(self) -> int:
         """Compute the number of training samples.
@@ -96,9 +98,9 @@ class SyntheticRealistic(Dataset):
             N (int): number of training samples
         """
         if self.img_mode:
-            return self.imgs.shape[0]
+            return len(self.imgs)
 
-        return self.rgb.shape[0]
+        return len(self.rgb)
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """Get a training sample by index.
@@ -163,10 +165,11 @@ class SyntheticRealistic(Dataset):
         """
         # apply factor to camera intrinsics
         H, W, f = hwf
-        new_W, new_H = H // factor, W // factor
+        new_H, new_W = int(H) // factor, int(W) // factor
         new_focal = hwf[2] / float(factor)
         new_hwf = torch.Tensor((new_H, new_W, new_focal))
         # downsample images
+        print(imgs.shape)
         new_imgs = Resize((new_H, new_W))(imgs)
         new_depths = Resize((new_H, new_W))(depths)
 
@@ -270,12 +273,15 @@ class SyntheticRealistic(Dataset):
             imgs = blur(imgs) # [N, 3, H, W]
             depths = blur(depths) # [N, 1, H, W]
 
+            # downsample images and depths
+            imgs, depths, hwf = self.__downsample(imgs, depths, self.hwf, 1)
             # permute images and depths to [N, H, W, C] format
             imgs = torch.permute(imgs, (0, 2, 3, 1)) # [N, H, W, 3]
             depths = torch.squeeze(depths, 1) # [N, H, W]
 
-            # downsample images and depths
-            imgs, depths, hwf = self.__downsample(imgs, depths, self.hwf, t//2)
-
             # re-build training samples
             self.__build_data(imgs, depths, self.poses, hwf)
+
+            return imgs, depths, hwf
+
+        return self.imgs, self.depths, self.hwf

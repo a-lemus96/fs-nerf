@@ -115,8 +115,12 @@ def config_parser() -> argparse.Namespace:
     #-----------------------------regularizers---------------------------------#
 
     parser.add_argument(
-            '--weight_decay', default=None, type=float,
+            '--alpha', default=None, type=float,
             help='Weight decay for model parameters'
+    )
+    parser.add_argument(
+            '--reg', choices=['l1', 'l2'], default='l2',
+            help='Regularizer for model parameters'
     )
 
     #---------------------------------depth------------------------------------#
