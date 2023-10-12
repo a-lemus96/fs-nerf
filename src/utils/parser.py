@@ -93,7 +93,7 @@ def config_parser() -> argparse.Namespace:
             help='Learning rate bounds'
     )
     parser.add_argument(
-            '--scheduler', choices=['exp', 'mip'], default='exp',
+            '--scheduler', choices=['exp', 'proot', 'mip'], default='exp',
             help='Learning rate scheduler'
     )
     parser.add_argument(
@@ -116,11 +116,14 @@ def config_parser() -> argparse.Namespace:
 
     parser.add_argument(
             '--alpha', default=None, type=float,
-            help='Weight decay for model parameters'
+            help='Initial alpha value for regularizing model parameter weights'
     )
     parser.add_argument(
+            'p', default=2, type=int,
+            help='p-root of the alpha regularizer scheduler'
+    parser.add_argument(
             '--reg', choices=['l1', 'l2'], default='l2',
-            help='Regularizer for model parameters'
+            help='Norm for penalizing model parameters'
     )
 
     #---------------------------------depth------------------------------------#
