@@ -45,9 +45,12 @@ args = P.config_parser() # parse command line arguments
 
 # MODEL INITIALIZATION
 
-def init_model():
+def init_model() -> Tuple[nn.Module, OccGridEstimator]:
     """
-    Initialize model for NeRF training
+    Initialize NeRF-like model and occupancy grid estimator.
+    ----------------------------------------------------------------------------
+    Returns:
+        Tuple[nn.Module, OccGridEstimator]: NeRF model, OccGrid estimator
     """
     # keyword args for positional encoding
     kwargs = {
@@ -80,26 +83,42 @@ def init_model():
         )
 
     model.to(device) # move model to device
+
+    # initialize occupancy estimator
+    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
+    # model parameters
+    grid_resolution = 128
+    grid_nlvl = 1
+    # render parameters
+    render_step_size = 5e-3
+    estimator = OccGridEstimator(
+            roi_aabb=aabb, 
+            resolution=grid_resolution, 
+            levels=grid_nlvl
+    ).to(device)
     
-    return model
+    return model, estimator
 
 # TRAINING FUNCTIONS
 
 def train(
-        model,
-        train_set, 
-        val_set,
+        model: nn.Module,
+        estimator: OccGridEstimator,
+        train_set: Dataset,
+        val_set: Dataset,
+        render_step_size: float = 5e-3,
         mu: Optional[float] = None
 ) -> Tuple[float, float]:
     """Train NeRF model.
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF model
+        estimator (OccGridEstimator): occupancy grid estimator
         train_set (Dataset): training dataset
         val_set (Dataset): validation dataset
         mu (Optional[float]): weight for depth loss
     Returns:
-        Tuple[float, float]: best validation PSNR, best validation MAE
+        Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
     ----------------------------------------------------------------------------
     """
     # retrieve camera intrinsics
@@ -157,17 +176,6 @@ def train(
                 (lro, lrf)
         )
 
-    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
-    # model parameters
-    grid_resolution = 128
-    grid_nlvl = 1
-    # render parameters
-    render_step_size = 5e-3
-    estimator = OccGridEstimator(
-            roi_aabb=aabb, 
-            resolution=grid_resolution, 
-            levels=grid_nlvl
-    ).to(device)
 
     # lpips network
     lpips_net = LPIPS(net='vgg').to(device)
@@ -217,14 +225,23 @@ def train(
         if args.alpha is not None:
             freq_reg = torch.tensor(0.).to(device)
             for name, param in model.named_parameters():
-                #if 'weight' in name and param.shape[0] > 3:
-                if param.shape[0] > 3:
+                if 'weight' in name and param.shape[0] > 3:
                     if args.reg == 'l1':
                         freq_reg += torch.abs(param).sum()
                     else:
                         freq_reg += torch.square(param).sum().sqrt()
 
-            loss += args.alpha * freq_reg
+            #alpha = max(0., args.alpha * (1. - k / args.n_iters))
+            #                        0.02 for l2
+            #                        0.005 for l1
+            #                        |
+            #                        |
+            #                        v
+            #exp = np.log2(args.alpha/0.02)*(-4.*k/args.n_iters + 1.)
+            #alpha = args.alpha * (1. - min(1., 2.**exp))
+            a = ((1. - 0.5**args.p)/args.T * k + 0.5**args.p) ** (1./args.p)
+            alpha = 2 * args.alpha * (1. - min(1., a))
+            loss += alpha * freq_reg
 
         # backpropagate loss
         loss.backward()
@@ -249,13 +266,12 @@ def train(
             wandb.log({
                 'train_psnr': psnr.item(),
                 'train_depth_mae': mae.item(),
-                'lr': scheduler.lr
+                'lr': scheduler.lr,
+                'alpha': alpha
             })
 
         # switch to validation mode
-        mod = k % args.val_rate
-        #if mod == 0 and k > 0:
-        if mod == 0:
+        if k % args.val_rate == 0:
             model.eval()
             with torch.no_grad():
                 val_iterator = iter(val_loader)
@@ -328,7 +344,55 @@ def train(
                         )
                     })
 
-    return best_psnr, best_mae
+    # compute final validation metrics
+    model.eval()
+    with torch.no_grad():
+        val_iterator = iter(val_loader)
+        rgbs = []
+        rgbs_gt = []
+        for v in range(len(val_loader)):
+            rgb_gt, depth_gt, pose = next(val_iterator)
+            rgbs_gt.append(rgb_gt) # append ground truth rgb
+            rgb, depth = R.render_frame(
+                    H, W, focal, pose[0],
+                    args.batch_size,
+                    estimator,
+                    device,
+                    model,
+                    train=False,
+                    white_bkgd=args.white_bkgd,
+                    render_step_size=render_step_size
+            )
+            rgbs.append(rgb) # append rendered rgb
+        # compute validation metrics
+        rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
+        rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+        rgbs_gt = rgbs_gt.to(device)
+        val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+        # first half of validation set
+        #val_lpips = lpips_net(rgbs[:len(val_loader) // 2, ...], rgbs_gt[:len(val_loader) // 2, ...]).mean()
+        #val_lpips2 = lpips_net(rgbs[len(val_loader):, ...], rgbs_gt[len(val_loader):, ...]).mean()
+        #val_lpips = (val_lpips + val_lpips2) / 2.
+        rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
+        rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
+        ssims = np.zeros((rgbs.shape[0],))
+        for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
+            ssims[i] = SSIM(
+                    rgb, 
+                    rgb_gt, 
+                    channel_axis=-1, 
+                    data_range=1.,
+                    gaussian_weights=True
+            )
+        val_ssim = np.mean(ssims)
+        # log validation metrics to wandb
+        if not args.debug:
+            wandb.log({
+                'final_psnr': val_psnr,
+                'final_ssim': val_ssim
+            })
+
+    return val_psnr, val_lpips, val_ssim
 
 def main():
     if not args.debug:
@@ -416,18 +480,15 @@ def main():
     )
 
     if not args.render_only:
-        model = init_model() # initialize model
+        model, estimator = init_model() # initialize model
         # train model
-        final_psnr, final_mae = train(
+        final_psnr, final_lpips, final_ssim = train(
                 model=model,
+                estimator=estimator,
                 train_set=train_set,
                 val_set=val_set,
                 mu=mu
         )
-        wandb.log({
-            'final_val_psnr': final_psnr,
-            'final_val_mae': final_mae
-        })
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
     else:
@@ -451,9 +512,8 @@ def main():
             chunksize=args.batch_size,
             device=device,
             model=model,
-            train=False,
-            white_bkgd=args.white_bkgd,
-            render_step_size=5e-3
+            estimator=estimator,
+            white_bkgd=args.white_bkgd
     )
 
     frames, d_frames = output
@@ -475,27 +535,11 @@ if device != 'cpu' :
 else:
     raise RuntimeError("CUDA device not available.")
 
-
 # either sweep or single training run
 if not args.debug and args.sweep:
-    # define sweep config
-    sweep_config = {
-        "program": "run-nerf.py",
-        "method": "random",
-        "metric": {
-            "name": "final_val_psnr",
-            "goal": "maximize"
-        },
-        "parameters": {
-            "mu": {
-                "values": [1e-8, 1e-7, 1e-6, 1e-5]
-            },
-            "beta": {
-                "min": 0.02,
-                "max": 0.5
-            }
-        }
-    }
+    # set up sweep
+    
+
     # initialize sweep
     sweep_id = wandb.sweep(
         sweep_config,
