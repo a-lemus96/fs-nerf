@@ -82,10 +82,8 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
                 [35., 1., 1., 1., 1., 1., 1., 1.]
         )
 
-    model.to(device) # move model to device
-
     # initialize occupancy estimator
-    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5], device=device)
+    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
     # model parameters
     grid_resolution = 128
     grid_nlvl = 1
@@ -95,7 +93,7 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
             roi_aabb=aabb, 
             resolution=grid_resolution, 
             levels=grid_nlvl
-    ).to(device)
+    )
     
     return model, estimator
 
@@ -106,8 +104,8 @@ def train(
         estimator: OccGridEstimator,
         train_set: Dataset,
         val_set: Dataset,
+        device: torch.device,
         render_step_size: float = 5e-3,
-        mu: Optional[float] = None
 ) -> Tuple[float, float]:
     """Train NeRF model.
     ----------------------------------------------------------------------------
@@ -115,8 +113,8 @@ def train(
         model (nn.Module): NeRF model
         estimator (OccGridEstimator): occupancy grid estimator
         train_set (Dataset): training dataset
+        device (torch.device): device to train on
         val_set (Dataset): validation dataset
-        mu (Optional[float]): weight for depth loss
     Returns:
         Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
     ----------------------------------------------------------------------------
@@ -395,34 +393,29 @@ def train(
     return val_psnr, val_lpips, val_ssim
 
 def main():
+    # select device
+    cuda_available = torch.cuda.is_available()
+    device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
+
+    # print device info or abort if no CUDA device available
+    if device != 'cpu' :
+        print(f"CUDA device: {torch.cuda.get_device_name(device)}")
+    else:
+        raise RuntimeError("CUDA device not available.")
+
     if not args.debug:
         wandb.login()
         # set up wandb run to track training
+        name = f"{args.model}"
+        name = name + f"-{args.reg}reg" if args.alpha is not None else name
         wandb.init(
             project='depth-nerf',
-            name='NeRF' if args.mu is None else 'FS',
-            config={
-                'dataset': args.dataset,
-                'scene': args.scene,
-                'img_mode': args.img_mode,
-                'white_bkgd': args.white_bkgd,
-                'model': args.model,
-                'img_mode': args.img_mode,
-                'scheduler': args.scheduler,
-                'n_iters': args.n_iters,
-                'n_imgs': args.n_imgs,
-                'batch_size': args.batch_size,
-                'lrates': args.lrates,
-                'use_bkgd': args.use_bkgd,
-                'val_ratio': args.val_ratio
-            }
+            name=name,
+            config=args
         )
-
-    mu = args.mu
-    n_imgs = args.n_imgs
-
     # build base path for output directories
-    method = 'nerf' if args.mu is None else 'fs'
+    n_imgs = args.n_imgs
+    method = 'nerf' if args.alpha is None else 'fs'
     out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
                                             args.dataset, args.scene,
                                             'n_' + str(n_imgs),
@@ -481,13 +474,15 @@ def main():
 
     if not args.render_only:
         model, estimator = init_model() # initialize model
+        model.to(device)
+        estimator.to(device)
         # train model
         final_psnr, final_lpips, final_ssim = train(
                 model=model,
                 estimator=estimator,
                 train_set=train_set,
                 val_set=val_set,
-                mu=mu
+                device=device
         )
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
@@ -525,27 +520,5 @@ def main():
             d_frames=d_frames
     )
 
-# select device
-cuda_available = torch.cuda.is_available()
-device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
-
-# print device info or abort if no CUDA device available
-if device != 'cpu' :
-    print(f"CUDA device: {torch.cuda.get_device_name(device)}")
-else:
-    raise RuntimeError("CUDA device not available.")
-
-# either sweep or single training run
-if not args.debug and args.sweep:
-    # set up sweep
-    
-
-    # initialize sweep
-    sweep_id = wandb.sweep(
-        sweep_config,
-        project="depth-nerf"
-    )
-    # run sweep
-    wandb.agent(sweep_id, function=main, count=10)
-else:
+if __name__ == '__main__':
     main()

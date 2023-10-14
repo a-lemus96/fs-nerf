@@ -120,7 +120,12 @@ def config_parser() -> argparse.Namespace:
     )
     parser.add_argument(
             '--p', default=2, type=int,
-            help='p-root of the alpha regularizer scheduler')
+            help='p-root of the alpha regularizer scheduler'
+    )
+    parser.add_argument(
+            '--T', default=5000, type=int,
+            help='Number of iterations for active alpha regularizer scheduler'
+    )
     parser.add_argument(
             '--reg', choices=['l1', 'l2'], default='l2',
             help='Norm for penalizing model parameters'

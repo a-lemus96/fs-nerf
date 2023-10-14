@@ -62,7 +62,7 @@ def pose_from_spherical(
 # RENDERING PATH UTILITIES
 
 def sphere_path(
-        radius: float = 3.5,
+        radius: float = 4.0311289,
         theta: float = 45.,
         frames: int = 40
 ) -> torch.Tensor:
@@ -80,7 +80,6 @@ def sphere_path(
     render_poses = [pose_from_spherical(radius, theta, phi)
                     for phi in np.linspace(0, 360, frames, endpoint=False)]
     render_poses = torch.stack(render_poses, 0)
-
     return render_poses
 
 # VIDEO RENDERING UTILITIES
@@ -220,6 +219,7 @@ def render_path(
         chunksize: int,
         device: str,
         model: nn.Module,
+        estimator: OccGridEstimator,
         train: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
@@ -242,7 +242,7 @@ def render_path(
     H, W, focal = hwf
 
     frames, d_frames = [], []
-    pbar = tqdm(total=len(render_poses))
+    pbar = tqdm(render_poses, desc=f"[Rendering Frames]")
     for i, pose in enumerate(pbar):
         with torch.no_grad():
             # render frame
