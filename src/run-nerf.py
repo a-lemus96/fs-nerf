@@ -173,7 +173,13 @@ def train(
                 args.n_iters,
                 (lro, lrf)
         )
-
+    elif args.scheduler == 'proot':
+        scheduler = S.RootP(
+                optimizer,
+                args.n_iters,
+                (lro, lrf)
+                p=args.p
+        )
 
     # lpips network
     lpips_net = LPIPS(net='vgg').to(device)
