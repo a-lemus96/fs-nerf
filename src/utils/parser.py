@@ -89,11 +89,11 @@ def config_parser() -> argparse.Namespace:
             help='Number of rays per optimization step'
     )
     parser.add_argument(
-            '--lro', 5e-4, type=float,
+            '--lro', default=5e-4, type=float,
             help='Initial learning rate for optimizer'
     )
     parser.add_argument(
-            '--lrf', 5e-5, type=float,
+            '--lrf', default=5e-5, type=float,
             help='Final learning rate for optimizer'
     )
     parser.add_argument(

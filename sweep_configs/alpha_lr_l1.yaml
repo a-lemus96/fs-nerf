@@ -5,15 +5,14 @@ name: L1-alpha-lr
 description: L1-reg param exploration for alpha and lr schedulers
 parameters:
   ao:
-    distribution: normal
-    mu: 0.000001
-    sigma: 0.000005
-  lro:
-    min: 0.0000005
-    max: 0.0005
+    min: 0.00000005
+    max: 0.000005
   lrf:
-    min: 0.0008
-    max: 0.01
+    min: 0.000005
+    max: 0.0005
+  lro:
+    min: 0.001
+    max: 0.1
   T:
     values: [3500, 5000, 7500, 10000, 12500, 15000, 17500, 20000]
   p:

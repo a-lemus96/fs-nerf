@@ -49,7 +49,7 @@ class ExponentialDecay(Scheduler):
         decay_rate = -np.log(self.lr_min / self.lr_max) / self.steps
         return self.lr_max * np.exp(-decay_rate * self.current_step)
 
-class RootP:
+class RootP(Scheduler):
     """p-root-based learning rate decay."""
     def __init__(
             self,
@@ -82,7 +82,7 @@ class RootP:
         t = (((1. - 0.5 ** p) / N) * k + 0.5 ** p) ** (1. / p)
         return 2 * (self.lr_max - self.lr_min) * (1. - min(1., t)) + self.lr_min
 
-class MipNerf:
+class MipNerf(Scheduler):
     """MipNerf learning rate scheduler."""
     def __init__(
             self,

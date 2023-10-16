@@ -406,9 +406,8 @@ def main():
         # set up wandb run to track training
         name = f"{args.model}"
         name = name + f"-{args.reg}" if args.ao is not None else name
-        name = name + f"-p={args.p}"
-        name = name + f"-ao={args.ao}" if args.ao is not None else name
-        name = name + f"-lro={args.lro}-lrf={args.lrf}"
+        name = name + f"-p={args.p}" if args.ao is not None else name
+        name = name + f"-ao={args.ao:.2e}" if args.ao is not None else name
         wandb.init(
             project='depth-nerf',
             name=name,
@@ -424,7 +423,7 @@ def main():
                 args.dataset,
                 args.scene,
                 f"n_{str(n_imgs)}",
-                f"lrates_{str(lro)}_{str(lrf)}"
+                f"lrates_{str(args.lro)}_{str(args.lrf)}"
             )
     )
 
