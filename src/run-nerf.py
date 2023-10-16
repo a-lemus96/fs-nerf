@@ -405,7 +405,10 @@ def main():
         wandb.login()
         # set up wandb run to track training
         name = f"{args.model}"
-        name = name + f"-{args.reg}reg" if args.ao is not None else name
+        name = name + f"-{args.reg}" if args.ao is not None else name
+        name = name + f"-p={args.p}"
+        name = name + f"-ao={args.ao}" if args.ao is not None else name
+        name = name + f"-lro={args.lro}-lrf={args.lrf}"
         wandb.init(
             project='depth-nerf',
             name=name,
