@@ -158,7 +158,7 @@ def train(
     )
 
     # optimizer and scheduler
-    lro, lrf = args.lrates
+    lro, lrf = args.lro, args.lrf
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=lro)
     if args.scheduler == 'mip':
@@ -226,7 +226,7 @@ def train(
             mae = torch.mean(mae)
 
         # weight decay regularization
-        if args.alpha is not None:
+        if args.ao is not None:
             freq_reg = torch.tensor(0.).to(device)
             for name, param in model.named_parameters():
                 if 'weight' in name and param.shape[0] > 3:
@@ -235,16 +235,8 @@ def train(
                     else:
                         freq_reg += torch.square(param).sum().sqrt()
 
-            #alpha = max(0., args.alpha * (1. - k / args.n_iters))
-            #                        0.02 for l2
-            #                        0.005 for l1
-            #                        |
-            #                        |
-            #                        v
-            #exp = np.log2(args.alpha/0.02)*(-4.*k/args.n_iters + 1.)
-            #alpha = args.alpha * (1. - min(1., 2.**exp))
             a = ((1. - 0.5**args.p)/args.T * k + 0.5**args.p) ** (1./args.p)
-            alpha = 2 * args.alpha * (1. - min(1., a))
+            alpha = 2 * args.ao * (1. - min(1., a))
             loss += alpha * freq_reg
 
         # backpropagate loss
@@ -413,7 +405,7 @@ def main():
         wandb.login()
         # set up wandb run to track training
         name = f"{args.model}"
-        name = name + f"-{args.reg}reg" if args.alpha is not None else name
+        name = name + f"-{args.reg}reg" if args.ao is not None else name
         wandb.init(
             project='depth-nerf',
             name=name,
@@ -421,11 +413,17 @@ def main():
         )
     # build base path for output directories
     n_imgs = args.n_imgs
-    method = 'nerf' if args.alpha is None else 'fs'
-    out_dir = os.path.normpath(os.path.join(args.out_dir, method, 
-                                            args.dataset, args.scene,
-                                            'n_' + str(n_imgs),
-                                            'lrates_' + str(args.lrates)))
+    method = 'nerf' if args.ao is None else 'fs'
+    out_dir = os.path.normpath(
+            os.path.join(
+                args.out_dir, 
+                method, 
+                args.dataset,
+                args.scene,
+                f"n_{str(n_imgs)}",
+                f"lrates_{str(lro)}_{str(lrf)}"
+            )
+    )
 
     # create output directories
     folders = ['video', 'model']

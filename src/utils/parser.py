@@ -89,8 +89,12 @@ def config_parser() -> argparse.Namespace:
             help='Number of rays per optimization step'
     )
     parser.add_argument(
-            '--lrates', nargs=2, default=[5e-4, 5e-5], type=float,
-            help='Learning rate bounds'
+            '--lro', 5e-4, type=float,
+            help='Initial learning rate for optimizer'
+    )
+    parser.add_argument(
+            '--lrf', 5e-5, type=float,
+            help='Final learning rate for optimizer'
     )
     parser.add_argument(
             '--scheduler', choices=['exp', 'proot', 'mip'], default='exp',
@@ -115,7 +119,7 @@ def config_parser() -> argparse.Namespace:
     #-----------------------------regularizers---------------------------------#
 
     parser.add_argument(
-            '--alpha', default=None, type=float,
+            '--ao', default=None, type=float,
             help='Initial alpha value for regularizing model parameter weights'
     )
     parser.add_argument(

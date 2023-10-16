@@ -4,10 +4,20 @@ method: random
 name: L2-alpha-lr
 description: L2-reg param exploration for alpha and lr schedulers
 parameters:
+  ao:
+    distribution: normal
+    mu: 0.0001
+    sigma: 0.0005
+  lro:
+    min: 0.0000005
+    max: 0.0005
+  lrf:
+    min: 0.0008
+    max: 0.01
   T:
     values: [3500, 5000, 7500, 10000, 12500, 15000, 17500, 20000]
   p:
-    values: [-15, -10, -5, -1, 1, 5, 10, 15]
+    values: [-15, -10, -8, -5, -3, -1, 1, 3, 5, 8, 10, 15]
 command:
   - ${env}
   - ${interpreter}
@@ -18,13 +28,10 @@ command:
   - 20000
   - --model 
   - sinerf
-  - --lrate
-  - 1e-3 
-  - 5e-4
-  - --alpha 
-  - 1e-4
   - --device_num 
   - 1
   - --reg
   - l2
+  - --scheduler
+  - proot
   - ${args}
