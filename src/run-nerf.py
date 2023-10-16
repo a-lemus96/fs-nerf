@@ -177,7 +177,7 @@ def train(
         scheduler = S.RootP(
                 optimizer,
                 args.n_iters,
-                (lro, lrf)
+                (lro, lrf),
                 p=args.p
         )
 
