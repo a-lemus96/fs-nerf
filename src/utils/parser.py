@@ -97,6 +97,10 @@ def config_parser() -> argparse.Namespace:
             help='Final learning rate for optimizer'
     )
     parser.add_argument(
+            '--T_lr', default=20**3, type=int,
+            help='Number of iterations for learning rate decay'
+    )
+    parser.add_argument(
             '--scheduler', choices=['exp', 'proot', 'mip'], default='exp',
             help='Learning rate scheduler'
     )

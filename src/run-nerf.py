@@ -176,7 +176,7 @@ def train(
     elif args.scheduler == 'proot':
         scheduler = S.RootP(
                 optimizer,
-                args.n_iters,
+                args.T_lr,
                 (lro, lrf),
                 p=args.p
         )
@@ -189,6 +189,7 @@ def train(
 
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader)
+    alpha = 0.
     for k in pbar: # loop over the number of iterations
         # get next batch of data
         try:

@@ -1,0 +1,33 @@
+program: run-nerf.py 
+project: depth-nerf
+method: random
+name: LRate-Scheduler
+description: Learning rate scheduler parameter(s)
+parameters:
+  lro:
+    distribution: log_uniform_values
+    min: 1e-4
+    max: 1e-2
+  lrf:
+    distribution: log_uniform_values
+    min: 1e-7
+    max: 1e-4
+  T_lr:
+    values: [3500, 5000, 7500, 10000, 12500, 15000, 17500, 20000]
+  p:
+    values: [-15, -10, -8, -5, -3, -1, 1, 3, 5, 8, 10, 15]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --device_num 
+  - 1
+  - --scheduler
+  - proot
+  - ${args}
