@@ -79,9 +79,14 @@ class RootP(Scheduler):
     def lr(self) -> float:
         """Compute the learning rate."""
         p, N, k = self.p, self.steps, self.current_step
-        t = (((1. - 0.5 ** p) / N) * k + 0.5 ** p) ** (1. / p)
-        lr = 2 * (self.lr_max - self.lr_min) * (1. - min(1., t)) + self.lr_min
-        return max(lr, self.lr_min)
+        if k < N:
+            t = (((1. - 0.5 ** p) / N) * k + 0.5 ** p) ** (1. / p)
+            lr = 2 * (self.lr_max - self.lr_min) * (1. - min(1., t))
+            lr += self.lr_min
+        else:
+            lr = self.lr_min
+        
+        return lr
 
 class MipNerf(Scheduler):
     """MipNerf learning rate scheduler."""

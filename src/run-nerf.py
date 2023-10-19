@@ -99,6 +99,75 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
 
 # TRAINING FUNCTIONS
 
+def validation(
+        hwf: Tensor,
+        model: nn.Module,
+        estimator: OccGridEstimator,
+        val_loader: DataLoader,
+        device: torch.device,
+        render_step_size: float = 5e-3,
+        val_samples: int = 10,
+) -> Tuple[float, float, float]:
+    """
+    Perform validation step using a subset of the validation set.
+    ----------------------------------------------------------------------------
+    Args:
+        model (nn.Module): NeRF-like model
+        estimator (OccGridEstimator): occupancy grid estimator
+        val_loader (DataLoader): validation set loader
+        device (torch.device): device to train on
+        render_step_size (float, optional): step size for rendering
+        val_samples (int, optional): number of samples from val set to use
+    Returns:
+        val_psnr (float): validation PSNR
+        val_ssim (float): validation SSIM
+        val_lpips (float): validation LPIPS
+    """
+    H, W, focal = hwf
+    H, W = int(H), int(W)
+    model.eval()
+    with torch.no_grad():
+        val_iterator = iter(val_loader)
+        rgbs = []
+        rgbs_gt = []
+        for v in range(val_samples):
+            rgb_gt, depth_gt, pose = next(val_iterator)
+            rgbs_gt.append(rgb_gt) # append ground truth rgb
+            rgb, depth = R.render_frame(
+                    H, W, focal, pose[0],
+                    args.batch_size,
+                    estimator,
+                    device,
+                    model,
+                    train=False,
+                    white_bkgd=args.white_bkgd,
+                    render_step_size=render_step_size
+            )
+            rgbs.append(rgb) # append rendered rgb
+        # compute validation metrics
+        rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
+        rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+        rgbs_gt = rgbs_gt.to(device)
+        val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+        rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
+        rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
+        ssims = np.zeros((rgbs.shape[0],))
+        for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
+            ssims[i] = SSIM(
+                    rgb, 
+                    rgb_gt, 
+                    channel_axis=-1, 
+                    data_range=1.,
+                    gaussian_weights=True
+            )
+        val_ssim = np.mean(ssims)
+        try:
+            val_lpips = lpips_net(rgbs, rgbs_gt).mean()
+        except:
+            val_lpips = 1.
+
+        return val_psnr, val_ssim, val_lpips
+
 def train(
         model: nn.Module,
         estimator: OccGridEstimator,
@@ -183,12 +252,9 @@ def train(
 
     # lpips network
     lpips_net = LPIPS(net='vgg').to(device)
-    # initialize best validation metrics
-    best_psnr = 0.
-    best_mae = float('inf')
 
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
-    iterator = iter(train_loader)
+    iterator = iter(train_loader) # data iterator
     alpha = 0.
     for k in pbar: # loop over the number of iterations
         # get next batch of data
@@ -215,7 +281,7 @@ def train(
         depth_gt = depth_gt.to(device)
         loss = F.mse_loss(rgb, rgb_gt)
         with torch.no_grad():
-            psnr = -10. * torch.log10(loss)
+            psnr = -10. * torch.log10(loss).item()
             # remove bkgd if necessary
             depth = depth.squeeze(-1)
             mask = ~torch.isinf(depth_gt)
@@ -224,7 +290,7 @@ def train(
             depth_gt = depth_gt[mask]
             # mean absolute error
             mae = torch.abs(depth - depth_gt)
-            mae = torch.mean(mae)
+            mae = torch.mean(mae).item()
 
         # weight decay regularization
         if args.ao is not None:
@@ -259,65 +325,27 @@ def train(
         )
 
         # log metrics
-        if not args.debug:
+        if not args.debug and k % args.val_rate != 0:
             wandb.log({
-                'train_psnr': psnr.item(),
-                'train_depth_mae': mae.item(),
+                'train_psnr': psnr,
+                'train_depth_mae': mae,
                 'lr': scheduler.lr,
                 'alpha': alpha
             })
 
-        # switch to validation mode
+        # compute validation
         if k % args.val_rate == 0:
-            model.eval()
+            val_data = validation(
+                    train_set.hwf,
+                    model,
+                    estimator,
+                    val_loader,
+                    device,
+                    val_samples=val_samples
+            )
+            val_psnr, val_ssim, val_lpips = val_data
+            # render test image
             with torch.no_grad():
-                val_iterator = iter(val_loader)
-                rgbs = []
-                rgbs_gt = []
-                for v in range(val_samples):
-                    rgb_gt, depth_gt, pose = next(val_iterator)
-                    rgbs_gt.append(rgb_gt) # append ground truth rgb
-                    rgb, depth = R.render_frame(
-                            H, W, focal, pose[0],
-                            args.batch_size,
-                            estimator,
-                            device,
-                            model,
-                            train=False,
-                            white_bkgd=args.white_bkgd,
-                            render_step_size=render_step_size
-                    )
-                    rgbs.append(rgb) # append rendered rgb
-                # compute validation metrics
-                rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
-                rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
-                rgbs_gt = rgbs_gt.to(device)
-                val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-                val_lpips = lpips_net(rgbs, rgbs_gt).mean()
-                rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
-                rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-                ssims = np.zeros((rgbs.shape[0],))
-                for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
-                    ssims[i] = SSIM(
-                            rgb, 
-                            rgb_gt, 
-                            channel_axis=-1, 
-                            data_range=1.,
-                            gaussian_weights=True
-                    )
-                val_ssim = np.mean(ssims)
-                # update best validation metrics
-                best_psnr = max(best_psnr, val_psnr)
-
-                # log validation metrics to wandb
-                if not args.debug:
-                    wandb.log({
-                        'val_psnr': val_psnr,
-                        'val_lpips': val_lpips,
-                        'val_ssim': val_ssim
-                    })
-
-                # render test image
                 rgb, depth = R.render_frame(
                         H, W, focal, testpose,
                         args.batch_size,
@@ -328,68 +356,37 @@ def train(
                         white_bkgd=args.white_bkgd,
                         render_step_size=render_step_size
                 )
-                # log images to wandb
-                if not args.debug:
-                    wandb.log({
-                        'rgb': wandb.Image(
-                            rgb.cpu().numpy(),
-                            caption='RGB'
-                        ),
-                        'depth': wandb.Image(
-                            PL.apply_colormap(depth.cpu().numpy()),
-                            caption='Depth'
-                        )
-                    })
+            # log data to wandb
+            if not args.debug:
+                wandb.log({
+                    'train_psnr': psnr,
+                    'train_depth_mae': mae,
+                    'lr': scheduler.lr,
+                    'alpha': alpha,
+                    'val_psnr': val_psnr,
+                    'val_ssim': val_ssim,
+                    'val_lpips': val_lpips,
+                    'rgb': wandb.Image(
+                        rgb.cpu().numpy(),
+                        caption='RGB'
+                    ),
+                    'depth': wandb.Image(
+                        PL.apply_colormap(depth.cpu().numpy()),
+                        caption='Depth'
+                    )
+                })
 
-    # compute final validation metrics
-    model.eval()
-    with torch.no_grad():
-        val_iterator = iter(val_loader)
-        rgbs = []
-        rgbs_gt = []
-        for v in range(len(val_loader)):
-            rgb_gt, depth_gt, pose = next(val_iterator)
-            rgbs_gt.append(rgb_gt) # append ground truth rgb
-            rgb, depth = R.render_frame(
-                    H, W, focal, pose[0],
-                    args.batch_size,
-                    estimator,
-                    device,
-                    model,
-                    train=False,
-                    white_bkgd=args.white_bkgd,
-                    render_step_size=render_step_size
-            )
-            rgbs.append(rgb) # append rendered rgb
-        # compute validation metrics
-        rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
-        rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
-        rgbs_gt = rgbs_gt.to(device)
-        val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-        # first half of validation set
-        #val_lpips = lpips_net(rgbs[:len(val_loader) // 2, ...], rgbs_gt[:len(val_loader) // 2, ...]).mean()
-        #val_lpips2 = lpips_net(rgbs[len(val_loader):, ...], rgbs_gt[len(val_loader):, ...]).mean()
-        #val_lpips = (val_lpips + val_lpips2) / 2.
-        rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
-        rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-        ssims = np.zeros((rgbs.shape[0],))
-        for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
-            ssims[i] = SSIM(
-                    rgb, 
-                    rgb_gt, 
-                    channel_axis=-1, 
-                    data_range=1.,
-                    gaussian_weights=True
-            )
-        val_ssim = np.mean(ssims)
-        # log validation metrics to wandb
-        if not args.debug:
-            wandb.log({
-                'final_psnr': val_psnr,
-                'final_ssim': val_ssim
-            })
+    # compute final validation
+    val_data = validation(
+            train_set.hwf,
+            model,
+            estimator,
+            val_loader,
+            device,
+            val_samples=len(val_loader)
+    )
 
-    return val_psnr, val_lpips, val_ssim
+    return val_data
 
 def main():
     # select device
@@ -484,13 +481,20 @@ def main():
         model.to(device)
         estimator.to(device)
         # train model
-        final_psnr, final_lpips, final_ssim = train(
+        final_psnr, final_ssim, final_lpips = train(
                 model=model,
                 estimator=estimator,
                 train_set=train_set,
                 val_set=val_set,
                 device=device
         )
+        # log final metrics to wandb
+        if not args.debug:
+            wandb.log({
+                'final_psnr': val_psnr,
+                'final_ssim': val_ssim,
+                'final_lpips': val_lpips
+            })
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
     else:
