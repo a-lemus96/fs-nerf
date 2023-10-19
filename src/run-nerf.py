@@ -102,6 +102,7 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
 def validation(
         hwf: Tensor,
         model: nn.Module,
+        lpips_net: LPIPS,
         estimator: OccGridEstimator,
         val_loader: DataLoader,
         device: torch.device,
@@ -113,6 +114,7 @@ def validation(
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF-like model
+        lpips_net (LPIPS): LPIPS network
         estimator (OccGridEstimator): occupancy grid estimator
         val_loader (DataLoader): validation set loader
         device (torch.device): device to train on
@@ -338,6 +340,7 @@ def train(
             val_data = validation(
                     train_set.hwf,
                     model,
+                    lpips_net,
                     estimator,
                     val_loader,
                     device,
@@ -380,6 +383,7 @@ def train(
     val_data = validation(
             train_set.hwf,
             model,
+            lpips_net,
             estimator,
             val_loader,
             device,
