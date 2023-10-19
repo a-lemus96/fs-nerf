@@ -1,0 +1,33 @@
+program: run-nerf.py 
+project: depth-nerf
+method: random
+name: LRate-Scheduler-2
+description: Fine-grained search for LR param(s)
+parameters:
+  lro:
+    distribution: log_uniform_values
+    min: 1e-4
+    max: 1e-3
+  lrf:
+    distribution: uniform
+    min: 1e-7
+    max: 3e-7
+  T_lr:
+    values: [1000, 1500, 2000, 2500, 3000, 3500, 5000, 10000]
+  p:
+    values: [-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --device_num 
+  - 1
+  - --scheduler
+  - proot
+  - ${args}
