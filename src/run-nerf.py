@@ -151,6 +151,10 @@ def validation(
         rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
         rgbs_gt = rgbs_gt.to(device)
         val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+        try:
+            val_lpips = lpips_net(rgbs, rgbs_gt).mean()
+        except:
+            val_lpips = 1.
         rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
         rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
         ssims = np.zeros((rgbs.shape[0],))
@@ -163,10 +167,6 @@ def validation(
                     gaussian_weights=True
             )
         val_ssim = np.mean(ssims)
-        try:
-            val_lpips = lpips_net(rgbs, rgbs_gt).mean()
-        except:
-            val_lpips = 1.
 
         return val_psnr, val_ssim, val_lpips
 
