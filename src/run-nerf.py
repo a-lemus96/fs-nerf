@@ -495,9 +495,9 @@ def main():
         # log final metrics to wandb
         if not args.debug:
             wandb.log({
-                'final_psnr': val_psnr,
-                'final_ssim': val_ssim,
-                'final_lpips': val_lpips
+                'final_psnr': final_psnr,
+                'final_ssim': final_ssim,
+                'final_lpips': final_lpips
             })
         # save model
         torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
