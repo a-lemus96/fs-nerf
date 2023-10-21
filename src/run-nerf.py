@@ -151,9 +151,9 @@ def validation(
         rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
         rgbs_gt = rgbs_gt.to(device)
         val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-        try:
+        if val_samples < len(val_loader):
             val_lpips = lpips_net(rgbs, rgbs_gt).mean()
-        except:
+        else:
             val_lpips = 1.
         rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
         rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
@@ -525,15 +525,21 @@ def main():
             estimator=estimator,
             white_bkgd=args.white_bkgd
     )
-
     frames, d_frames = output
-
-    # Now we put together frames and save result into .mp4 file
+    # put together frames and save result into .mp4 file
     R.render_video(
             basedir=f'{out_dir}/video/',
             frames=frames,
             d_frames=d_frames
     )
+    # log final video renderings to wandb
+    if not args.debug:
+        frames = np.transpose(frames, [0, 3, 1, 2])
+        d_frames = np.transpose(d_frames[..., None], [0, 3, 1, 2])
+        wandb.log({
+            'rgb_video': wandb.Video(frames, fps=10),
+            'depth_video': wandb.Video(d_frames, fps=10)
+        })
 
 if __name__ == '__main__':
     main()
