@@ -537,9 +537,9 @@ def main():
         frames = np.transpose(frames, [0, 3, 1, 2])
         d_frames = np.transpose(d_frames[..., None], [0, 3, 1, 2])
         wandb.log({
-            'rgb_video': wandb.Video(frames, fps=10),
-            'depth_video': wandb.Video(d_frames, fps=10)
+            'rgb_video': wandb.Video(frames, fps=10)
         })
+        #'depth_video': wandb.Video(d_frames, fps=10)
 
 if __name__ == '__main__':
     main()
