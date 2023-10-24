@@ -410,30 +410,14 @@ def main():
         name = name + f"-{args.reg}" if args.ao is not None else name
         name = name + f"-p={args.p}" if args.ao is not None else name
         name = name + f"-ao={args.ao:.2e}" if args.ao is not None else name
-        wandb.init(
+        run = wandb.init(
             project='depth-nerf',
             name=name,
             config=args
         )
-    # build base path for output directories
-    n_imgs = args.n_imgs
-    method = 'nerf' if args.ao is None else 'fs'
-    out_dir = os.path.normpath(
-            os.path.join(
-                args.out_dir, 
-                method, 
-                args.dataset,
-                args.scene,
-                f"n_{str(n_imgs)}",
-                f"lrates_{str(args.lro)}_{str(args.lrf)}"
-            )
-    )
-
-    # create output directories
-    folders = ['video', 'model']
-    [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
 
     # load training data
+    n_imgs = args.n_imgs
     train_set = D.SyntheticRealistic(
             scene=args.scene,
             n_imgs=n_imgs,
@@ -499,23 +483,37 @@ def main():
                 'final_ssim': final_ssim,
                 'final_lpips': final_lpips
             })
-        # save model
-        torch.save(model.state_dict(), out_dir + '/model/nerf.pt')
     else:
         model = init_model()
         # load model
-        model.load_state_dict(torch.load(out_dir + '/model/nerf.pt'))
+        model.load_state_dict(torch.load(out_dir + '/model/nn.pt'))
 
-    model.eval()
+    # build base path for output directories
+    out_dir = os.path.normpath(
+            os.path.join(
+                args.out_dir, 
+                args.model, 
+                args.dataset,
+                args.scene,
+                f"n_imgs_{str(n_imgs)}",
+                run.id
+            )
+    )
 
-    # compute path poses for rendering video output
+    # create output directories
+    folders = ['video', 'model']
+    [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
+    # save model
+    if not args.render_only:
+        torch.save(model.state_dict(), out_dir + '/model/nn.pt')
+
+    # compute path poses for video output
     render_poses = R.sphere_path()
     render_poses = render_poses.to(device)
-
+    # render frames for poses
+    model.eval()
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
-
-    # render frames for all rendering poses
     output = R.render_path(
             render_poses=render_poses,
             hwf=[H, W, focal],
