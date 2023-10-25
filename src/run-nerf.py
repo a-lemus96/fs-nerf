@@ -508,7 +508,7 @@ def main():
         torch.save(model.state_dict(), out_dir + '/model/nn.pt')
 
     # compute path poses for video output
-    render_poses = R.sphere_path()
+    render_poses = R.sphere_path(theta=50, frames=90)
     render_poses = render_poses.to(device)
     # render frames for poses
     model.eval()
@@ -532,12 +532,10 @@ def main():
     )
     # log final video renderings to wandb
     if not args.debug:
-        frames = np.transpose(frames, [0, 3, 1, 2])
-        d_frames = np.transpose(d_frames[..., None], [0, 3, 1, 2])
         wandb.log({
-            'rgb_video': wandb.Video(frames, fps=10)
+            'rgb_video': wandb.Video(f'{out_dir}/video/rgb.mp4', fps=30),
+            'depth_video': wandb.Video(f'{out_dir}/video/depth.mp4', fps=30)
         })
-        #'depth_video': wandb.Video(d_frames, fps=10)
 
 if __name__ == '__main__':
     main()

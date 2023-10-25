@@ -276,7 +276,8 @@ def render_path(
 def render_video(
     basedir: str,
     frames: torch.Tensor,
-    d_frames: torch.Tensor
+    d_frames: torch.Tensor,
+    cmap: str = 'plasma'
 ) -> None:
     """Video rendering functionality. It takes a series of frames and joins
     them in .mp4 files.
@@ -285,6 +286,7 @@ def render_video(
         basedir: str. Base directory where to store .mp4 file
         frames: [N, H, W, 3]. N rgb frames
         d_frames: (N, H, W)-shape. N depth frames
+        cmap: str. Colormap to use for depth frames
     Returns:
         None"""
     # rgb video output
@@ -293,10 +295,10 @@ def render_video(
     # map depth values to RGBA using a colormap
     norm = matplotlib.colors.Normalize(vmin=np.amin(d_frames),
                                        vmax=np.amax(d_frames))
-    mapper = cm.ScalarMappable(norm=norm, cmap='plasma')
+    mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     # flatten d_frames before applying mapping
     d_rgba = mapper.to_rgba(d_frames.flatten())
     # return to normal dimensions
     d_rgba = np.reshape(d_rgba, list(d_frames.shape[:3]) + [-1])
     # unflatten d_frames
-    imageio.mimwrite(basedir + 'd.mp4', to8b(d_rgba), fps=30, quality=8)
+    imageio.mimwrite(basedir + 'depth.mp4', to8b(d_rgba), fps=30, quality=8)
