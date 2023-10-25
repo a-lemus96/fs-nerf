@@ -1,0 +1,37 @@
+program: run-nerf.py 
+project: depth-nerf
+method: random
+name: alpha-scheduler-l1
+description: freq. regularization scheduler for L1 norm
+parameters:
+  ao:
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 1e-3
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --device_num 
+  - 0
+  - --reg
+  - l1
+  - --scheduler
+  - proot
+  - --T_lr
+  - 6000
+  - --T
+  - 6000
+  - --lro
+  - 0.003
+  - --lrf
+  - 0.00075
+  - --p
+  - 4
+  - ${args}
