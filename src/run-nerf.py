@@ -232,25 +232,18 @@ def train(
     lro, lrf = args.lro, args.lrf
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=lro)
-    if args.scheduler == 'mip':
-        scheduler = S.MipNerf(
-                optimizer, 
-                args.n_iters,
-                warmup_steps=args.warmup_iters,
-        )
-    elif args.scheduler == 'exp':
-        scheduler = S.ExponentialDecay(
-                optimizer,
-                args.n_iters,
-                (lro, lrf)
-        )
-    elif args.scheduler == 'proot':
-        scheduler = S.RootP(
-                optimizer,
-                args.T_lr,
-                (lro, lrf),
-                p=args.p
-        )
+    sc_dict = {
+            'const': (S.Constant, {}),
+            'exp': (S.ExponentialDecay, {}),
+            'proot': (S.RootP, {'p': args.p, 'T_lr': args.T_lr})
+    }
+    class_name, kwargs = sc_dict[args.scheduler]
+    scheduler = class_name(
+            optimizer,
+            args.n_iters,
+            (lro, lrf),
+            **kwargs
+    )
 
     # lpips network
     lpips_net = LPIPS(net='vgg').to(device)

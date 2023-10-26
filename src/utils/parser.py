@@ -101,7 +101,7 @@ def config_parser() -> argparse.Namespace:
             help='Number of iterations for learning rate decay'
     )
     parser.add_argument(
-            '--scheduler', choices=['exp', 'proot', 'mip'], default='exp',
+            '--scheduler', choices=['const', 'exp', 'proot'], default='exp',
             help='Learning rate scheduler'
     )
     parser.add_argument(
