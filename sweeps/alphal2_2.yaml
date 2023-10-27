@@ -1,13 +1,13 @@
 program: run-nerf.py 
 project: depth-nerf
 method: random
-name: alpha-scheduler-l1
-description: freq. regularization scheduler for L1 norm
+name: alpha-scheduler-l2-2
+description: freq. regularization scheduler for L2 norm
 parameters:
   ao:
     distribution: log_uniform_values
-    min: 1e-6
-    max: 1e-5
+    min: 1e-4
+    max: 1e-3
 command:
   - ${env}
   - ${interpreter}
@@ -19,9 +19,9 @@ command:
   - --model 
   - sinerf
   - --device_num 
-  - 0
+  - 1
   - --reg
-  - l1
+  - l2
   - --scheduler
   - proot
   - --T_lr
@@ -31,7 +31,7 @@ command:
   - --lro
   - 0.003
   - --lrf
-  - 0.00075
+  - 0.000075
   - --p
   - 4
   - ${args}
