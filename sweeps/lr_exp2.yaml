@@ -1,0 +1,25 @@
+program: run-nerf.py
+project: depth-nerf
+method: random
+name: exp-lr-2
+description: exponential learning rate hyperparameter tuning (2)
+parameters:
+  decay_rate:
+    distribution: uniform
+    max: 0.9999
+    min: 0.9980
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --scheduler
+  - exp
+  - --lro
+  - 5e-3
+  - ${args}
