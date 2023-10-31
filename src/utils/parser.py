@@ -97,6 +97,10 @@ def config_parser() -> argparse.Namespace:
             help='Final learning rate for optimizer'
     )
     parser.add_argument(
+            '--decay_rate', default=0.999, type=float,
+            help='Decay rate for exponential learning rate scheduler'
+    )
+    parser.add_argument(
             '--T_lr', default=20**3, type=int,
             help='Number of iterations for learning rate decay'
     )
@@ -161,9 +165,6 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument(
             '--debug', action='store_true',
             help='If set, run in debug mode'
-    )
-    parser.add_argument('--sweep', action='store_true',
-            help='If set, run in W&B sweep mode'
     )
 
     #----------------------------videorendering--------------------------------#

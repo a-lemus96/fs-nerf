@@ -56,11 +56,26 @@ class ExponentialDecay(Scheduler):
     Exponential decay for the learning rate
     ----------------------------------------------------------------------------
     """
+    def __init__(
+            self,
+            optim: Optimizer,
+            steps: int,
+            lr_range: tuple = (5e-4, 5e-5),
+            **kwargs: dict
+    ) -> None:
+        """
+        Initialize the scheduler.
+        ------------------------------------------------------------------------
+        """
+        super().__init__(optim, steps, lr_range)
+        self.r = kwargs["r"]
+
     @property
     def lr(self) -> float:
         """Compute the learning rate."""
-        decay_rate = -np.log(self.lr_min / self.lr_max) / self.steps
-        return self.lr_max * np.exp(-decay_rate * self.current_step)
+        #decay_rate = -np.log(self.lr_min / self.lr_max) / self.steps
+        #return self.lr_max * np.exp(-decay_rate * self.current_step)
+        return (self.r ** self.current_step) * self.lr_max
 
 
 class RootP(Scheduler):

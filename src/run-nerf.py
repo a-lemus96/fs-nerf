@@ -229,12 +229,15 @@ def train(
     )
 
     # optimizer and scheduler
-    lro, lrf = args.lro, args.lrf
+    if args.scheduler in ['const', 'exp']:
+        lro, lrf = args.lro, args.lro
+    else:
+        lro, lrf = args.lro, args.lrf
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=lro)
     sc_dict = {
             'const': (S.Constant, {}),
-            'exp': (S.ExponentialDecay, {}),
+            'exp': (S.ExponentialDecay, {'r': args.decay_rate}),
             'proot': (S.RootP, {'p': args.p, 'T_lr': args.T_lr})
     }
     class_name, kwargs = sc_dict[args.scheduler]
@@ -387,8 +390,7 @@ def train(
 
 def main():
     # select device
-    cuda_available = torch.cuda.is_available()
-    device = torch.device(f'cuda:{args.device_num}' if cuda_available else 'cpu')
+    device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
 
     # print device info or abort if no CUDA device available
     if device != 'cpu' :
