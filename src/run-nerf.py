@@ -229,7 +229,7 @@ def train(
     )
 
     # optimizer and scheduler
-    if args.scheduler in ['const', 'exp']:
+    if args.scheduler in ['const']:
         lro, lrf = args.lro, args.lro
     else:
         lro, lrf = args.lro, args.lrf
@@ -238,7 +238,7 @@ def train(
     sc_dict = {
             'const': (S.Constant, {}),
             'exp': (S.ExponentialDecay, {'r': args.decay_rate}),
-            'proot': (S.RootP, {'p': args.p, 'T_lr': args.T_lr})
+            'proot': (S.RootP, {'p': args.p, 'T': args.T_lr})
     }
     class_name, kwargs = sc_dict[args.scheduler]
     scheduler = class_name(
@@ -512,7 +512,7 @@ def main():
     output = R.render_path(
             render_poses=render_poses,
             hwf=[H, W, focal],
-            chunksize=args.batch_size,
+            chunksize=2*args.batch_size,
             device=device,
             model=model,
             estimator=estimator,

@@ -75,7 +75,8 @@ class ExponentialDecay(Scheduler):
         """Compute the learning rate."""
         #decay_rate = -np.log(self.lr_min / self.lr_max) / self.steps
         #return self.lr_max * np.exp(-decay_rate * self.current_step)
-        return (self.r ** self.current_step) * self.lr_max
+        lro, lrf = self.lr_max, self.lr_min
+        return (self.r ** self.current_step) * (lro - lrf) + lrf
 
 
 class RootP(Scheduler):
@@ -101,20 +102,16 @@ class RootP(Scheduler):
         """
         super().__init__(optim, steps, lr_range)
         p = kwargs["p"]
-        self.T_lr = kwargs["T_lr"]
-        if int(p) == 0:
-            raise ValueError("p must be different from 0.")
+        self.T = kwargs["T"]
+        if int(p) <= 0:
+            raise ValueError("p must be a positive integer value.")
         self.p = int(p)
 
     @property
     def lr(self) -> float:
         """Compute the learning rate."""
-        p, N, k = self.p, self.T_lr, self.current_step
-        if k < N:
-            t = (((1. - 0.5 ** p) / N) * k + 0.5 ** p) ** (1. / p)
-            lr = 2 * (self.lr_max - self.lr_min) * (1. - min(1., t))
-            lr += self.lr_min
-        else:
-            lr = self.lr_min
+        p, T, k = self.p, self.T, self.current_step
+        t = (((1. - self.lr_max ** p) / T) * k + self.lr_max ** p) ** (1. / p)
+        lr = (self.lr_max / (1 - self.lr_max)) * (1. - t)
         
-        return lr
+        return max(self.lr_min, lr)
