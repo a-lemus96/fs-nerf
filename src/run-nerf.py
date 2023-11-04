@@ -107,10 +107,9 @@ def validation(
         val_loader: DataLoader,
         device: torch.device,
         render_step_size: float = 5e-3,
-        val_samples: int = 10,
 ) -> Tuple[float, float, float]:
     """
-    Perform validation step using a subset of the validation set.
+    Perform validation step
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF-like model
@@ -119,7 +118,6 @@ def validation(
         val_loader (DataLoader): validation set loader
         device (torch.device): device to train on
         render_step_size (float, optional): step size for rendering
-        val_samples (int, optional): number of samples from val set to use
     Returns:
         val_psnr (float): validation PSNR
         val_ssim (float): validation SSIM
@@ -127,48 +125,47 @@ def validation(
     """
     H, W, focal = hwf
     H, W = int(H), int(W)
-    model.eval()
-    with torch.no_grad():
-        val_iterator = iter(val_loader)
-        rgbs = []
-        rgbs_gt = []
-        for v in range(val_samples):
-            rgb_gt, depth_gt, pose = next(val_iterator)
-            rgbs_gt.append(rgb_gt) # append ground truth rgb
-            rgb, depth = R.render_frame(
-                    H, W, focal, pose[0],
-                    args.batch_size,
-                    estimator,
-                    device,
-                    model,
-                    train=False,
-                    white_bkgd=args.white_bkgd,
-                    render_step_size=render_step_size
-            )
-            rgbs.append(rgb) # append rendered rgb
-        # compute validation metrics
-        rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
-        rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
-        rgbs_gt = rgbs_gt.to(device)
-        val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-        if val_samples < len(val_loader):
-            val_lpips = lpips_net(rgbs, rgbs_gt).mean()
-        else:
-            val_lpips = 1.
-        rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
-        rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-        ssims = np.zeros((rgbs.shape[0],))
-        for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
-            ssims[i] = SSIM(
-                    rgb, 
-                    rgb_gt, 
-                    channel_axis=-1, 
-                    data_range=1.,
-                    gaussian_weights=True
-            )
-        val_ssim = np.mean(ssims)
+    rgbs = []
+    rgbs_gt = []
+    for val_data in val_loader:
+        rgb_gt, depth_gt, pose = val_data
+        rgbs_gt.append(rgb_gt) # append ground truth rgb
+        rgb, depth = R.render_frame(
+                H, W, focal, pose[0],
+                args.batch_size,
+                estimator,
+                device,
+                model,
+                train=False,
+                white_bkgd=args.white_bkgd,
+                render_step_size=render_step_size
+        )
+        rgbs.append(rgb) # append rendered rgb
+    # compute PSNR
+    rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
+    rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+    rgbs_gt = rgbs_gt.to(device)
+    val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+    # compute LPIPS
+    if len(val_loader) < 25:
+        val_lpips = lpips_net(rgbs, rgbs_gt).mean()
+    else:
+        val_lpips = 1.
+    # compute SSIM
+    rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
+    rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
+    ssims = np.zeros((rgbs.shape[0],))
+    for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
+        ssims[i] = SSIM(
+                rgb, 
+                rgb_gt, 
+                channel_axis=-1, 
+                data_range=1.,
+                gaussian_weights=True
+        )
+    val_ssim = np.mean(ssims)
 
-        return val_psnr, val_ssim, val_lpips
+    return val_psnr, val_ssim, val_lpips
 
 def train(
         model: nn.Module,
@@ -220,7 +217,6 @@ def train(
             shuffle=True,
             num_workers=8
     )
-    val_samples = int(args.val_ratio * len(val_set)) # % of val samples
     val_loader = DataLoader(
             val_set,
             batch_size=1,
@@ -263,7 +259,6 @@ def train(
             rays_o, rays_d, rgb_gt, depth_gt = next(iterator)
 
         # render rays
-        model.train()
         rgb, _, depth, _ = R.render_rays(
                 rays_o=rays_o,
                 rays_d=rays_d,
@@ -333,58 +328,74 @@ def train(
 
         # compute validation
         if k % args.val_rate == 0:
-            val_data = validation(
-                    train_set.hwf,
-                    model,
-                    lpips_net,
-                    estimator,
-                    val_loader,
-                    device,
-                    val_samples=val_samples
-            )
-            val_psnr, val_ssim, val_lpips = val_data
-            # render test image
+            model.eval()
             with torch.no_grad():
-                rgb, depth = R.render_frame(
-                        H, W, focal, testpose,
-                        args.batch_size,
-                        estimator,
-                        device,
+                val_metrics = validation(
+                        train_set.hwf,
                         model,
-                        train=False,
-                        white_bkgd=args.white_bkgd,
-                        render_step_size=render_step_size
+                        lpips_net,
+                        estimator,
+                        val_loader,
+                        device
                 )
-            # log data to wandb
-            if not args.debug:
-                wandb.log({
-                    'train_psnr': psnr,
-                    'train_depth_mae': mae,
-                    'lr': scheduler.lr,
-                    'alpha': alpha,
-                    'val_psnr': val_psnr,
-                    'val_ssim': val_ssim,
-                    'val_lpips': val_lpips,
-                    'rgb': wandb.Image(
-                        rgb.cpu().numpy(),
-                        caption='RGB'
-                    ),
-                    'depth': wandb.Image(
-                        PL.apply_colormap(depth.cpu().numpy()),
-                        caption='Depth'
+                val_psnr, val_ssim, val_lpips = val_metrics
+                # render test image
+                with torch.no_grad():
+                    rgb, depth = R.render_frame(
+                            H, W, focal, testpose,
+                            args.batch_size,
+                            estimator,
+                            device,
+                            model,
+                            train=False,
+                            white_bkgd=args.white_bkgd,
+                            render_step_size=render_step_size
                     )
-                })
+                # log data to wandb
+                if not args.debug:
+                    wandb.log({
+                        'train_psnr': psnr,
+                        'train_depth_mae': mae,
+                        'lr': scheduler.lr,
+                        'alpha': alpha,
+                        'val_psnr': val_psnr,
+                        'val_ssim': val_ssim,
+                        'val_lpips': val_lpips,
+                        'rgb': wandb.Image(
+                            rgb.cpu().numpy(),
+                            caption='RGB'
+                        ),
+                        'depth': wandb.Image(
+                            PL.apply_colormap(depth.cpu().numpy()),
+                            caption='Depth'
+                        )
+                    })
+            model.train()
 
     # compute final validation
-    val_data = validation(
-            train_set.hwf,
-            model,
-            lpips_net,
-            estimator,
-            val_loader,
-            device,
-            val_samples=len(val_loader)
+    val_set = D.SyntheticRealistic(
+            scene=args.scene,
+            n_imgs=25,
+            split='val',
+            white_bkgd=args.white_bkgd,
+            img_mode=True
     )
+    val_loader = DataLoader(
+            val_set,
+            batch_size=1,
+            shuffle=True,
+            num_workers=8
+    )
+    model.eval()
+    with torch.no_grad():
+        val_data = validation(
+                train_set.hwf,
+                model,
+                lpips_net,
+                estimator,
+                val_loader,
+                device
+        )
 
     return val_data
 
@@ -451,9 +462,10 @@ def main():
         })
 
     # load validation data
+    val_subset = int(args.val_ratio * 25) # % of val samples
     val_set = D.SyntheticRealistic(
             scene=args.scene,
-            n_imgs=25,
+            n_imgs=val_subset,
             split='val',
             white_bkgd=args.white_bkgd,
             img_mode=True
