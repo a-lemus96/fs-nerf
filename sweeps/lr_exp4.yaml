@@ -1,0 +1,29 @@
+program: run-nerf.py
+project: depth-nerf
+method: random
+name: exp-lr-4
+description: exponential learning rate using fixed lro and non-zero lrf
+parameters:
+  lrf:
+    distribution: log_uniform_values
+    min: 1e-7
+    max: 1e-5
+  decay_rate:
+    distribution: uniform
+    max: 0.99999
+    min: 0.99750
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --scheduler
+  - exp
+  - --lro
+  - 5e-3
+  - ${args}
