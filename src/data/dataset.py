@@ -19,9 +19,9 @@ import utils.utilities as U
 class SyntheticRealistic(Dataset):
     """
     Synthetic realistic dataset. It is made up of N x H x W ray origins and
-    directions in world coordinate frame paired with ground truth pixel colors
-    and depth values. The dataset is stored in a directory named 'synthetic'.
-    Here, N is the number of training images of size H x W.
+    directions in world coordinate frame paired with ground truth pixel values. 
+    The dataset is stored in a directory named 'synthetic'. Here, N is the 
+    number of training images of size H x W.
     ----------------------------------------------------------------------------
     """
     def __init__(
@@ -52,7 +52,7 @@ class SyntheticRealistic(Dataset):
         self.img_mode = img_mode
 
         # load the dataset
-        imgs, depths, poses, hwf = self.__load()
+        imgs, poses, hwf = self.__load()
         self.hwf = hwf
         # compute background color
         if white_bkgd:
@@ -60,11 +60,10 @@ class SyntheticRealistic(Dataset):
         else:
             imgs = imgs[..., :3]
 
-        # choose random index for display image, pose and depth map
+        # choose random index for visual comparisons
         idx = np.random.randint(0, imgs.shape[0])
         self.testimg = imgs[idx]
         self.testpose = poses[idx]
-        self.testdepth = depths[idx]
 
         # apply K-means to draw N views and ensure maximum scene coverage
         x = poses[:, :3, 3]
@@ -78,15 +77,13 @@ class SyntheticRealistic(Dataset):
             cluster_dists = np.where(labels == i, dists, np.inf)
             idxs[i] = np.argmin(cluster_dists)
 
-
         # full resolution images
         self.imgs = imgs[idxs]
-        self.depths = depths[idxs]
         self.poses = poses[idxs]
 
         if not self.img_mode:
             # split images into individual per-ray samples
-            self.__build_data(self.imgs, self.depths, self.poses, self.hwf)
+            self.__build_data(self.imgs, self.poses, self.hwf)
 
 
     def __len__(self) -> int:
@@ -111,42 +108,39 @@ class SyntheticRealistic(Dataset):
             ray_o (Tensor): [3,]. Ray origin
             ray_d (Tensor): [3,]. Ray direction
             rgb (Tensor): [3,]. Pixel RGB color
-            depth (Tensor): [1,]. Pixel depth value
         """
         if self.img_mode:
-            return self.imgs[idx], self.depths[idx], self.poses[idx]
+            return self.imgs[idx], self.poses[idx]
 
-        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx], self.depth[idx]
+        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx]
 
     def __build_data(
             self,
             imgs: Tensor,
-            depths: Tensor,
             poses: Tensor,
             hwf: Tensor
     ) -> None:
         """
         Build set of rays in world coordinate frame and their corresponding 
-        pixel RGB colors and depth values.
+        pixel RGB values.
         ------------------------------------------------------------------------
         Args:
-            
+            imgs (Tensor): [N, H, W, 4]. RGBa images
+            poses (Tensor): [N, 4, 4]. Camera poses
+            hwf (Tensor): [3,]. Camera intrinsics
         """
         # compute ray origins and directions
         H, W, f = hwf
         rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1) 
                             for p in poses], 0)
         rays = rays.reshape(-1, 6)
-        self.rays_o = rays[:, :3]
-        self.rays_d = rays[:, 3:]
-        # reshape images and depths
-        self.rgb = imgs.reshape(-1, 3)
-        self.depth = depths.reshape(-1)
+        self.rays_o = rays[:, :3] # ray origins
+        self.rays_d = rays[:, 3:] # ray directions
+        self.rgb = imgs.reshape(-1, 3) # reshape to [N, 3]
 
     def __downsample(
             self, 
             imgs: Tensor, 
-            depths: Tensor,
             hwf: Tensor,
             factor: int
     ) -> None:
@@ -155,12 +149,10 @@ class SyntheticRealistic(Dataset):
         ------------------------------------------------------------------------
         Args:
             imgs (Tensor): [N, H, W, 4]. RGBa images
-            depths (Tensor): [N, H, W]. Depth maps
             hwf (Tensor): [3,]. Camera intrinsics
             factor (int): resize factor
         Returns:
             new_imgs (Tensor): [N, H // factor, W // factor, 4]. RGBa images
-            new_depths (Tensor): [N, H // factor, W // factor]. Depth maps
             new_hwf (Tensor): [3,]. Camera intrinsics
         """
         # apply factor to camera intrinsics
@@ -169,42 +161,18 @@ class SyntheticRealistic(Dataset):
         new_focal = hwf[2] / float(factor)
         new_hwf = torch.Tensor((new_H, new_W, new_focal))
         # downsample images
-        print(imgs.shape)
         new_imgs = Resize((new_H, new_W))(imgs)
-        new_depths = Resize((new_H, new_W))(depths)
 
-        return new_imgs, new_depths, new_hwf
-
-    def __ray_depth(self, depths: Tensor, hwf: Tensor) -> Tensor:
-        """Given a set of depth maps using z-coords, compute depth values along
-        rays.
-        ------------------------------------------------------------------------
-        Args:
-            depths (Tensor): [N, H, W]. Depth maps
-            hwf (Tensor): [3,]. Camera intrinsics
-        Returns:
-            ray_depths (Tensor): [N, H, W]. Depth values along rays
-        """
-        H, W, f = hwf
-        H, W = int(H), int(W)
-        rays_d = U.get_rays(H, W, f) # get local ray directions
-
-        # compute depth values along rays
-        rays_d = rays_d[..., -1]
-        t_depths = -depths / rays_d[None, ...]
-
-        return t_depths
+        return new_imgs, new_hwf
 
     def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
         """
-        Loads the dataset. It loads images, camera poses,  camera intrinsics and
-        depth maps.
+        Loads the dataset. It loads images, camera poses and intrinsics.
         ------------------------------------------------------------------------
         Args:
             None
         Returns:
             imgs (Tensor): [N, H, W, 4]. RGBa images
-            depths (Tensor): [N, H, W]. Depth maps (along z axis)
             poses (Tensor): [N, 4, 4]. Camera poses
             hwf (Tensor): [3,]. Camera intrinsics. It contains height, width and
                           focal length
@@ -217,24 +185,17 @@ class SyntheticRealistic(Dataset):
 
         # load images and camera poses
         imgs = []
-        depths = []
         poses = []
-        depth_str = '_depth_0001.png' # depth map end of file name
-        for i, frame in enumerate(meta['frames']):
+        for frame in meta['frames']:
             # camera pose
             poses.append(np.array(frame['transform_matrix']))
-            # frame image and depth map
+            # frame image
             fname = os.path.join(path, frame['file_path'] + '.png')
             imgs.append(iio.imread(fname)) # RGBa image
-            fname = os.path.join(path, frame['file_path'] + depth_str)
-            depths.append(iio.imread(fname)) # depth map
 
         # convert to numpy arrays
         poses = np.stack(poses, axis=0).astype(np.float32)
         imgs = (np.stack(imgs, axis=0) / 255.).astype(np.float32)
-        depths = (np.stack(depths, axis=0) / 255.).astype(np.float32)
-        depths = (1. - depths) * 8. # apply inverse affine transformation
-        depths[depths == 8.] = np.inf
 
         # compute image height, width and camera's focal length
         H, W = imgs.shape[1:3]
@@ -245,17 +206,14 @@ class SyntheticRealistic(Dataset):
         # create tensors
         poses = torch.from_numpy(poses)
         imgs = torch.from_numpy(imgs)
-        depths = torch.from_numpy(depths[..., 0])
-        # convert z depth to along-ray depth
-        depths = self.__ray_depth(depths, hwf)
         hwf = torch.from_numpy(hwf)
 
-        return imgs, depths, poses, hwf
+        return imgs, poses, hwf
 
 
     def gaussian_downsample(self, t: int) -> None:
         """
-        Applies Gaussian blur + downsampling to images and depth maps.
+        Applies Gaussian blur + downsampling to images.
         ------------------------------------------------------------------------
         Args:
             t (int): Gaussian blur standard deviation
@@ -264,24 +222,21 @@ class SyntheticRealistic(Dataset):
         """    
         t = int(t)
         if t > 0:
-            # permute images and depths to [N, C, H, W] format
+            # permute images to [N, C, H, W] format
             imgs = torch.permute(self.imgs, (0, 3, 1, 2)) # [N, 3, H, W]
-            depths = torch.unsqueeze(self.depths, 1) # [N, 1, H, W]
 
             # apply Gaussian blur
             blur = GaussianBlur(6 * t + 1, sigma=float(t))
             imgs = blur(imgs) # [N, 3, H, W]
-            depths = blur(depths) # [N, 1, H, W]
 
-            # downsample images and depths
-            imgs, depths, hwf = self.__downsample(imgs, depths, self.hwf, 1)
-            # permute images and depths to [N, H, W, C] format
+            # downsample images
+            imgs, hwf = self.__downsample(imgs, self.hwf, 1)
+            # permute images back to [N, H, W, C] format
             imgs = torch.permute(imgs, (0, 2, 3, 1)) # [N, H, W, 3]
-            depths = torch.squeeze(depths, 1) # [N, H, W]
 
             # re-build training samples
-            self.__build_data(imgs, depths, self.poses, hwf)
+            self.__build_data(imgs, self.poses, hwf)
 
-            return imgs, depths, hwf
+            return imgs, hwf
 
-        return self.imgs, self.depths, self.hwf
+        return self.imgs, self.hwf

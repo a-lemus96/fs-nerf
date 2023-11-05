@@ -128,7 +128,7 @@ def validation(
     rgbs = []
     rgbs_gt = []
     for val_data in val_loader:
-        rgb_gt, depth_gt, pose = val_data
+        rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt) # append ground truth rgb
         rgb, depth = R.render_frame(
                 H, W, focal, pose[0],
@@ -191,10 +191,8 @@ def train(
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
 
+    # visual logger g.t. data
     testimg = train_set.testimg
-    testdepth = train_set.testdepth
-    bkgd = torch.isinf(testdepth)
-    testdepth[bkgd] = 0.
     testpose = train_set.testpose
 
     if not args.debug:
@@ -203,10 +201,6 @@ def train(
             'rgb_gt': wandb.Image(
                 testimg.numpy(),
                 caption='Ground Truth RGB'
-            ),
-            'depth_gt': wandb.Image(
-                PL.apply_colormap(testdepth.numpy()),
-                caption='Ground Truth Depth'
             )
         })
 
@@ -253,13 +247,13 @@ def train(
     for k in pbar: # loop over the number of iterations
         # get next batch of data
         try:
-            rays_o, rays_d, rgb_gt, depth_gt = next(iterator)
+            rays_o, rays_d, rgb_gt = next(iterator)
         except StopIteration:
             iterator = iter(train_loader)
-            rays_o, rays_d, rgb_gt, depth_gt = next(iterator)
+            rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
-        rgb, _, depth, _ = R.render_rays(
+        rgb, *_ = R.render_rays(
                 rays_o=rays_o,
                 rays_d=rays_d,
                 estimator=estimator,
@@ -269,21 +263,11 @@ def train(
                 white_bkgd=args.white_bkgd,
                 render_step_size=render_step_size
         )
-        # compute loss, PSNR, and MAE
+        # compute loss and PSNR
         rgb_gt = rgb_gt.to(device)
-        depth_gt = depth_gt.to(device)
         loss = F.mse_loss(rgb, rgb_gt)
         with torch.no_grad():
             psnr = -10. * torch.log10(loss).item()
-            # remove bkgd if necessary
-            depth = depth.squeeze(-1)
-            mask = ~torch.isinf(depth_gt)
-            mask = mask | ~mask if args.use_bkgd else mask
-            depth = depth[mask]
-            depth_gt = depth_gt[mask]
-            # mean absolute error
-            mae = torch.abs(depth - depth_gt)
-            mae = torch.mean(mae).item()
 
         # weight decay regularization
         if args.ao is not None:
@@ -321,7 +305,6 @@ def train(
         if not args.debug and k % args.val_rate != 0:
             wandb.log({
                 'train_psnr': psnr,
-                'train_depth_mae': mae,
                 'lr': scheduler.lr,
                 'alpha': alpha
             })
@@ -340,22 +323,20 @@ def train(
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
                 # render test image
-                with torch.no_grad():
-                    rgb, depth = R.render_frame(
-                            H, W, focal, testpose,
-                            args.batch_size,
-                            estimator,
-                            device,
-                            model,
-                            train=False,
-                            white_bkgd=args.white_bkgd,
-                            render_step_size=render_step_size
-                    )
+                rgb, depth = R.render_frame(
+                        H, W, focal, testpose,
+                        args.batch_size,
+                        estimator,
+                        device,
+                        model,
+                        train=False,
+                        white_bkgd=args.white_bkgd,
+                        render_step_size=render_step_size
+                )
                 # log data to wandb
                 if not args.debug:
                     wandb.log({
                         'train_psnr': psnr,
-                        'train_depth_mae': mae,
                         'lr': scheduler.lr,
                         'alpha': alpha,
                         'val_psnr': val_psnr,

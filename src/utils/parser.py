@@ -81,10 +81,6 @@ def config_parser() -> argparse.Namespace:
             help='Number of training iterations'
     )
     parser.add_argument(
-            '--warmup_iters', default=2500, type=int, 
-            help="Number of iterations for mip scheduler's warmup phase"
-    )
-    parser.add_argument(
             '--batch_size', default=1024, type=int,
             help='Number of rays per optimization step'
     )
@@ -107,10 +103,6 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument(
             '--scheduler', choices=['const', 'exp', 'proot'], default='exp',
             help='Learning rate scheduler'
-    )
-    parser.add_argument(
-            '--device_num', default=0, type=int,
-            help="Number of CUDA device to be used for training"
     )
 
     #-------------------------------validation---------------------------------#
@@ -141,17 +133,6 @@ def config_parser() -> argparse.Namespace:
     parser.add_argument(
             '--reg', choices=['l1', 'l2'], default='l2',
             help='Norm for penalizing model parameters'
-    )
-
-    #---------------------------------depth------------------------------------#
-
-    parser.add_argument(
-            '--use_bkgd', action="store_true",
-            help='If set, use background pixels for depth supervision'
-    )
-    parser.add_argument(
-            '--mu', default=None, type=float,
-            help='Balancing hyperparameter for depth loss'
     )
 
     #-------------------------------logging------------------------------------#

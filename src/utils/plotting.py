@@ -55,7 +55,7 @@ def density_animate(
 
 def apply_colormap(
         data: ndarray,
-        cmap: str = 'viridis',
+        cmap: str = 'plasma',
         norm: Normalize = None
 ) -> ndarray:
     """Apply a colormap to the data.
