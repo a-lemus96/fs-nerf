@@ -89,11 +89,11 @@ def config_parser() -> argparse.Namespace:
             help='Initial learning rate for optimizer'
     )
     parser.add_argument(
-            '--lrf', default=5e-5, type=float,
+            '--lrf', default=0., type=float,
             help='Final learning rate for optimizer'
     )
     parser.add_argument(
-            '--decay_rate', default=0.999, type=float,
+            '--decay_rate', default=0.999990789702, type=float,
             help='Decay rate for exponential learning rate scheduler'
     )
     parser.add_argument(
@@ -107,6 +107,10 @@ def config_parser() -> argparse.Namespace:
 
     #-------------------------------validation---------------------------------#
 
+    parser.add_argument(
+            '--no_val', action='store_true',
+            help='If set, do not perform validation during training'
+    )
     parser.add_argument(
             '--val_rate', default=500, type=int,
             help='Number of iterations between validation steps'
@@ -134,7 +138,14 @@ def config_parser() -> argparse.Namespace:
             '--reg', choices=['l1', 'l2'], default='l2',
             help='Norm for penalizing model parameters'
     )
-
+    parser.add_argument(
+            '--M', default=15, type=int,
+            help='Occlusion regularization range parameter'
+    )
+    parser.add_argument(
+            '--beta', default=0.01, type=float,
+            help='Occlusion regularization importance parameter'
+    )
     #-------------------------------logging------------------------------------#
 
     parser.add_argument(

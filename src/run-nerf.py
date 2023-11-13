@@ -8,6 +8,7 @@ from typing import List, Tuple, Union, Optional
 # third-party imports
 from lpips import LPIPS
 import matplotlib.pyplot as plt
+import nerfacc
 from nerfacc.volrend import rendering
 from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
@@ -244,6 +245,7 @@ def train(
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
     alpha = 0.
+
     for k in pbar: # loop over the number of iterations
         # get next batch of data
         try:
@@ -253,7 +255,7 @@ def train(
             rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
-        rgb, *_ = R.render_rays(
+        (rgb, *_, extras), ray_indices = R.render_rays(
                 rays_o=rays_o,
                 rays_d=rays_d,
                 estimator=estimator,
@@ -263,11 +265,25 @@ def train(
                 white_bkgd=args.white_bkgd,
                 render_step_size=render_step_size
         )
+        
         # compute loss and PSNR
         rgb_gt = rgb_gt.to(device)
         loss = F.mse_loss(rgb, rgb_gt)
         with torch.no_grad():
             psnr = -10. * torch.log10(loss).item()
+
+        # occlusion regularization
+        sigmas = extras['sigmas']
+        if len(sigmas) > 0:
+            samples_per_ray = torch.bincount(ray_indices)
+            nonzero_idxs = torch.nonzero(samples_per_ray).view(-1)
+            splits = samples_per_ray[nonzero_idxs]
+            sigma_groups = torch.split(sigmas, splits.tolist())
+            means = torch.stack(
+                    [torch.mean(s[:min(args.M, len(s))]) for s in sigma_groups]
+            )
+            sigma_mean = torch.mean(means)
+            loss += args.beta * sigma_mean
 
         # weight decay regularization
         if args.ao is not None:
@@ -310,7 +326,7 @@ def train(
             })
 
         # compute validation
-        if k % args.val_rate == 0:
+        if k % args.val_rate == 0 and not args.no_val:
             model.eval()
             with torch.no_grad():
                 val_metrics = validation(

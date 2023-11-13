@@ -95,7 +95,7 @@ def render_rays(
         model: nn.Module,
         train: bool = False,
         white_bkgd: bool = False,
-        render_step_size: float = 5e-3
+        render_step_size: float = 5e-3,
 ) -> Tuple[Tensor]:
     """Renders rays using a given NeRF model.
     ----------------------------------------------------------------------------
@@ -106,11 +106,14 @@ def render_rays(
         device: Device to use for rendering
         model: NeRF model
         train: Whether to train model
+        white_bkgd: Whether to use white background
+        render_step_size: Rendering step size
     Returns:
         rgb: (n_rays, 3)-shape tensor containing RGB values
         opacity: (n_rays,)-shape tensor containing opacity values
         depth: (n_rays,)-shape tensor containing depth values
         extras
+        ray_indices: (n_rays,)-shape tensor containing ray indices
     ----------------------------------------------------------------------------
     """
     # send rays to device
@@ -162,7 +165,7 @@ def render_rays(
                 None,
         )
 
-    return output
+    return output, ray_indices
 
 
 def render_frame(
@@ -194,7 +197,7 @@ def render_frame(
     img = []
     depth_map = []
     for rays_o, rays_d in zip(chunked_rays_o, chunked_rays_d):
-        rgb, opacity, depth, extras = render_rays(
+        (rgb, _, depth, _), _ = render_rays(
                 rays_o, rays_d,
                 estimator,
                 device,
@@ -202,7 +205,6 @@ def render_frame(
                 white_bkgd,
                 render_step_size=render_step_size
         )
-
         img.append(rgb)
         depth_map.append(depth)
 
