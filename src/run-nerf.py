@@ -239,6 +239,10 @@ def train(
     iterator = iter(train_loader) # data iterator
     alpha = 0.
 
+    # regularizers
+    if args.beta is not None:
+        occ_reg = L.OcclusionRegularizer(args.beta, args.M)
+
     for k in pbar: # loop over the number of iterations
         # get next batch of data
         try:
@@ -266,17 +270,10 @@ def train(
             psnr = -10. * torch.log10(loss).item()
 
         # occlusion regularization
-        sigmas = extras['sigmas']
-        if len(sigmas) > 0:
-            samples_per_ray = torch.bincount(ray_indices)
-            nonzero_idxs = torch.nonzero(samples_per_ray).view(-1)
-            splits = samples_per_ray[nonzero_idxs]
-            sigma_groups = torch.split(sigmas, splits.tolist())
-            means = torch.stack(
-                    [torch.mean(s[:min(args.M, len(s))]) for s in sigma_groups]
-            )
-            sigma_mean = torch.mean(means)
-            loss += args.beta * sigma_mean
+        if args.beta is not None:
+            sigmas = extras['sigmas']
+            if len(sigmas) > 0:
+                loss += occ_reg(sigmas, ray_indices)
 
         # weight decay regularization
         if args.ao is not None:

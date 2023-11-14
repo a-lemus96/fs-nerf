@@ -143,7 +143,7 @@ def config_parser() -> argparse.Namespace:
             help='Occlusion regularization range parameter'
     )
     parser.add_argument(
-            '--beta', default=0.01, type=float,
+            '--beta', default=None, type=float,
             help='Occlusion regularization importance parameter'
     )
     #-------------------------------logging------------------------------------#

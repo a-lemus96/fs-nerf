@@ -16,9 +16,13 @@ class Regularizer:
         self.weight = weight
 
     def __call__(self, *args, **kwargs):
+        return self.weight * self.penalty(*args, **kwargs)
+
+    @property
+    def penalty(self, *args, **kwargs):
         raise NotImplementedError
 
-class OccReg(Regularizer):
+class OcclusionRegularizer(Regularizer):
     """
     Occlussion regularizer to penalize dense fields near the camera.
     ----------------------------------------------------------------------------
@@ -36,17 +40,21 @@ class OccReg(Regularizer):
         super().__init__(weight)
         self.M = M
 
-    def  __call__(self, sigmas: Tensor) -> Tensor:
+    @property
+    def penalty(self, sigmas: Tensor, ray_indices: Tensor) -> Tensor:
         """
-        Computes the mean density value within the regularization range multi-
-        plied by the balancing weight.
+        Computes the mean density value within the regularization range for a
+        batch of rays.
         ------------------------------------------------------------------------
         Args:
-            sigmas (Tensor): tensor of shape (..., K) denoting the density
-                             values at the query points
+            sigmas (Tensor): (K,) denoting the density values at query points
         Returns:
-            Tensor: regularization term multiplied by the balancing weight
+            Tensor: (1,) mean density value within the regularization range
         """
-        # compute the loss
-        reg = torch.mean(sigmas[..., :self.M], dim=-1)
-        return self.weight * torch.mean(reg)
+        samples_per_ray = torch.bincount(ray_indices)
+        nonzero_idxs = torch.nonzero(samples_per_ray).view(-1)
+        splits = samples_per_ray[nonzero_idxs]
+        s_groups = torch.split(sigmas, splits.tolist())
+        sigmas = torch.cat([s[:min(self.M, len(s))] for s in s_groups])
+
+        return self.weight * torch.mean(sigmas)
