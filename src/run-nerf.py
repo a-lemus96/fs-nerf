@@ -218,24 +218,17 @@ def train(
             shuffle=True,
             num_workers=8
     )
-
-    # optimizer and scheduler
-    if args.scheduler in ['const']:
-        lro, lrf = args.lro, args.lro
-    else:
-        lro, lrf = args.lro, args.lrf
     params = list(model.parameters())
-    optimizer = torch.optim.Adam(params, lr=lro)
+    optimizer = torch.optim.Adam(params, lr=args.lro)
     sc_dict = {
             'const': (S.Constant, {}),
-            'exp': (S.ExponentialDecay, {'r': args.decay_rate}),
-            'proot': (S.RootP, {'p': args.p, 'T': args.T_lr})
+            'exp': (S.ExponentialDecay, {'r': args.decay_rate})
     }
     class_name, kwargs = sc_dict[args.scheduler]
     scheduler = class_name(
             optimizer,
-            args.n_iters,
-            (lro, lrf),
+            args.Td,
+            args.lro,
             **kwargs
     )
 

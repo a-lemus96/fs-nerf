@@ -8,8 +8,8 @@ class Scheduler:
     def __init__(
             self,
             optim: Optimizer,
-            steps: int,
-            lr_range: tuple = (5e-4, 5e-5),
+            T: int,
+            lro: float,
             **kwargs: dict
     ) -> None:
         """
@@ -17,26 +17,26 @@ class Scheduler:
         ------------------------------------------------------------------------
         Args:
             optim (Optimizer): The optimizer to use
-            steps (int): The number of steps to decay the learning rate over
-            lr_range (tuple): The range of learning rates to decay between
+            T (int): The number of steps to decay the learning rate over
+            lro (float): The initial learning rate
             **kwargs (dict): Additional keyword arguments
         Returns:
             None
         ------------------------------------------------------------------------
         """
         self.optim = optim
-        self.lr_max, self.lr_min = lr_range
-        if self.lr_max < self.lr_min:
-            raise ValueError("lr_max must be greater than or equal to lr_min.")
-        self.steps = steps
-        self.current_step = 0
+        if lro < 0:
+            raise ValueError("lro must be a positive value.")
+        self.lro = lro
+        self.T = T
+        self.t = 0 # current step
 
     def step(self) -> None:
         """
         Update optimizer learning rate
         ------------------------------------------------------------------------
         """
-        self.current_step += 1
+        self.t += 1
         for param_group in self.optim.param_groups:
             param_group["lr"] = self.lr
 
@@ -48,7 +48,7 @@ class Constant(Scheduler):
     @property
     def lr(self) -> float:
         """Compute the learning rate."""
-        return self.lr_max
+        return self.lro
 
 
 class ExponentialDecay(Scheduler):
@@ -59,33 +59,34 @@ class ExponentialDecay(Scheduler):
     def __init__(
             self,
             optim: Optimizer,
-            steps: int,
-            lr_range: tuple = (5e-4, 5e-5),
+            T: int,
+            lro: float,
             **kwargs: dict
     ) -> None:
         """
         Initialize the scheduler.
         ------------------------------------------------------------------------
         """
-        super().__init__(optim, steps, lr_range)
+        super().__init__(optim, T, lro)
         self.r = kwargs["r"]
+        self.lrf = self.lro * self.r
 
     @property
     def lr(self) -> float:
         """Compute the learning rate."""
-        #decay_rate = -np.log(self.lr_min / self.lr_max) / self.steps
-        #return self.lr_max * np.exp(-decay_rate * self.current_step)
-        lro, lrf = self.lr_max, self.lr_min
-        return (self.r ** self.current_step) * (lro - lrf) + lrf
+        lro, lrf = self.lro, self.lrf
+        t, T = self.t, self.T
 
+        return lro * (self.r ** (t / T)) if t < T else lrf
 
+'''
 class RootP(Scheduler):
     """p-root-based learning rate decay."""
     def __init__(
             self,
             optim: Optimizer,
-            steps: int,
-            lr_range: tuple = (5e-4, 5e-5),
+            T: int,
+            lro: float,
             **kwargs: dict
     ) -> None:
         """
@@ -115,3 +116,4 @@ class RootP(Scheduler):
         lr = (self.lr_max / (1 - self.lr_max)) * (1. - t)
         
         return max(self.lr_min, lr)
+'''
