@@ -1,0 +1,27 @@
+program: run-nerf.py
+project: depth-nerf
+method: grid
+name: exp2-lr-synthetic
+description: Exp LR evaluation over synthetic dataset non-zero lrf
+parameters:
+  scene:
+    values: [hotdog, mic, lego, chair, materials, ship, ficus, drums]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --scheduler
+  - exp
+  - --lro
+  - 0.005
+  - --lrf
+  - 1.2496400866886712e-07
+  - --decay_rate
+  - 0.9994490364976246
+  - ${args}

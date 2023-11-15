@@ -1,0 +1,23 @@
+program: run-nerf.py
+project: depth-nerf
+method: grid
+name: const-lr-dataset
+description: Constant LR evaluation over entire synthetic dataset
+parameters:
+  scene:
+    values: [hotdog, mic, lego, chair, materials, ship, ficus, drums]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 20000
+  - --model 
+  - sinerf
+  - --scheduler
+  - const
+  - --lro
+  - 0.0005
+  - ${args}
