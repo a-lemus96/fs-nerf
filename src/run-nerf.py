@@ -133,7 +133,7 @@ def validation(
         rgbs_gt.append(rgb_gt) # append ground truth rgb
         rgb, depth = R.render_frame(
                 H, W, focal, pose[0],
-                args.batch_size,
+                2*args.batch_size,
                 estimator,
                 device,
                 model,
@@ -147,24 +147,36 @@ def validation(
     rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
+    val_size = len(val_loader)
     # compute LPIPS
-    if len(val_loader) < 25:
+    if val_size < 25:
         val_lpips = lpips_net(rgbs, rgbs_gt).mean()
     else:
-        val_lpips = 1.
+        # compute LPIPS in chunks
+        n_chunks = 4
+        chunk_size = val_size //  n_chunks
+        chunk_idxs = [i for i in range(0, val_size, chunk_size)]
+        chunks = [(rgbs[i:i+chunk_size], rgbs_gt[i:i+chunk_size]) 
+                  for i in chunk_idxs]
+        val_lpips = 0.
+        for chunk, chunk_gt in chunks:
+            val_lpips += lpips_net(chunk, chunk_gt).mean()
+        val_lpips /= n_chunks
+
     # compute SSIM
     rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
     rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
     ssims = np.zeros((rgbs.shape[0],))
-    for i, (rgb, rgb_gt) in enumerate(zip(rgbs, rgbs_gt)):
-        ssims[i] = SSIM(
+    val_ssim = 0.
+    for rgb, rgb_gt in zip(rgbs, rgbs_gt):
+        val_ssim += SSIM(
                 rgb, 
                 rgb_gt, 
                 channel_axis=-1, 
                 data_range=1.,
                 gaussian_weights=True
         )
-    val_ssim = np.mean(ssims)
+    val_ssim /= len(rgbs)
 
     return val_psnr, val_ssim, val_lpips
 
@@ -331,7 +343,7 @@ def train(
                 # render test image
                 rgb, depth = R.render_frame(
                         H, W, focal, testpose,
-                        args.batch_size,
+                        2*args.batch_size,
                         estimator,
                         device,
                         model,
