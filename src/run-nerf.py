@@ -80,7 +80,7 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
                 args.d_input,
                 args.d_input,
                 args.d_filter,
-                [35., 1., 1., 1., 1., 1., 1., 1.]
+                [30., 1., 1., 1., 1., 1., 1., 1.]
         )
 
     # initialize occupancy estimator
@@ -131,7 +131,7 @@ def validation(
     for val_data in val_loader:
         rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt) # append ground truth rgb
-        rgb, depth = R.render_frame(
+        rgb, _ = R.render_frame(
                 H, W, focal, pose[0],
                 2*args.batch_size,
                 estimator,
@@ -142,18 +142,20 @@ def validation(
                 render_step_size=render_step_size
         )
         rgbs.append(rgb) # append rendered rgb
+
     # compute PSNR
     rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
     rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
     val_size = len(val_loader)
+
     # compute LPIPS
     if val_size < 25:
         val_lpips = lpips_net(rgbs, rgbs_gt).mean()
     else:
         # compute LPIPS in chunks
-        n_chunks = 4
+        n_chunks = 5
         chunk_size = val_size //  n_chunks
         chunk_idxs = [i for i in range(0, val_size, chunk_size)]
         chunks = [(rgbs[i:i+chunk_size], rgbs_gt[i:i+chunk_size]) 
@@ -256,6 +258,8 @@ def train(
         occ_reg = L.OcclusionRegularizer(args.beta, args.M)
 
     for k in pbar: # loop over the number of iterations
+        model.train()
+        estimator.train()
         # get next batch of data
         try:
             rays_o, rays_d, rgb_gt = next(iterator)
@@ -328,8 +332,10 @@ def train(
             })
 
         # compute validation
-        if k % args.val_rate == 0 and not args.no_val:
+        compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
+        if compute_val:
             model.eval()
+            estimator.eval()
             with torch.no_grad():
                 val_metrics = validation(
                         train_set.hwf,
@@ -351,6 +357,7 @@ def train(
                         white_bkgd=args.white_bkgd,
                         render_step_size=render_step_size
                 )
+
                 # log data to wandb
                 if not args.debug:
                     wandb.log({
@@ -369,7 +376,6 @@ def train(
                             caption='Depth'
                         )
                     })
-            model.train()
 
     # compute final validation
     val_set = D.SyntheticRealistic(
@@ -386,6 +392,7 @@ def train(
             num_workers=8
     )
     model.eval()
+    estimator.eval()
     with torch.no_grad():
         val_data = validation(
                 train_set.hwf,

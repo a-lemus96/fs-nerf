@@ -133,7 +133,8 @@ def render_rays(
             sigma_fn=sigma_fn,
             render_step_size=render_step_size,
             stratified=train,
-            far_plane=8.
+            near_plane=0.,
+            far_plane=1e10
     )
 
     def rgb_sigma_fn(t_starts, t_ends, ray_indices):
@@ -146,14 +147,18 @@ def render_rays(
 
             return rgbs, sigmas.squeeze(-1)
 
-    render_bkgd = white_bkgd * torch.ones((3,), device=device, requires_grad=train)
+    render_bkgd = white_bkgd * torch.ones(
+            (3,), 
+            device=device, 
+            requires_grad=train
+    )
 
     try:
         output = rendering(
                 t_starts,
                 t_ends,
                 ray_indices,
-                n_rays=rays_o.shape[0],
+                n_rays=len(rays_o),
                 rgb_sigma_fn=rgb_sigma_fn,
                 render_bkgd=render_bkgd
         )
@@ -210,7 +215,7 @@ def render_frame(
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    depth = torch.cat(depth_map, dim=0)
+    depth = torch.cat(depth_map, dim=0).clamp(0., 7.)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
         
