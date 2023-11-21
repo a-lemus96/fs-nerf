@@ -46,12 +46,12 @@ args = P.config_parser() # parse command line arguments
 
 # MODEL INITIALIZATION
 
-def init_model() -> Tuple[nn.Module, OccGridEstimator]:
+def init_models() -> Tuple[nn.Module, OccGridEstimator]:
     """
-    Initialize NeRF-like model and occupancy grid estimator.
+    Initialize NeRF-like model, occupancy grid estimator, and LPIPS net.
     ----------------------------------------------------------------------------
     Returns:
-        Tuple[nn.Module, OccGridEstimator]: NeRF model, OccGrid estimator
+        Tuple[nn.Module, OccGridEstimator, LPIPS]: models
     """
     # keyword args for positional encoding
     kwargs = {
@@ -64,7 +64,6 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
                 'log_space': args.log_space
             }
     }
-
     # instantiate model
     if args.model == 'nerf':
         model = M.NeRF(
@@ -82,7 +81,6 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
                 args.d_filter,
                 [30., 1., 1., 1., 1., 1., 1., 1.]
         )
-
     # initialize occupancy estimator
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
     # model parameters
@@ -95,17 +93,20 @@ def init_model() -> Tuple[nn.Module, OccGridEstimator]:
             resolution=grid_resolution, 
             levels=grid_nlvl
     )
+    # initialize LPIPS network
+    lpips_net = LPIPS(net='vgg')
     
-    return model, estimator
+    return model, estimator, lpips_net
 
 # TRAINING FUNCTIONS
 
 def validation(
         hwf: Tensor,
         model: nn.Module,
-        lpips_net: LPIPS,
         estimator: OccGridEstimator,
+        lpips_net: LPIPS,
         val_loader: DataLoader,
+        chunksize: int,
         device: torch.device,
         render_step_size: float = 5e-3,
 ) -> Tuple[float, float, float]:
@@ -114,9 +115,10 @@ def validation(
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF-like model
-        lpips_net (LPIPS): LPIPS network
         estimator (OccGridEstimator): occupancy grid estimator
+        lpips_net (LPIPS): LPIPS network
         val_loader (DataLoader): validation set loader
+        chunksize (int): chunk size for frame rendering
         device (torch.device): device to train on
         render_step_size (float, optional): step size for rendering
     Returns:
@@ -133,7 +135,7 @@ def validation(
         rgbs_gt.append(rgb_gt) # append ground truth rgb
         rgb, _ = R.render_frame(
                 H, W, focal, pose[0],
-                2*args.batch_size,
+                chunksize,
                 estimator,
                 device,
                 model,
@@ -185,8 +187,9 @@ def validation(
 def train(
         model: nn.Module,
         estimator: OccGridEstimator,
-        train_set: Dataset,
-        val_set: Dataset,
+        lpips_net: LPIPS,
+        train_loader: Dataset,
+        val_loader: Dataset,
         device: torch.device,
         render_step_size: float = 5e-3,
 ) -> Tuple[float, float]:
@@ -195,43 +198,21 @@ def train(
     Args:
         model (nn.Module): NeRF model
         estimator (OccGridEstimator): occupancy grid estimator
-        train_set (Dataset): training dataset
+        lpips_net (LPIPS): LPIPS network
+        train_loader (Dataset): training set loader
+        val_loader (Dataset): validation set loader
         device (torch.device): device to train on
-        val_set (Dataset): validation dataset
     Returns:
         Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
     ----------------------------------------------------------------------------
     """
     # retrieve camera intrinsics
-    H, W, focal = train_set.hwf
+    hwf = train_loader.dataset.hwf
+    H, W, focal = hwf
     H, W = int(H), int(W)
+    testpose = train_loader.dataset.testpose
 
-    # visual logger g.t. data
-    testimg = train_set.testimg
-    testpose = train_set.testpose
-
-    if not args.debug:
-        # log test maps to wandb
-        wandb.log({
-            'rgb_gt': wandb.Image(
-                testimg.numpy(),
-                caption='Ground Truth RGB'
-            )
-        })
-
-    # data loader(s)
-    train_loader = DataLoader(
-            train_set,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=8
-    )
-    val_loader = DataLoader(
-            val_set,
-            batch_size=1,
-            shuffle=True,
-            num_workers=8
-    )
+    # set up optimizer and scheduler
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=args.lro)
     sc_dict = {
@@ -245,9 +226,6 @@ def train(
             args.lro,
             **kwargs
     )
-
-    # lpips network
-    lpips_net = LPIPS(net='vgg').to(device)
 
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
@@ -336,20 +314,23 @@ def train(
         if compute_val:
             model.eval()
             estimator.eval()
+            lpips_net.eval()
             with torch.no_grad():
                 val_metrics = validation(
-                        train_set.hwf,
+                        hwf,
                         model,
-                        lpips_net,
                         estimator,
+                        lpips_net,
                         val_loader,
+                        16*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
                 # render test image
                 rgb, depth = R.render_frame(
-                        H, W, focal, testpose,
-                        2*args.batch_size,
+                        H, W, focal, 
+                        testpose,
+                        16*args.batch_size,
                         estimator,
                         device,
                         model,
@@ -376,34 +357,7 @@ def train(
                             caption='Depth'
                         )
                     })
-
-    # compute final validation
-    val_set = D.SyntheticRealistic(
-            scene=args.scene,
-            n_imgs=25,
-            split='val',
-            white_bkgd=args.white_bkgd,
-            img_mode=True
-    )
-    val_loader = DataLoader(
-            val_set,
-            batch_size=1,
-            shuffle=True,
-            num_workers=8
-    )
-    model.eval()
-    estimator.eval()
-    with torch.no_grad():
-        val_data = validation(
-                train_set.hwf,
-                model,
-                lpips_net,
-                estimator,
-                val_loader,
-                device
-        )
-
-    return val_data
+    return
 
 def main():
     # select device
@@ -428,14 +382,34 @@ def main():
             config=args
         )
 
-    # load training data
-    n_imgs = args.n_imgs
+    # training/validation datasets
     train_set = D.SyntheticRealistic(
             scene=args.scene,
-            n_imgs=n_imgs,
+            n_imgs=args.n_imgs,
             split='train',
             white_bkgd=args.white_bkgd,
             img_mode=args.img_mode
+    )
+    subset_size = int(args.val_ratio * 25) # % of val samples
+    val_set = D.SyntheticRealistic(
+            scene=args.scene,
+            n_imgs=subset_size,
+            split='val',
+            white_bkgd=args.white_bkgd,
+            img_mode=True
+    )
+    # data loader(s)
+    train_loader = DataLoader(
+            train_set,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=8
+    )
+    val_loader = DataLoader(
+            val_set,
+            batch_size=1,
+            shuffle=True,
+            num_workers=8
     )
     # log interactive 3D plot of camera positions
     fig = go.Figure(
@@ -464,32 +438,58 @@ def main():
 
     if not args.debug:
         wandb.log({
-            'camera_positions': fig
+            'camera_positions': fig,
+            'rgb_gt': wandb.Image(
+                train_set.testimg.numpy(),
+                caption='Ground Truth RGB'
+            )
         })
 
-    # load validation data
-    val_subset = int(args.val_ratio * 25) # % of val samples
-    val_set = D.SyntheticRealistic(
-            scene=args.scene,
-            n_imgs=val_subset,
-            split='val',
-            white_bkgd=args.white_bkgd,
-            img_mode=True
-    )
-
     if not args.render_only:
-        model, estimator = init_model() # initialize model
+        # initialize modules
+        model, estimator, lpips_net = init_models()
         model.to(device)
         estimator.to(device)
+        lpips_net.to(device)
         # train model
-        final_psnr, final_ssim, final_lpips = train(
-                model=model,
-                estimator=estimator,
-                train_set=train_set,
-                val_set=val_set,
+        train(
+                model, 
+                estimator,
+                lpips_net,
+                train_loader,
+                val_loader,
                 device=device
         )
-        # log final metrics to wandb
+        # final validation set and loader
+        val_set = D.SyntheticRealistic(
+                scene=args.scene,
+                n_imgs=25,
+                split='val',
+                white_bkgd=args.white_bkgd,
+                img_mode=True
+        )
+        val_loader = DataLoader(
+                val_set,
+                batch_size=1,
+                shuffle=True,
+                num_workers=8
+        )
+        # compute final validation metrics
+        model.eval()
+        estimator.eval()
+        lpips_net.eval()
+        with torch.no_grad():
+            val_metrics = validation(
+                    train_set.hwf,
+                    model,
+                    lpips_net,
+                    estimator,
+                    val_loader,
+                    16*args.batch_size,
+                    device
+            )
+        # log final metrics
+        final_psnr, final_ssim, final_lpips = val_metrics
         if not args.debug:
             wandb.log({
                 'final_psnr': final_psnr,
@@ -497,7 +497,7 @@ def main():
                 'final_lpips': final_lpips
             })
     else:
-        model = init_model()
+        model = init_models()
         # load model
         model.load_state_dict(torch.load(out_dir + '/model/nn.pt'))
 
@@ -530,7 +530,7 @@ def main():
     output = R.render_path(
             render_poses=render_poses,
             hwf=[H, W, focal],
-            chunksize=2*args.batch_size,
+            chunksize=16*args.batch_size,
             device=device,
             model=model,
             estimator=estimator,
