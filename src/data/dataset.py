@@ -7,6 +7,7 @@ from typing import Tuple, List, Union, Callable
 import imageio as iio
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy import ndarray
 import torch
 from sklearn.cluster import KMeans
 from torch import Tensor
