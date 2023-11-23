@@ -72,6 +72,6 @@ def apply_colormap(
     cmap = plt.get_cmap(cmap)
     # get the normalization
     if norm is None:
-        norm = Normalize(vmin=data.min(), vmax=data.max())
+        norm = Normalize(vmin=0., vmax=6.)
     # apply the colormap
     return cmap(norm(data))

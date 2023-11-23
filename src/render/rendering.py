@@ -215,7 +215,7 @@ def render_frame(
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    depth = torch.cat(depth_map, dim=0).clamp(0., 7.)
+    depth = torch.cat(depth_map, dim=0).clamp(0., 6.)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
         

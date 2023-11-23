@@ -229,7 +229,6 @@ def train(
 
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
-    alpha = 0.
 
     # regularizers
     if args.beta is not None:
@@ -272,16 +271,19 @@ def train(
         # weight decay regularization
         if args.ao is not None:
             freq_reg = torch.tensor(0.).to(device)
-            for name, param in model.named_parameters():
-                if 'weight' in name and param.shape[0] > 3:
-                    if args.reg == 'l1':
-                        freq_reg += torch.abs(param).sum()
-                    else:
-                        freq_reg += torch.square(param).sum().sqrt()
+            # linear decay schedule
+            Ts = int(args.reg_ratio * args.Td)
+            if k < Ts:
+                for name, param in model.named_parameters():
+                    if 'weight' in name and param.shape[0] > 3:
+                        if args.reg == 'l1':
+                            freq_reg += torch.abs(param).sum()
+                        else:
+                            freq_reg += torch.square(param).sum().sqrt()
 
-            a = ((1. - 0.5**args.p)/args.T * k + 0.5**args.p) ** (1./args.p)
-            alpha = 2 * args.ao * (1. - min(1., a))
-            loss += alpha * freq_reg
+                a = args.ao + (1. - args.ao) * (k / Ts)
+                alpha = (args.ao / (1. - args.ao)) * (1. - min(1., a))
+                loss += alpha * freq_reg
 
         # backpropagate loss
         loss.backward()
@@ -322,7 +324,7 @@ def train(
                         estimator,
                         lpips_net,
                         val_loader,
-                        16*args.batch_size,
+                        4*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
@@ -330,7 +332,7 @@ def train(
                 rgb, depth = R.render_frame(
                         H, W, focal, 
                         testpose,
-                        16*args.batch_size,
+                        4*args.batch_size,
                         estimator,
                         device,
                         model,
@@ -360,6 +362,9 @@ def train(
     return
 
 def main():
+    # create llff dataset
+    #llff = D.LLFF('fern')
+    #exit()
     # select device
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -374,7 +379,6 @@ def main():
         # set up wandb run to track training
         name = f"{args.model}"
         name = name + f"-{args.reg}" if args.ao is not None else name
-        name = name + f"-p={args.p}" if args.ao is not None else name
         name = name + f"-ao={args.ao:.2e}" if args.ao is not None else name
         run = wandb.init(
             project='depth-nerf',
@@ -482,10 +486,10 @@ def main():
             val_metrics = validation(
                     train_set.hwf,
                     model,
-                    lpips_net,
                     estimator,
+                    lpips_net,
                     val_loader,
-                    16*args.batch_size,
+                    4*args.batch_size,
                     device
             )
         # log final metrics
@@ -508,7 +512,7 @@ def main():
                 args.model, 
                 args.dataset,
                 args.scene,
-                f"n_imgs_{str(n_imgs)}",
+                f"n_imgs_{str(args.n_imgs)}",
                 run.id
             )
     )
@@ -530,7 +534,7 @@ def main():
     output = R.render_path(
             render_poses=render_poses,
             hwf=[H, W, focal],
-            chunksize=16*args.batch_size,
+            chunksize=4*args.batch_size,
             device=device,
             model=model,
             estimator=estimator,

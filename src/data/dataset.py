@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import GaussianBlur, Resize
 
 # custom modules
-import utils.utilities as U
+from utils import utilities as U
 
 class SyntheticRealistic(Dataset):
     """
@@ -240,3 +240,188 @@ class SyntheticRealistic(Dataset):
             return imgs, hwf
 
         return self.imgs, self.hwf
+
+
+class LLFF(Dataset):
+    """
+    Local Light Field Fusion dataset.
+    ----------------------------------------------------------------------------
+    """
+    def __init__(
+            self,
+            scene: str,
+            factor: int = 4,
+            bd_factor: float = 0.75,
+            img_mode: bool = False,
+            recenter: bool = True,
+    ) -> None:
+        """
+        Initialize dataset.
+        ------------------------------------------------------------------------
+        Args:
+            scene (str): scene name
+            factor (int): resize factor
+            bd_factor (float): bounding box factor
+            img_mode (bool): if True, it returns images instead of rays
+            recenter (bool): if True, it re-centers the poses
+        """
+        super(LLFF, self).__init__()
+        self.img_mode = img_mode
+        basedir = os.path.join('..', 'datasets', 'llff', scene)
+        imgs, poses, bounds = self.__load(basedir, factor)
+
+        # rescale bounds and poses
+        scale = 1. if bound_factor is None else 1. / (bounds.min() * bd_factor)
+        poses[..., :3, 3] *= scale
+        bounds *= scale
+
+        if recenter:
+            poses = __recenter_poses(poses)
+
+
+    def __normalize(v: Tensor) -> Tensor:
+        """
+        Normalizes a vector.
+        ------------------------------------------------------------------------
+        Args:
+            v (Tensor): [N,]. Vector
+        Returns:
+            v (Tensor): [N,]. Normalized vector
+        """
+        return v / np.linalg.norm(v)
+
+    def __viewmatrix(z: ndarray, up: ndarray, pos: ndarray) -> ndarray:
+        """
+        Computes the view matrix.
+        ------------------------------------------------------------------------
+        Args:
+            z (ndarray): [3,]. View direction
+            up (ndarray): [3,]. Up direction
+            pos (ndarray): [3,]. Camera position
+        Returns:
+            view (ndarray): [3, 4]. View matrix without bottom row
+        """
+        z = __normalize(z)
+        y = up
+        x = __normalize(np.cross(y, z))
+        y = __normalize(np.cross(z, x))
+        matrix = np.stack([x, y, z, pos], axis=1)
+
+        return matrix
+
+    def __avg_pose(poses: Tensor) -> Tensor:
+        """
+        Computes camera to world matrix.
+        ------------------------------------------------------------------------
+        Args:
+            poses (Tensor): [N, 3, 5]. Camera poses
+        Returns:
+            avg_pose (Tensor): [N, 3, 5]. Camera to world matrix
+        """
+        hwf = poses[0, :3, -1]
+        center = poses[:, :3, 3].mean(0)
+        viewdir = __normalize(poses[:, :3, 2].sum(0))
+        up = poses[:, :3, 1].sum(0)
+        c2w = np.concatenate([__viewmatrix(viewdir, up, center), hwf], axis=1)
+
+
+    def __recenter_poses(poses: Tensor) -> Tensor:
+        """
+        Re-centers camera poses.
+        ------------------------------------------------------------------------
+        Args:
+            poses (Tensor): [N, 3, 5]. Camera poses
+        Returns:
+            poses (Tensor): [N, 3, 5]. Re-centered camera poses
+        """
+        poses_ = poses.clone()
+        bottom = np.reshape([0, 0, 0, 1.], [1, 4]) # last row of camera matrix
+        c2w = __avg_pose(poses) # average pose
+
+
+
+    def __downsample(
+            self,
+            basedir: str,
+            factor: int
+    ) -> None:
+        """
+        Downsample images and apply resize factor to camera intrinsics.
+        ------------------------------------------------------------------------
+        Args:
+            basedir (str): base directory
+            factor (int): resize factor
+        Returns:
+            None
+        """
+        load = False
+
+        if not load:
+            return
+    
+    def __imread(f: str) -> np.ndarray:
+        """
+        Reads an image.
+        ------------------------------------------------------------------------
+        Args:
+            f (str): image filepath
+        Returns:
+            img (np.ndarray): [H, W, 3]. RGB image
+        """
+        if f.endswith('png'):
+            return iio.imread(f, ignoregamma=True)
+        else:
+            return iio.imread(f)
+
+    def __load(
+            self,
+            basedir,
+            factor
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        """
+        Loads the dataset. It loads images, camera poses, camera bounds and 
+        intrinsics.
+        ------------------------------------------------------------------------
+        Args:
+            basedir (str): base directory
+            factor (int): resize factor
+        Returns:
+            imgs (Tensor): [N, H, W, 3]. RGB images
+            poses (Tensor): [N, 4, 4]. Camera poses
+            bds (Tensor): [N, 2]. Camera bounds
+            hwf (Tensor): [3,]. Camera intrinsics. It contains height, width and
+                          focal length
+        """
+        # load camera poses and bounds
+        data = np.load(os.path.join(basedir, 'poses_bounds.npy'))
+        poses = data[:, :-2].reshape([-1, 3, 5]).transpose([1, 2, 0])
+        bounds = data[:, -2:].transpose([1, 0])
+
+        # search for downsampled images
+        suffix = '' # path suffix
+        if factor > 1:
+            suffix = f'_{factor}'
+        img_dir = os.path.join(basedir, 'images' + suffix)
+        assert os.path.exists(img_dir), f"Images path '{img_dir}' does not exist"
+
+        # load images
+        paths = [os.path.join((img_dir, f))
+                 for f in sorted(os.listdir(img_dir))
+                 if f.endswith(('JPG', 'jpg', 'png'))]
+        assert len(paths) == poses.shape[-1], \
+                'Mismath between the number of images and poses'
+        imgs = np.stack([__imread(p)[..., :3] / 255. for p in paths], axis=0)
+
+        # modify camera poses
+        H, W, _ = iio.imread(paths[0]).shape
+        poses[:2, 4, :] = np.array([H, W]).reshape([2, 1])
+        poses[2, 4, :] = poses[2, 4, :] * 1. / factor
+        # correct poses ordering
+        poses = np.concatenate(
+                [poses[:, 1:2, :], -poses[:, 0:1, :], poses[:, 2:, :]],
+                axis=1
+        )
+        poses = np.moveaxis(poses, -1, 0).astype(np.float32)
+        bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
+        
+        return imgs, poses, bounds
