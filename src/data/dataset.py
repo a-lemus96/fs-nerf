@@ -248,38 +248,7 @@ class LLFF(Dataset):
     Local Light Field Fusion dataset.
     ----------------------------------------------------------------------------
     """
-    def __init__(
-            self,
-            scene: str,
-            factor: int = 4,
-            bd_factor: float = 0.75,
-            img_mode: bool = False,
-            recenter: bool = True,
-    ) -> None:
-        """
-        Initialize dataset.
-        ------------------------------------------------------------------------
-        Args:
-            scene (str): scene name
-            factor (int): resize factor
-            bd_factor (float): bounding box factor
-            img_mode (bool): if True, it returns images instead of rays
-            recenter (bool): if True, it re-centers the poses
-        """
-        super(LLFF, self).__init__()
-        self.img_mode = img_mode
-        basedir = os.path.join('..', 'datasets', 'llff', scene)
-        imgs, poses, bounds = self.__load(basedir, factor)
-
-        # rescale bounds and poses
-        scale = 1. if bound_factor is None else 1. / (bounds.min() * bd_factor)
-        poses[..., :3, 3] *= scale
-        bounds *= scale
-
-        if recenter:
-            poses = __recenter_poses(poses)
-
-
+    @staticmethod
     def __normalize(v: Tensor) -> Tensor:
         """
         Normalizes a vector.
@@ -291,6 +260,7 @@ class LLFF(Dataset):
         """
         return v / np.linalg.norm(v)
 
+    @staticmethod
     def __viewmatrix(z: ndarray, up: ndarray, pos: ndarray) -> ndarray:
         """
         Computes the view matrix.
@@ -302,31 +272,34 @@ class LLFF(Dataset):
         Returns:
             view (ndarray): [3, 4]. View matrix without bottom row
         """
-        z = __normalize(z)
+        z = LLFF.__normalize(z)
         y = up
-        x = __normalize(np.cross(y, z))
-        y = __normalize(np.cross(z, x))
+        x = LLFF.__normalize(np.cross(y, z))
+        y = LLFF.__normalize(np.cross(z, x))
         matrix = np.stack([x, y, z, pos], axis=1)
 
         return matrix
 
-    def __avg_pose(poses: Tensor) -> Tensor:
+    @staticmethod
+    def __avg_pose(poses: ndarray) -> ndarray:
         """
         Computes camera to world matrix.
         ------------------------------------------------------------------------
         Args:
             poses (Tensor): [N, 3, 5]. Camera poses
         Returns:
-            avg_pose (Tensor): [N, 3, 5]. Camera to world matrix
+            c2w (Tensor): [N, 3, 5]. Camera to world matrix
         """
-        hwf = poses[0, :3, -1]
+        hwf = poses[0, :3, -1:]
         center = poses[:, :3, 3].mean(0)
-        viewdir = __normalize(poses[:, :3, 2].sum(0))
+        viewdir = LLFF.__normalize(poses[:, :3, 2].sum(0))
         up = poses[:, :3, 1].sum(0)
-        c2w = np.concatenate([__viewmatrix(viewdir, up, center), hwf], axis=1)
+        c2w = np.concatenate([LLFF.__viewmatrix(viewdir, up, center), hwf], 1)
 
+        return c2w
 
-    def __recenter_poses(poses: Tensor) -> Tensor:
+    @staticmethod
+    def __recenter_poses(poses: ndarray) -> ndarray:
         """
         Re-centers camera poses.
         ------------------------------------------------------------------------
@@ -335,50 +308,24 @@ class LLFF(Dataset):
         Returns:
             poses (Tensor): [N, 3, 5]. Re-centered camera poses
         """
-        poses_ = poses.clone()
+        poses_ = poses.copy()
         bottom = np.reshape([0, 0, 0, 1.], [1, 4]) # last row of camera matrix
-        c2w = __avg_pose(poses) # average pose
+        c2w = LLFF.__avg_pose(poses) # average pose
+        c2w = np.concatenate([c2w[:3, :4], bottom], axis=-2) # center to world
+        bottom = np.tile(np.reshape(bottom, [1, 1, 4]), [poses.shape[0], 1, 1])
+        poses = np.concatenate([poses[:, :3, :4], bottom], -2) # camera to world
+        
+        poses = np.linalg.inv(c2w) @ poses
+        poses_[:, :3, :4] = poses[:, :3, :4]
+        poses = poses_
 
+        return poses
 
-
-    def __downsample(
-            self,
-            basedir: str,
-            factor: int
-    ) -> None:
-        """
-        Downsample images and apply resize factor to camera intrinsics.
-        ------------------------------------------------------------------------
-        Args:
-            basedir (str): base directory
-            factor (int): resize factor
-        Returns:
-            None
-        """
-        load = False
-
-        if not load:
-            return
-    
-    def __imread(f: str) -> np.ndarray:
-        """
-        Reads an image.
-        ------------------------------------------------------------------------
-        Args:
-            f (str): image filepath
-        Returns:
-            img (np.ndarray): [H, W, 3]. RGB image
-        """
-        if f.endswith('png'):
-            return iio.imread(f, ignoregamma=True)
-        else:
-            return iio.imread(f)
-
+    @staticmethod
     def __load(
-            self,
             basedir,
             factor
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    ) -> Tuple[ndarray, ndarray, ndarray, ndarray]:
         """
         Loads the dataset. It loads images, camera poses, camera bounds and 
         intrinsics.
@@ -387,10 +334,10 @@ class LLFF(Dataset):
             basedir (str): base directory
             factor (int): resize factor
         Returns:
-            imgs (Tensor): [N, H, W, 3]. RGB images
-            poses (Tensor): [N, 4, 4]. Camera poses
-            bds (Tensor): [N, 2]. Camera bounds
-            hwf (Tensor): [3,]. Camera intrinsics. It contains height, width and
+            imgs (ndarray): [N, H, W, 3]. RGB images
+            poses (ndarray): [N, 4, 4]. Camera poses
+            bds (ndarray): [N, 2]. Camera bounds
+            hwf (ndarray): [3,]. Camera intrinsics. Contains height, width and
                           focal length
         """
         # load camera poses and bounds
@@ -406,12 +353,12 @@ class LLFF(Dataset):
         assert os.path.exists(img_dir), f"Images path '{img_dir}' does not exist"
 
         # load images
-        paths = [os.path.join((img_dir, f))
+        paths = [os.path.join(img_dir, f)
                  for f in sorted(os.listdir(img_dir))
                  if f.endswith(('JPG', 'jpg', 'png'))]
         assert len(paths) == poses.shape[-1], \
                 'Mismath between the number of images and poses'
-        imgs = np.stack([__imread(p)[..., :3] / 255. for p in paths], axis=0)
+        imgs = np.stack([iio.imread(p)[..., :3] / 255. for p in paths], axis=0)
 
         # modify camera poses
         H, W, _ = iio.imread(paths[0]).shape
@@ -426,3 +373,94 @@ class LLFF(Dataset):
         bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
         
         return imgs, poses, bounds
+
+    def __init__(
+            self,
+            scene: str,
+            n_imgs: int,
+            factor: int = 4,
+            bd_factor: float = 0.75,
+            recenter: bool = True,
+            ndc: bool = True,
+            img_mode: bool = False,
+    ) -> None:
+        """
+        Initialize dataset.
+        ------------------------------------------------------------------------
+        Args:
+            scene (str): scene name
+            factor (int): resize factor
+            bd_factor (float): bounding box factor
+            recenter (bool): if True, it re-centers the poses
+            ndc (bool): if True, use normalized device coordinates
+            img_mode (bool): if True, it returns images instead of rays
+        """
+        super(LLFF, self).__init__()
+        self.ndc = ndc
+        self.img_mode = img_mode
+        basedir = os.path.join('..', 'datasets', 'llff', scene)
+        imgs, poses, bounds = LLFF.__load(basedir, factor)
+
+        # rescale bounds and poses
+        scale = 1. if bd_factor is None else 1. / (bounds.min() * bd_factor)
+        poses[..., :3, 3] *= scale
+        bounds *= scale
+
+        if recenter:
+            poses = LLFF.__recenter_poses(poses)
+
+        c2w = LLFF.__avg_pose(poses)
+        dists = np.sum(np.square(c2w[:3, 3] - poses[:, :3, 3]), -1)
+        i_test = np.argmin(dists)
+
+        imgs = imgs.astype(np.float32)
+        hwf = poses[0, :3, -1].astype(np.float32)
+        poses = poses[:, :3, :4].astype(np.float32)
+
+        test_img = imgs[i_test]
+        test_pose = poses[i_test]
+
+        # define bounds
+        if not ndc:
+            self.near = bounds.min() * .9
+            self.far = bounds.max() * 1.
+        else:
+            self.near = 0.
+            self.far = 1.
+
+        # define rays
+        if not self.img_mode:
+            # split images into individual per-ray samples
+            self.__build_data(imgs, poses, hwf)
+
+
+    def __build_data(
+            self,
+            imgs: Tensor,
+            poses: Tensor,
+            hwf: Tensor
+    ) -> None:
+        """
+        Builds rays and samples.
+        ------------------------------------------------------------------------
+        Args:
+            imgs (Tensor): [N, H, W, 3]. RGB images
+            poses (Tensor): [N, 4, 4]. Camera poses
+            hwf (Tensor): [3,]. Camera intrinsics. Contains height, width and
+                          focal length
+        """
+        H, W, f = hwf
+        H, W = int(H), int(W)
+        # get rays
+        rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1) 
+                            for p in poses], 0)
+        rays = rays.reshape(-1, 6)
+        rays_o = rays[:, :3] # ray origins
+        rays_d = rays[:, 3:] # ray directions
+
+        # map to ndc if necessary
+        if self.ndc:
+            rays_o, rays_d = U.ndc_rays(rays_o, rays_d, 1., hwf)
+
+        self.rays_o = rays_o
+        self.rays_d = rays_d

@@ -75,6 +75,43 @@ def get_rays(
 
     return origins_world, directions_world 
 
+def to_ndc(
+        rays_o: torch.Tensor,
+        rays_d: torch.Tensor,
+        near: float,
+        hwf: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Convert rays from world coordinates to normalized device coordinates.
+    ----------------------------------------------------------------------------
+    Args:
+        rays_o: [..., 3]. Ray origins in world coordinates.
+        rays_d: [..., 3]. Ray directions in world coordinates.
+        near: near plane distance.
+    Returns:
+        ndc_o: [..., 3]. Ray origins in normalized device coords.
+        ndc_d: [..., 3]. Ray directions in normalized device coords.
+    """
+    H, W, focal = hwf
+    # shift ray origins to near plane
+    t = -(near + rays_o[..., 2]) / rays_d[..., 2]
+    rays_o = rays_o + t[..., None] * rays_d
+
+    # perform projection
+    o0 = -1./(W/(2.*focal)) * rays_o[...,0] / rays_o[...,2]
+    o1 = -1./(H/(2.*focal)) * rays_o[...,1] / rays_o[...,2]
+    o2 = 1. + 2. * near / rays_o[...,2]
+
+    d0 = -1./(W/(2.*focal)) * (rays_d[...,0]/rays_d[...,2] - rays_o[...,0]/rays_o[...,2])
+    d1 = -1./(H/(2.*focal)) * (rays_d[...,1]/rays_d[...,2] - rays_o[...,1]/rays_o[...,2])
+    d2 = -2. * near / rays_o[...,2]
+
+    # stack origins and directions
+    ndc_o = torch.stack([o0, o1, o2], dim=-1)
+    ndc_d = torch.stack([d0, d1, d2], dim=-1)
+
+    return ndc_o, ndc_d
+
 def get_chunks(inputs: torch.Tensor,
                chunksize: int) -> List[torch.Tensor]:
     """
