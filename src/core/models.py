@@ -1,10 +1,10 @@
 # stdlib modules
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # third-party modules
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 
 class PositionalEncoder(nn.Module):
@@ -308,3 +308,78 @@ class SiNeRF(nn.Module):
             x = self.sigma_layers(x)
 
         return x
+
+class FourierNN(nn.Module):
+    """
+    Shallow SIREN with one hidden layer.
+    ----------------------------------------------------------------------------
+    """
+    def __init__(self, pos_dim: int = 3, width: int = 256, w: float = 1.):
+        super(FourierNN, self).__init__()
+        self.shallow = nn.Sequential(
+                SirenLinear(3, width, w=w), 
+                Sine(w),
+                nn.Linear(width, width, bias=True)
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.shallow(x)
+
+
+class FourierEnsemble(nn.Module):
+    """
+    Fourier ensemble of tiny FourierNN models.
+    ----------------------------------------------------------------------------
+    """
+    def __init__(
+            self, 
+            n: int = 7,
+            pos_dim: int = 3,
+            width: int = 128,
+            fmin: int = 2.,
+            fmax: int = 500.,
+    ):
+        super(FourierEnsemble, self).__init__()
+        # exponential spacing of frequencies using base 2
+        freqs = torch.logspace(math.log2(fmin), math.log2(fmax), n, base=2)
+        self.freqs = freqs
+        # freqs = torch.linspace(fmin, fmax, n)
+        # initialize ensemble of FourierNN models
+        self.ensemble = nn.ModuleList([FourierNN(pos_dim, width, w=freq) 
+                                       for freq in freqs])
+        self.mask = [True] + [False] * (n - 1)
+        self.toggle_ensemble(0) # freeze all but first
+        # initialize linear layers
+        self.linear = nn.Linear(n*width, 128)
+        self.sigma_layer = nn.Sequential(nn.Linear(128, 1), nn.ReLU())
+        self.rgb_layer = nn.Sequential(nn.Linear(128 + pos_dim, 3), nn.Sigmoid())
+
+
+    def forward(self, x: Tensor, d: Optional[Tensor] = None) -> Tensor:
+        x = [model(x) for model in self.ensemble] # ensemble forward pass
+        # apply binary mask, (y is a dummy variable)
+        x = [y * 0. if not self.mask[i] else y for i, y in enumerate(x)]
+        x = self.linear(torch.cat(x, dim=-1)) # linear layer
+
+        if d is not None:
+            x = [self.rgb_layer(torch.cat([x, d], dim=-1)), self.sigma_layer(x)]
+            return torch.cat(x, dim=-1)
+        else:
+            return self.sigma_layer(x)
+
+
+    def toggle_ensemble(self, i: int) -> None:
+        """
+        Freezes/unfreezes consecutive models in the ensemble.
+        ------------------------------------------------------------------------
+        Args:
+            i: int. Index of the model to be unfrozen
+        """
+        s = len(self.ensemble)
+        assert i < s, "Index out of range"
+        self.mask[i] = True
+        for param in self.ensemble[i].parameters():
+            param.requires_grad = True
+        if i > 0:
+            for param in self.ensemble[i - 1].parameters():
+                param.requires_grad = False

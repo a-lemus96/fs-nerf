@@ -81,6 +81,9 @@ def init_models() -> Tuple[nn.Module, OccGridEstimator]:
                 args.d_filter,
                 [30., 1., 1., 1., 1., 1., 1., 1.]
         )
+    elif args.model == 'ensemble':
+        model = M.FourierEnsemble()
+
     # initialize occupancy estimator
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
     # model parameters
@@ -226,7 +229,15 @@ def train(
             args.lro,
             **kwargs
     )
-
+    '''n_iters = args.n_iters
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, 
+            milestones=[n_iters // 2, 
+                        n_iters * 3 // 4, 
+                        n_iters * 5 // 6, 
+                        n_iters * 9 // 10], 
+            gamma=0.33
+    )'''
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
 
@@ -234,6 +245,13 @@ def train(
     if args.beta is not None:
         occ_reg = L.OcclusionRegularizer(args.beta, args.M)
 
+    # ensemble milestones
+    if args.model == 'ensemble':
+        factors = [0.05, 0.1, 0.2, 0.4, 0.6, 0.8]
+        milestones = [int(args.n_iters * factor) for factor in factors]
+        m = 1
+    
+    alpha = 0.
     for k in pbar: # loop over the number of iterations
         model.train()
         estimator.train()
@@ -285,6 +303,14 @@ def train(
                 alpha = (args.ao / (1. - args.ao)) * (1. - min(1., a))
                 loss += alpha * freq_reg
 
+        if args.model == 'ensemble':
+            freq_reg = torch.tensor(0.).to(device)
+            # regularize model weights
+            for name, param in model.ensemble[m - 1].named_parameters():
+                if 'weight' in name:
+                    freq_reg += torch.square(param - model.freqs[m - 1]).sum().sqrt()
+            loss += 1e-3 * freq_reg
+
         # backpropagate loss
         loss.backward()
         optimizer.step()
@@ -311,6 +337,12 @@ def train(
                 'alpha': alpha
             })
 
+        # toggle ensemble
+        if args.model == 'ensemble':
+            if k in milestones:
+                model.toggle_ensemble(m)
+                m += 1
+
         # compute validation
         compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
         if compute_val:
@@ -324,7 +356,7 @@ def train(
                         estimator,
                         lpips_net,
                         val_loader,
-                        4*args.batch_size,
+                        2*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
@@ -332,7 +364,7 @@ def train(
                 rgb, depth = R.render_frame(
                         H, W, focal, 
                         testpose,
-                        4*args.batch_size,
+                        2*args.batch_size,
                         estimator,
                         device,
                         model,
@@ -489,7 +521,7 @@ def main():
                     estimator,
                     lpips_net,
                     val_loader,
-                    4*args.batch_size,
+                    2*args.batch_size,
                     device
             )
         # log final metrics
@@ -534,7 +566,7 @@ def main():
     output = R.render_path(
             render_poses=render_poses,
             hwf=[H, W, focal],
-            chunksize=4*args.batch_size,
+            chunksize=2*args.batch_size,
             device=device,
             model=model,
             estimator=estimator,
