@@ -177,6 +177,7 @@ dependencies:
       - protobuf==4.23.3
       - psutil==5.9.5
       - pygments==2.15.1
+      - pytorch-ignite==0.4.13
       - pytorch-ssim==0.1
       - pywavelets==1.4.1
       - pyyaml==6.0
@@ -196,3 +197,4 @@ dependencies:
       - triton==2.0.0
       - typing-extensions==4.6.3
       - wandb==0.15.12
+prefix: /home/lemus/miniconda3/envs/nerf
