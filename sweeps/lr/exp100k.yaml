@@ -1,0 +1,23 @@
+program: run-nerf.py
+project: depth-nerf
+method: grid
+name: exp-lr-100k
+description: exponential learning rate performance over 100k iterations
+parameters:
+  model:
+    values: [sinerf, nerf]
+  scene:
+    values: [lego, drums, mic, ship, hotdog, chair, materials]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 100000
+  - --scheduler
+  - exp
+  - --val_rate
+  - 2500
+  - ${args}

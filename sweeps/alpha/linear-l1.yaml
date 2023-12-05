@@ -1,0 +1,27 @@
+program: run-nerf.py 
+project: depth-nerf
+method: grid
+name: alpha-linear-l1
+description: Linear freq. scheduler using L1 regularization
+parameters:
+  scene:
+    values: [lego, drums, ship]
+  ao:
+    values: [1e-6, 1e-7]
+  reg_ratio:
+    values: [0.03125, 0.0625, 0.125, 0.25, 0.5]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_imgs 
+  - 8
+  - --n_iters 
+  - 100000
+  - --model
+  - sinerf
+  - --scheduler
+  - exp
+  - --val_rate
+  - 2500
+  - ${args}
