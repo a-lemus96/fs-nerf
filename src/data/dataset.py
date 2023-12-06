@@ -68,6 +68,7 @@ class SyntheticRealistic(Dataset):
 
         # apply K-means to draw N views and ensure maximum scene coverage
         x = poses[:, :3, 3]
+        x = x[x[:, -1] > 0] # remove poses with negative z-coordinates
         kmeans = KMeans(n_clusters=n_imgs,  n_init=10).fit(x) # kmeans model
         labels = kmeans.labels_
         # compute distances to cluster centers
