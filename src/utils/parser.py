@@ -67,12 +67,32 @@ def config_parser() -> argparse.Namespace:
             help="Number of images to be used for training"
     )
     parser.add_argument(
+            '--img_mode', action="store_true",
+            help="If set, iterate over images instead of rays for training")
+
+    # args for synthetic dataset
+    parser.add_argument(
             '--white_bkgd', action="store_true",
             help="Use white background for training imgs"
     )
+
+    # args for llff dataset
     parser.add_argument(
-            '--img_mode', action="store_true",
-            help="If set, iterate over images instead of rays for training")
+            '--factor', default=4, type=int,
+            help="Downsample factor for LLFF dataset"
+    )
+    parser.add_argument(
+            '--bd_factor', default=0.75, type=float,
+            help="Bound factor for LLFF dataset"
+    )
+    parser.add_argument(
+            '--no_ndc', action="store_true",
+            help="If set, do not use normalized device coordinates"
+    )
+    parser.add_argument(
+            '--no_recenter', action="store_true",
+            help="If set, do not recenter LLFF dataset"
+    )
 
     #-------------------------------training-----------------------------------#
 

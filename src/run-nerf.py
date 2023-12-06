@@ -394,9 +394,6 @@ def train(
     return
 
 def main():
-    # create llff dataset
-    #llff = D.LLFF('fern')
-    #exit()
     # select device
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -419,20 +416,32 @@ def main():
         )
 
     # training/validation datasets
-    train_set = D.SyntheticRealistic(
-            scene=args.scene,
-            n_imgs=args.n_imgs,
+    dataset_dict = {
+            'synthetic': 
+                (D.SyntheticRealistic, 
+                {'white_bkgd': args.white_bkgd}),
+            'llff': 
+                (D.LLFF, 
+                {'factor': args.factor, 
+                 'bd_factor': args.bd_factor, 
+                 'recenter': not args.no_recenter, 
+                 'ndc': not args.no_ndc}),
+    }
+    dataset_name, dataset_kwargs = dataset_dict[args.dataset]
+    train_set = dataset_name(
+            args.scene,
+            args.n_imgs,
             split='train',
-            white_bkgd=args.white_bkgd,
-            img_mode=args.img_mode
+            img_mode=False,
+            **dataset_kwargs
     )
     subset_size = int(args.val_ratio * 25) # % of val samples
-    val_set = D.SyntheticRealistic(
-            scene=args.scene,
-            n_imgs=subset_size,
+    val_set = dataset_name(
+            args.scene,
+            subset_size,
             split='val',
-            white_bkgd=args.white_bkgd,
-            img_mode=True
+            img_mode=True,
+            **dataset_kwargs
     )
     # data loader(s)
     train_loader = DataLoader(
@@ -497,12 +506,12 @@ def main():
                 device=device
         )
         # final validation set and loader
-        val_set = D.SyntheticRealistic(
-                scene=args.scene,
-                n_imgs=25,
+        val_set = dataset_name(
+                args.scene,
+                25,
                 split='val',
-                white_bkgd=args.white_bkgd,
-                img_mode=True
+                img_mode=True,
+                **dataset_kwargs
         )
         val_loader = DataLoader(
                 val_set,
