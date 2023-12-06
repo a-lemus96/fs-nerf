@@ -55,7 +55,7 @@ def config_parser() -> argparse.Namespace:
     #---------------------------------data-------------------------------------#
 
     parser.add_argument(
-            '--dataset', choices=['synthetic', 'llff'] default='synthetic', 
+            '--dataset', choices=['synthetic', 'llff'], default='synthetic', 
             type=str, help="Dataset to choose scenes from"
     )
     parser.add_argument(

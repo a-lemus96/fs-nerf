@@ -30,7 +30,7 @@ class SyntheticRealistic(Dataset):
             scene: str, 
             split: str,
             n_imgs: int = None,
-            img_mode: bool = False
+            img_mode: bool = False,
             white_bkgd: bool = False,
     ) -> None:
         """
@@ -423,8 +423,8 @@ class LLFF(Dataset):
         hwf = poses[0, :3, -1].astype(np.float32)
         poses = poses[:, :3, :4].astype(np.float32)
 
-        test_img = imgs[i_test]
-        test_pose = poses[i_test]
+        self.testimg = imgs[i_test]
+        self.testpose = poses[i_test]
 
         # define bounds
         if not ndc:
@@ -434,40 +434,35 @@ class LLFF(Dataset):
             self.near = 0.
             self.far = 1.
 
+        # to tensors
+        self.imgs = torch.tensor(imgs, dtype=torch.float32)
+        self.poses = torch.tensor(poses, dtype=torch.float32)
+        self.hwf = torch.tensor(hwf, dtype=torch.float32)
+
         # define rays
         if not self.img_mode:
             # split images into individual per-ray samples
-            self.__build_data(imgs, poses, hwf)
+            self.__build_data()
 
 
-    def __build_data(
-            self,
-            imgs: Tensor,
-            poses: Tensor,
-            hwf: Tensor
-    ) -> None:
+    def __build_data(self) -> None:
         """
         Builds rays and samples.
         ------------------------------------------------------------------------
-        Args:
-            imgs (Tensor): [N, H, W, 3]. RGB images
-            poses (Tensor): [N, 4, 4]. Camera poses
-            hwf (Tensor): [3,]. Camera intrinsics. Contains height, width and
-                          focal length
         """
-        H, W, f = hwf
+        H, W, f = self.hwf
         H, W = int(H), int(W)
-        self.rgb = imgs.reshape(-1, 3) # reshape to pixels
+        self.rgb = self.imgs.reshape(-1, 3) # reshape to pixels
         # get rays
         rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1)
-                            for p in poses], 0)
+                            for p in self.poses], 0)
         rays = rays.reshape(-1, 6)
         rays_o = rays[:, :3] # ray origins
         rays_d = rays[:, 3:] # ray directions
 
         # map to ndc if necessary
         if self.ndc:
-            rays_o, rays_d = U.ndc_rays(rays_o, rays_d, 1., hwf)
+            rays_o, rays_d = U.to_ndc(rays_o, rays_d, 1., self.hwf)
 
         self.rays_o = rays_o
         self.rays_d = rays_d
@@ -486,3 +481,10 @@ class LLFF(Dataset):
             return self.imgs[idx], self.poses[idx]
 
         return self.rays_o[idx], self.rays_d[idx], self.rgb[idx]
+
+    def __len__(self) -> int:
+        """Returns the number of training samples."""
+        if self.img_mode:
+            return self.imgs.shape[0]
+
+        return self.rays_o.shape[0]
