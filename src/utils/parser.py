@@ -55,7 +55,7 @@ def config_parser() -> argparse.Namespace:
     #---------------------------------data-------------------------------------#
 
     parser.add_argument(
-            '--dataset', default='synthetic', 
+            '--dataset', choices=['synthetic', 'llff'] default='synthetic', 
             type=str, help="Dataset to choose scenes from"
     )
     parser.add_argument(
@@ -68,7 +68,7 @@ def config_parser() -> argparse.Namespace:
     )
     parser.add_argument(
             '--white_bkgd', action="store_true",
-            help="Use white backgroung for training imgs"
+            help="Use white background for training imgs"
     )
     parser.add_argument(
             '--img_mode', action="store_true",
