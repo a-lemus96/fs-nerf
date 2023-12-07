@@ -83,6 +83,13 @@ def init_models() -> Tuple[nn.Module, OccGridEstimator]:
         )
     elif args.model == 'ensemble':
         model = M.FourierEnsemble()
+    elif args.model == 'sires':
+        model = M.SiReNeRF(
+                args.d_input,
+                args.d_input,
+                args.d_filter,
+                [30., 1., 1., 1., 1., 1., 1., 1.]
+        )
 
     # initialize occupancy estimator
     aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])

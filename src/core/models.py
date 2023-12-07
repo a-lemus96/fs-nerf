@@ -309,6 +309,82 @@ class SiNeRF(nn.Module):
 
         return x
 
+class SiReNeRF(nn.Module):
+    """
+    Siren-residual MLP model for NeRF.
+    ----------------------------------------------------------------------------
+    """
+    def __init__(
+            self,
+            pos_dim: int = 3,
+            dir_dim: int = 3,
+            width: int = 256,
+            alpha: List[float] = [30., 1., 1., 1., 1., 1., 1., 1.]
+    ) -> None:
+        """
+        Constructor method. Builds a residual SIREN MLP model for NeRF.
+        ------------------------------------------------------------------------
+        Args:
+            pos_dim: int. Dimension of the position input
+            dir_dim: int. Dimension of the direction input
+            width: int. Base width of the hidden layers
+            alpha: List[float]. List of alpha values for each layer
+        """
+        super(SiReNeRF, self).__init__()
+
+        self.pos_dim = pos_dim
+        self.dir_dim = dir_dim
+        self.alpha = alpha
+
+        first = [SirenLinear(pos_dim, width, True, alpha[0], True)]
+        in_dims = [pos_dim] + [width] * (len(alpha) - 2)
+        hidden = [SirenLinear(width + dim, width, True, a) 
+                  for dim, a in zip(in_dims, alpha[1:])]
+
+        self.hidden_layers = nn.ModuleList(first + hidden)
+
+        self.sigma_layers = nn.Sequential(
+                SirenLinear(width, width // 2, True),
+                nn.Linear(width // 2, 1, True),
+                nn.ReLU()
+        )
+        self.fc_feature = nn.Linear(width, width)
+        self.rgb_layers = nn.Sequential(
+                SirenLinear(width + dir_dim, width // 2, True),
+                nn.Linear(width // 2, 3, True),
+                nn.Sigmoid()
+        )
+
+    def forward(
+            self,
+            x: torch.Tensor,
+            dirs: torch.Tensor = None
+    ) -> torch.Tensor:
+        """
+        Forward pass method. It computes density and RGB values. If no viewing
+        directions are provided, only density is computed.
+        ------------------------------------------------------------------------
+        Args:
+            x: (N, 3)-shape torch.Tensor. Spatial coords
+            dirs: (N, 3)-shape torch.Tensor. Viewing directions
+        Returns:
+            (N, 1)((N, 4))-shape torch.Tensor. Density (and RGB) values
+        """
+        for layer in self.hidden_layers[:-1]:
+            x = torch.concat([layer(x), x], dim=-1)
+        x = self.hidden_layers[-1](x) # last layer
+
+        if dirs is not None:
+            sigma = self.sigma_layers(x)
+            x = self.fc_feature(x)
+            x = torch.cat([x, dirs], dim=-1)
+            x = torch.cat([self.rgb_layers(x), sigma], dim=-1)
+        else:
+            x = self.sigma_layers(x)
+
+        return x
+
+
 class FourierNN(nn.Module):
     """
     Shallow SIREN with one hidden layer.

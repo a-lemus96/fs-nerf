@@ -36,8 +36,8 @@ def config_parser() -> argparse.Namespace:
     #--------------------------------model-------------------------------------#
 
     parser.add_argument(
-            '--model', choices=['nerf', 'sinerf', 'ensemble'], default='nerf',
-            help='Model to be used for training'
+            '--model', choices=['nerf', 'sinerf', 'ensemble', 'sires'], 
+            default='nerf', help='Model to be used for training'
     )
     parser.add_argument(
             '--d_filter', default=256, type=int,
