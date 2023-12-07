@@ -437,16 +437,16 @@ def main():
     dataset_name, dataset_kwargs = dataset_dict[args.dataset]
     train_set = dataset_name(
             args.scene,
-            args.n_imgs,
-            split='train',
+            'train',
+            n_imgs=args.n_imgs,
             img_mode=False,
             **dataset_kwargs
     )
     subset_size = int(args.val_ratio * 25) # % of val samples
     val_set = dataset_name(
             args.scene,
-            subset_size,
-            split='val',
+            'val',
+            n_imgs=subset_size,
             img_mode=True,
             **dataset_kwargs
     )
@@ -515,8 +515,8 @@ def main():
         # final validation set and loader
         val_set = dataset_name(
                 args.scene,
-                25,
-                split='val',
+                'val',
+                n_imgs=25,
                 img_mode=True,
                 **dataset_kwargs
         )

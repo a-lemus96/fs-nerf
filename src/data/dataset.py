@@ -378,8 +378,8 @@ class LLFF(Dataset):
     def __init__(
             self,
             scene: str,
-            n_imgs: int,
             split: str,
+            n_imgs: int,
             white_bkgd: bool = False,
             img_mode: bool = False,
             factor: int = 4,
