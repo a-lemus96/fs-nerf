@@ -336,12 +336,11 @@ class SiReNeRF(nn.Module):
         self.dir_dim = dir_dim
         self.alpha = alpha
 
-        first = [SirenLinear(pos_dim, width, True, alpha[0], True)]
-        in_dims = [pos_dim] + [width] * (len(alpha) - 2)
-        hidden = [SirenLinear(width + dim, width, True, a) 
-                  for dim, a in zip(in_dims, alpha[1:])]
-
-        self.hidden_layers = nn.ModuleList(first + hidden)
+        # hidden layers
+        first = SirenLinear(pos_dim, width // 2, True, alpha[0])
+        second = SirenLinear(width // 2, width // 2, True, alpha[1])
+        hidden = [SirenLinear(width, width // 2, True, a) for a in alpha[2:]]
+        self.hidden_layers = nn.ModuleList([first, second] + hidden)
 
         self.sigma_layers = nn.Sequential(
                 SirenLinear(width, width // 2, True),
@@ -370,9 +369,13 @@ class SiReNeRF(nn.Module):
         Returns:
             (N, 1)((N, 4))-shape torch.Tensor. Density (and RGB) values
         """
-        for layer in self.hidden_layers[:-1]:
-            x = torch.concat([layer(x), x], dim=-1)
-        x = self.hidden_layers[-1](x) # last layer
+        x = self.hidden_layers[0](x) # 128
+        y = self.hidden_layers[1](x) # 128
+        for layer in self.hidden_layers[2:]:
+            tmp = y # 128
+            y = layer(torch.concat([x, y], dim=-1)) # 128
+            x = tmp # 128
+        x = torch.concat([x, y], dim=-1) # 256
 
         if dirs is not None:
             sigma = self.sigma_layers(x)
