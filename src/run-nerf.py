@@ -46,10 +46,12 @@ args = P.config_parser() # parse command line arguments
 
 # MODEL INITIALIZATION
 
-def init_models() -> Tuple[nn.Module, OccGridEstimator]:
+def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
     """
     Initialize NeRF-like model, occupancy grid estimator, and LPIPS net.
     ----------------------------------------------------------------------------
+    Args:
+        aabb (int): axis-aligned bounding box
     Returns:
         Tuple[nn.Module, OccGridEstimator, LPIPS]: models
     """
@@ -79,27 +81,16 @@ def init_models() -> Tuple[nn.Module, OccGridEstimator]:
                 args.d_input,
                 args.d_input,
                 args.d_filter,
-                [30., 1., 1., 1., 1., 1.]
-        )
-    elif args.model == 'ensemble':
-        model = M.FourierEnsemble()
-    elif args.model == 'sires':
-        model = M.SiReNeRF(
-                args.d_input,
-                args.d_input,
-                args.d_filter,
-                [30., 1., 1., 1., 1., 1., 1., 1.]
+                [30., 1., 1., 1., 1., 1., 1., 1.],
         )
 
-    # initialize occupancy estimator
-    aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
     # model parameters
     grid_resolution = 128
-    grid_nlvl = 1
+    grid_nlvl = 1 if args.dataset == 'blender' else 4
     # render parameters
     render_step_size = 5e-3
     estimator = OccGridEstimator(
-            roi_aabb=aabb, 
+            roi_aabb=aabb / 2 ** (4 - 1),
             resolution=grid_resolution, 
             levels=grid_nlvl
     )
@@ -232,7 +223,7 @@ def train(
     class_name, kwargs = sc_dict[args.scheduler]
     scheduler = class_name(
             optimizer,
-            args.Td,
+            args.n_iters,
             args.lro,
             **kwargs
     )
@@ -252,12 +243,6 @@ def train(
     if args.beta is not None:
         occ_reg = L.OcclusionRegularizer(args.beta, args.M)
 
-    # ensemble milestones
-    if args.model == 'ensemble':
-        factors = [0.05, 0.1, 0.2, 0.4, 0.6, 0.8]
-        milestones = [int(args.n_iters * factor) for factor in factors]
-        m = 1
-    
     alpha = 0.
     for k in pbar: # loop over the number of iterations
         model.train()
@@ -294,7 +279,7 @@ def train(
                 loss += occ_reg(sigmas, ray_indices)
 
         # weight decay regularization
-        if args.ao is not None:
+        '''if args.ao is not None:
             freq_reg = torch.tensor(0.).to(device)
             # linear decay schedule
             Ts = int(args.reg_ratio * args.Td)
@@ -308,15 +293,7 @@ def train(
 
                 a = args.ao + (1. - args.ao) * (k / Ts)
                 alpha = (args.ao / (1. - args.ao)) * (1. - min(1., a))
-                loss += alpha * freq_reg
-
-        if args.model == 'ensemble':
-            freq_reg = torch.tensor(0.).to(device)
-            # regularize model weights
-            for name, param in model.ensemble[m - 1].named_parameters():
-                if 'weight' in name:
-                    freq_reg += torch.square(param - model.freqs[m - 1]).sum().sqrt()
-            loss += 1e-3 * freq_reg
+                loss += alpha * freq_reg'''
 
         # backpropagate loss
         loss.backward()
@@ -417,7 +394,7 @@ def main():
         name = name + f"-{args.reg}" if args.ao is not None else name
         name = name + f"-ao={args.ao:.2e}" if args.ao is not None else name
         run = wandb.init(
-            project='depth-nerf',
+            project='fs-nerf',
             name=name,
             config=args
         )
@@ -499,7 +476,7 @@ def main():
 
     if not args.render_only:
         # initialize modules
-        model, estimator, lpips_net = init_models()
+        model, estimator, lpips_net = init_models(train_set.aabb)
         model.to(device)
         estimator.to(device)
         lpips_net.to(device)

@@ -423,8 +423,13 @@ class LLFF(Dataset):
         hwf = poses[0, :3, -1].astype(np.float32)
         poses = poses[:, :3, :4].astype(np.float32)
 
-        self.testimg = imgs[i_test]
-        self.testpose = poses[i_test]
+        # to tensors
+        self.imgs = torch.tensor(imgs, dtype=torch.float32)
+        self.poses = torch.tensor(poses, dtype=torch.float32)
+        self.hwf = torch.tensor(hwf, dtype=torch.float32)
+
+        self.testimg = self.imgs[i_test]
+        self.testpose = self.poses[i_test]
 
         # define bounds
         if not ndc:
@@ -434,16 +439,11 @@ class LLFF(Dataset):
             self.near = 0.
             self.far = 1.
 
-        # to tensors
-        self.imgs = torch.tensor(imgs, dtype=torch.float32)
-        self.poses = torch.tensor(poses, dtype=torch.float32)
-        self.hwf = torch.tensor(hwf, dtype=torch.float32)
 
         # define rays
         if not self.img_mode:
             # split images into individual per-ray samples
             self.__build_data()
-
 
     def __build_data(self) -> None:
         """
@@ -463,7 +463,17 @@ class LLFF(Dataset):
         # map to ndc if necessary
         if self.ndc:
             rays_o, rays_d = U.to_ndc(rays_o, rays_d, 1., self.hwf)
+            min_roi = torch.vstack(
+                    [rays_o.min(dim=0)[0], 
+                    (rays_o + rays_d).min(dim=0)[0]]).min(dim=0)[0]
+            max_roi = torch.vstack(
+                    [rays_o.max(dim=0)[0], 
+                    (rays_o + rays_d).max(dim=0)[0]]).max(dim=0)[0]
+            aabb = torch.hstack([min_roi, max_roi])
+        else:
+            aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
 
+        self.aabb = aabb
         self.rays_o = rays_o
         self.rays_d = rays_d
 
