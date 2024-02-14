@@ -182,17 +182,37 @@ def render_frame(
         estimator: OccGridEstimator,
         device: str,
         model: nn.Module,
+        ndc: bool = False,
         train: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
         ) -> torch.Tensor:
-    """Render an image from a given pose. Camera rays are chunkified to avoid
-    memory issues.
+    """
+    Render an image from a given pose. Camera rays are chunkified to avoid memo-
+    ry issues.
     ----------------------------------------------------------------------------
-    ----------------------------------------------------------------------------
+    Args:
+        H: Image height
+        W: Image width
+        focal: Camera focal length
+        pose: Camera pose
+        chunksize: Chunk size for rays
+        estimator: OccGridEstimator object
+        device: Device to use for rendering
+        model: NeRF model
+        ndc: Whether to use normalized device coordinates
+        train: Whether to train model
+        white_bkgd: Whether to use white background
+        render_step_size: Rendering step size
+    Returns:
+        img: (H, W, 3)-shape tensor containing RGB values
+        depth_map: (H, W)-shape tensor containing depth values
     """
     rays_o, rays_d = U.get_rays(H, W, focal, pose) # compute rays
     rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
+    if ndc:
+        # pack intrinsics into tensor
+        rays_o, rays_d = U.to_ndc(rays_o, rays_d, 1., [H, W, focal])
 
     # chunkify rays to avoid memory issues
     chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
@@ -227,6 +247,7 @@ def render_path(
         device: str,
         model: nn.Module,
         estimator: OccGridEstimator,
+        ndc: bool = False,
         train: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
@@ -260,6 +281,7 @@ def render_path(
                     device,
                     model,
                     train,
+                    ndc=not args.no_ndc,
                     white_bkgd=white_bkgd,
                     render_step_size=render_step_size,
             )

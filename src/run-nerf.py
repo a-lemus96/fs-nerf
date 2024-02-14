@@ -140,6 +140,7 @@ def validation(
                 estimator,
                 device,
                 model,
+                ndc=not args.no_ndc,
                 train=False,
                 white_bkgd=args.white_bkgd,
                 render_step_size=render_step_size
@@ -352,6 +353,7 @@ def train(
                         estimator,
                         device,
                         model,
+                        ndc=not args.no_ndc,
                         train=False,
                         white_bkgd=args.white_bkgd,
                         render_step_size=render_step_size
@@ -563,6 +565,7 @@ def main():
             device=device,
             model=model,
             estimator=estimator,
+            ndc=not args.no_ndc,
             white_bkgd=args.white_bkgd
     )
     frames, d_frames = output
