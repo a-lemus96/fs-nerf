@@ -532,34 +532,35 @@ def main():
         # load model
         model.load_state_dict(torch.load(out_dir + '/model/nn.pt'))
 
-    # build base path for output directories
-    out_dir = os.path.normpath(
-            os.path.join(
-                args.out_dir, 
-                args.model, 
-                args.dataset,
-                args.scene,
-                f"n_imgs_{str(args.n_imgs)}",
-                run.id
-            )
-    )
+    if not args.debug:
+        # build base path for output directories
+        out_dir = os.path.normpath(
+                os.path.join(
+                    args.out_dir, 
+                    args.model, 
+                    args.dataset,
+                    args.scene,
+                    f"n_imgs_{str(args.n_imgs)}",
+                    run.id
+                )
+        )
 
-    # create output directories
-    folders = ['video', 'model']
-    [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
-    # save model
-    if not args.render_only:
-        torch.save(model.state_dict(), out_dir + '/model/nn.pt')
+        # create output directories
+        folders = ['video', 'model']
+        [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
+        # save model
+        if not args.render_only:
+            torch.save(model.state_dict(), out_dir + '/model/nn.pt')
 
     # compute path poses for video output
-    render_poses = R.sphere_path(theta=50, frames=90)
-    render_poses = render_poses.to(device)
+    path_poses = train_set.path_poses
+
     # render frames for poses
     model.eval()
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
     output = R.render_path(
-            render_poses=render_poses,
+            render_poses=path_poses,
             hwf=[H, W, focal],
             chunksize=2*args.batch_size,
             device=device,
@@ -569,14 +570,15 @@ def main():
             white_bkgd=args.white_bkgd
     )
     frames, d_frames = output
-    # put together frames and save result into .mp4 file
-    R.render_video(
-            basedir=f'{out_dir}/video/',
-            frames=frames,
-            d_frames=d_frames
-    )
-    # log final video renderings to wandb
+
     if not args.debug:
+        # put together frames and save result into .mp4 file
+        R.render_video(
+                basedir=f'{out_dir}/video/',
+                frames=frames,
+                d_frames=d_frames
+        )
+        # log final video renderings to wandb
         wandb.log({
             'rgb_video': wandb.Video(f'{out_dir}/video/rgb.mp4', fps=30),
             'depth_video': wandb.Video(f'{out_dir}/video/depth.mp4', fps=30)

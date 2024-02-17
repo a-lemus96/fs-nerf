@@ -17,6 +17,50 @@ from torchvision.transforms import GaussianBlur, Resize
 # custom modules
 from utils import utilities as U
 
+
+# translate across world's z-axis
+trans_t = lambda t: torch.Tensor([[1., 0., 0., 0.],
+                                 [0., 1., 0., 0.],
+                                 [0., 0., 1., t],
+                                 [0., 0., 0., 1.]]).float() 
+
+# rotate around world's x-axis
+rot_theta = lambda theta: torch.Tensor([[1., 0., 0., 0.],
+                                        [0., np.cos(theta), -np.sin(theta), 0.],
+                                        [0., np.sin(theta), np.cos(theta), 0.],
+                                        [0., 0., 0., 1.]]).float()
+
+# rotate around world's z-axis
+rot_phi = lambda phi: torch.Tensor([[np.cos(phi), -np.sin(phi), 0., 0.],
+                                    [np.sin(phi), np.cos(phi), 0., 0.],
+                                    [0., 0., 1., 0.],
+                                    [0., 0., 0., 1.]]).float()
+
+def pose_from_spherical(
+    radius: float, 
+    theta: float,
+    phi: float
+) -> torch.Tensor:
+    """
+    Computes 4x4 camera pose from 3D location expressed in spherical coords.
+    Camera frame points toward object with its y-axis tangent to the virtual
+    spherical surface defined by the given radius.
+    ---------------------------------------------------------------------------- 
+    Args:
+        radius: float. Sphere radius
+        theta: 0° < float < 90°. colatitude angle
+        phi: 0° < float < 360°. Azimutal angle
+    Returns:
+        pose: [..., 4, 4]. Camera to world transformation
+    """
+
+    pose = trans_t(radius) 
+    pose = rot_theta(theta/180. * np.pi) @ pose
+    pose = rot_phi(phi/180. * np.pi) @ pose 
+    
+    return pose
+
+
 class SyntheticRealistic(Dataset):
     """
     Synthetic realistic dataset. It is made up of N x H x W ray origins and
@@ -52,9 +96,10 @@ class SyntheticRealistic(Dataset):
         self.far = 8.0
         self.img_mode = img_mode
 
-        # load the dataset
-        imgs, poses, hwf = self.__load()
+        imgs, poses, hwf = self.__load() # load imgs, poses and intrinsics
+        self.__build_path() # build path to render sample video
         self.hwf = hwf
+
         # compute background color
         if white_bkgd:
             imgs = imgs[..., :3] * imgs[..., -1:] + (1. - imgs[..., -1:])
@@ -79,9 +124,10 @@ class SyntheticRealistic(Dataset):
             cluster_dists = np.where(labels == i, dists, np.inf)
             idxs[i] = np.argmin(cluster_dists)
 
-        # full resolution images
         self.imgs = imgs[idxs]
         self.poses = poses[idxs]
+        # axis-aligned bounding box for occupancy grid estimator
+        self.aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
 
         if not self.img_mode:
             # split images into individual per-ray samples
@@ -212,37 +258,25 @@ class SyntheticRealistic(Dataset):
 
         return imgs, poses, hwf
 
-
-    def gaussian_downsample(self, t: int) -> None:
+    def __build_path(
+            self,
+            radius: float = 4.0311289,
+            theta: float = 50.,
+            frames: int = 90
+    ) -> torch.Tensor:
         """
-        Applies Gaussian blur + downsampling to images.
+        Creates a set of frames for inward facing camera poses using constant
+        radius and theta, while varying azimutal angle within the interval
+        [0,360].
         ------------------------------------------------------------------------
         Args:
-            t (int): Gaussian blur standard deviation
-        Returns:
-            None
-        """    
-        t = int(t)
-        if t > 0:
-            # permute images to [N, C, H, W] format
-            imgs = torch.permute(self.imgs, (0, 3, 1, 2)) # [N, 3, H, W]
-
-            # apply Gaussian blur
-            blur = GaussianBlur(6 * t + 1, sigma=float(t))
-            imgs = blur(imgs) # [N, 3, H, W]
-
-            # downsample images
-            imgs, hwf = self.__downsample(imgs, self.hwf, 1)
-            # permute images back to [N, H, W, C] format
-            imgs = torch.permute(imgs, (0, 2, 3, 1)) # [N, H, W, 3]
-
-            # re-build training samples
-            self.__build_data(imgs, self.poses, hwf)
-
-            return imgs, hwf
-
-        return self.imgs, self.hwf
-
+            radius: Sphere radius
+            theta: 0° < float < 90°. Colatitude angle
+            frames: Number of samples along azimutal interval
+        """
+        path_poses = [pose_from_spherical(radius, theta, phi)
+                        for phi in np.linspace(0, 360, frames, endpoint=False)]
+        self.path_poses = torch.stack(path_poses, 0)
 
 class LLFF(Dataset):
     """
@@ -406,6 +440,7 @@ class LLFF(Dataset):
         self.img_mode = img_mode
         basedir = os.path.join('..', 'datasets', 'llff', scene)
         imgs, poses, bounds = LLFF.__load(basedir, factor)
+        self.__build_path() # build path for rendering sample video
 
         # rescale bounds and poses
         scale = 1. if bd_factor is None else 1. / (bounds.min() * bd_factor)
@@ -476,6 +511,13 @@ class LLFF(Dataset):
         self.aabb = aabb
         self.rays_o = rays_o
         self.rays_d = rays_d
+
+    def __build_path(self) -> torch.Tensor:
+        """
+        TO BE IMPLEMENTED
+        ------------------------------------------------------------------------
+        """
+        raise NotImplementedError
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """Get a training sample by index.
