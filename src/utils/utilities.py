@@ -55,6 +55,7 @@ def get_rays(
         dirs_w: [height, width, 3]. Ray directions in world coords.
     ----------------------------------------------------------------------------
     """
+    pose = pose.to(device)
     # create grid of coordinates
     i, j = torch.meshgrid(
             torch.arange(W, dtype=torch.float32).to(device),

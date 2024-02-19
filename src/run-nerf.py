@@ -192,8 +192,8 @@ def train(
         lpips_net: LPIPS,
         train_loader: Dataset,
         val_loader: Dataset,
-        device: torch.device,
         render_step_size: float = 5e-3,
+        device: torch.device = torch.device('cpu'),
 ) -> Tuple[float, float]:
     """Train NeRF model.
     ----------------------------------------------------------------------------
@@ -203,6 +203,7 @@ def train(
         lpips_net (LPIPS): LPIPS network
         train_loader (Dataset): training set loader
         val_loader (Dataset): validation set loader
+        render_step_size (float, optional): step size for rendering
         device (torch.device): device to train on
     Returns:
         Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
