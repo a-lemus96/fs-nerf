@@ -112,15 +112,15 @@ def validation(
         render_step_size: float = 5e-3,
 ) -> Tuple[float, float, float]:
     """
-    Perform validation step
+    Performs validation step for NeRF-like model.
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF-like model
         estimator (OccGridEstimator): occupancy grid estimator
         lpips_net (LPIPS): LPIPS network
-        val_loader (DataLoader): validation set loader
-        chunksize (int): chunk size for frame rendering
-        device (torch.device): device to train on
+        val_loader (DataLoader): data loader
+        chunksize (int): size of chunks for rendering frames
+        device (torch.device): device to be used
         render_step_size (float, optional): step size for rendering
     Returns:
         val_psnr (float): validation PSNR
@@ -138,12 +138,12 @@ def validation(
                 H, W, focal, pose[0],
                 chunksize,
                 estimator,
-                device,
                 model,
                 ndc=not args.no_ndc,
                 train=False,
                 white_bkgd=args.white_bkgd,
-                render_step_size=render_step_size
+                render_step_size=render_step_size,
+                device=device,
         )
         rgbs.append(rgb) # append rendered rgb
 
@@ -260,11 +260,11 @@ def train(
                 rays_o=rays_o,
                 rays_d=rays_d,
                 estimator=estimator,
-                device=device,
                 model=model,
                 train=True,
                 white_bkgd=args.white_bkgd,
-                render_step_size=render_step_size
+                render_step_size=render_step_size,
+                device=device
         )
         
         # compute loss and PSNR
@@ -384,10 +384,7 @@ def main():
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
 
     # print device info or abort if no CUDA device available
-    if device != 'cpu' :
-        print(f"CUDA device: {torch.cuda.get_device_name(device)}")
-    else:
-        raise RuntimeError("CUDA device not available.")
+    print(f"Device: {torch.cuda.get_device_name(device)}")
 
     if not args.debug:
         wandb.login()
@@ -564,11 +561,11 @@ def main():
             path_poses,
             [H, W, focal],
             2*args.batch_size,
-            device,
             model,
             estimator,
             ndc=not args.no_ndc,
-            white_bkgd=args.white_bkgd
+            white_bkgd=args.white_bkgd,
+            device=device
     )
     frames, d_frames = output
 
