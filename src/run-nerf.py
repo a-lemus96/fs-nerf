@@ -521,6 +521,7 @@ def main():
             )
         # log final metrics
         final_psnr, final_ssim, final_lpips = val_metrics
+        
         if not args.debug:
             wandb.log({
                 'final_psnr': final_psnr,
@@ -560,12 +561,12 @@ def main():
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
     output = R.render_path(
-            render_poses=path_poses,
-            hwf=[H, W, focal],
-            chunksize=2*args.batch_size,
-            device=device,
-            model=model,
-            estimator=estimator,
+            path_poses,
+            [H, W, focal],
+            2*args.batch_size,
+            device,
+            model,
+            estimator,
             ndc=not args.no_ndc,
             white_bkgd=args.white_bkgd
     )

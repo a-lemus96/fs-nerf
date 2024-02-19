@@ -117,8 +117,8 @@ def render_frame(
         estimator: OccGridEstimator,
         device: str,
         model: nn.Module,
-        ndc: bool = False,
         train: bool = False,
+        ndc: bool = False,
         white_bkgd: bool = False,
         render_step_size: float = 5e-3
         ) -> torch.Tensor:
@@ -217,7 +217,7 @@ def render_path(
                     estimator,
                     device,
                     model,
-                    train,
+                    train=train,
                     ndc=ndc,
                     white_bkgd=white_bkgd,
                     render_step_size=render_step_size,

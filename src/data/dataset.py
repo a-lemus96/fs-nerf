@@ -440,7 +440,6 @@ class LLFF(Dataset):
         self.img_mode = img_mode
         basedir = os.path.join('..', 'datasets', 'llff', scene)
         imgs, poses, bounds = LLFF.__load(basedir, factor)
-        self.__build_path() # build path for rendering sample video
 
         # rescale bounds and poses
         scale = 1. if bd_factor is None else 1. / (bounds.min() * bd_factor)
@@ -451,6 +450,7 @@ class LLFF(Dataset):
             poses = LLFF.__recenter_poses(poses)
 
         c2w = LLFF.__avg_pose(poses)
+        self.__build_path(poses, bounds) # build path for video sample
         dists = np.sum(np.square(c2w[:3, 3] - poses[:, :3, 3]), -1)
         i_test = np.argmin(dists)
 
@@ -512,12 +512,75 @@ class LLFF(Dataset):
         self.rays_o = rays_o
         self.rays_d = rays_d
 
-    def __build_path(self) -> torch.Tensor:
+    def __build_path(
+            self,
+            poses: ndarray,
+            bounds: ndarray,
+            n_views: int = 120,
+            n_rots: int = 2,
+            zrate: float = 0.5,
+            path_zflat: bool = False
+    ) -> None:
         """
-        TO BE IMPLEMENTED
+        Build spiral path for rendering sample video.
         ------------------------------------------------------------------------
+        Args:
+            poses (ndarray): [..., 4, 4]. Camera poses
+            bounds (ndarray): [..., 2]. Near and far bounds
+            n_views (int): number of views
+            n_rots (int): number of rotations
+            zrate (float): rate of z-rotation
+            path_zflat (bool): if True, the path is z-flat
         """
-        raise NotImplementedError
+        c2w = LLFF.__avg_pose(poses) # get avg pose
+        up = LLFF.__normalize(poses[:, :3, 1].sum(0))  # average up
+        # compute reasonable focus depth for the scene
+        close_depth, inf_depth = bounds.min() * .9, bounds.max() * 5.
+        dt = 0.75
+        mean_dz = 1./(((1. - dt)/close_depth + dt/inf_depth))
+        focal = mean_dz
+
+        # compute radii for spiral path
+        shrink_factor = .8
+        zdelta = close_depth * .2
+        tt = poses[:, :3, 3]
+        rads = np.percentile(np.abs(tt), 90, 0)
+
+        if path_zflat:
+            zloc = -close_depth * .1
+            c2w[:3, 3] = c2w[:3, 3] + zloc * c2w[:3, 2]
+            rads[2] = 0.
+            n_rots = 1
+            n_views /= 2
+        
+        # compute spiral path
+        path_poses = []
+        rads = np.array(list(rads) + [1.])
+        hwf = c2w[:,4:5]
+
+        for theta in np.linspace(0., 2. * np.pi * n_rots, n_views + 1)[:-1]:
+            c = np.dot(
+                    c2w[:3, :4], 
+                    np.array([
+                        np.cos(theta), 
+                        -np.sin(theta), 
+                        -np.sin(theta * zrate), 
+                        np.cos(theta)
+                    ]) * rads
+            )
+            z = LLFF.__normalize(c - np.dot(
+                    c2w[:3, :4], 
+                    np.array([0, 0, -focal, 1.])
+                )
+            )
+            path_poses.append(np.concatenate(
+                    [LLFF.__viewmatrix(z, up, c), hwf], 
+                    1
+                )
+            )
+            # cast to tensor
+            self.path_poses = torch.tensor(path_poses, dtype=torch.float32)
+
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """Get a training sample by index.
