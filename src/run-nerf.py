@@ -274,11 +274,11 @@ def train(
         with torch.no_grad():
             psnr = -10. * torch.log10(loss).item()
 
-        # occlusion regularization
+        '''# occlusion regularization
         if args.beta is not None:
             sigmas = extras['sigmas']
             if len(sigmas) > 0:
-                loss += occ_reg(sigmas, ray_indices)
+                loss += occ_reg(sigmas, ray_indices)'''
 
         # weight decay regularization
         '''if args.ao is not None:

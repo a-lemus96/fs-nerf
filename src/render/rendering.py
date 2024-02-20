@@ -47,7 +47,7 @@ def render_rays(
         rgb: (n_rays, 3)-shape tensor containing RGB values
         opacity: (n_rays,)-shape tensor containing opacity values
         depth: (n_rays,)-shape tensor containing depth values
-        extras
+        extras: (n_rays,)-shape tensor containing extra values
         ray_indices: (n_rays,)-shape tensor containing ray indices
     ----------------------------------------------------------------------------
     """
