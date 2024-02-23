@@ -90,7 +90,7 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
     # render parameters
     render_step_size = 5e-3
     estimator = OccGridEstimator(
-            roi_aabb=aabb / 2 ** (4 - 1),
+            roi_aabb=aabb,
             resolution=grid_resolution, 
             levels=grid_nlvl
     )

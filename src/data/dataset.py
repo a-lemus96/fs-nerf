@@ -505,6 +505,7 @@ class LLFF(Dataset):
                     [rays_o.max(dim=0)[0], 
                     (rays_o + rays_d).max(dim=0)[0]]).max(dim=0)[0]
             aabb = torch.hstack([min_roi, max_roi])
+            aabb = aabb / 2 ** (4 - 1)
         else:
             aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
 
