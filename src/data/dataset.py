@@ -450,17 +450,18 @@ class LLFF(Dataset):
             poses = LLFF.__recenter_poses(poses)
 
         c2w = LLFF.__avg_pose(poses)
-        self.__build_path(poses, bounds) # build path for video sample
+        path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
         dists = np.sum(np.square(c2w[:3, 3] - poses[:, :3, 3]), -1)
         i_test = np.argmin(dists)
 
-        imgs = imgs.astype(np.float32)
-        hwf = poses[0, :3, -1].astype(np.float32)
-        poses = poses[:, :3, :4].astype(np.float32)
+        hwf = poses[0, :3, -1]
+        poses = poses[:, :3, :4]
 
         # to tensors
         self.imgs = torch.tensor(imgs, dtype=torch.float32)
         self.poses = torch.tensor(poses, dtype=torch.float32)
+        path_poses = torch.tensor(path_poses, dtype=torch.float32)
+        self.path_poses = path_poses[:, :3, :4]
         self.hwf = torch.tensor(hwf, dtype=torch.float32)
 
         self.testimg = self.imgs[i_test]
@@ -515,25 +516,18 @@ class LLFF(Dataset):
 
     def __build_path(
             self,
+            c2w: ndarray,
             poses: ndarray,
             bounds: ndarray,
             n_views: int = 120,
             n_rots: int = 2,
             zrate: float = 0.5,
             path_zflat: bool = False
-    ) -> None:
+    ) -> Tensor:
         """
         Build spiral path for rendering sample video.
         ------------------------------------------------------------------------
-        Args:
-            poses (ndarray): [..., 4, 4]. Camera poses
-            bounds (ndarray): [..., 2]. Near and far bounds
-            n_views (int): number of views
-            n_rots (int): number of rotations
-            zrate (float): rate of z-rotation
-            path_zflat (bool): if True, the path is z-flat
         """
-        c2w = LLFF.__avg_pose(poses) # get avg pose
         up = LLFF.__normalize(poses[:, :3, 1].sum(0))  # average up
         # compute reasonable focus depth for the scene
         close_depth, inf_depth = bounds.min() * .9, bounds.max() * 5.
@@ -566,7 +560,7 @@ class LLFF(Dataset):
                         np.cos(theta), 
                         -np.sin(theta), 
                         -np.sin(theta * zrate), 
-                        np.cos(theta)
+                        1.
                     ]) * rads
             )
             z = LLFF.__normalize(c - np.dot(
@@ -574,13 +568,10 @@ class LLFF(Dataset):
                     np.array([0, 0, -focal, 1.])
                 )
             )
-            path_poses.append(np.concatenate(
-                    [LLFF.__viewmatrix(z, up, c), hwf], 
-                    1
-                )
-            )
-            # cast to tensor
-            self.path_poses = torch.tensor(path_poses, dtype=torch.float32)
+            path_poses.append(np.concatenate([LLFF.__viewmatrix(z, up, c), hwf], 
+                              1))
+        # cast to tensor
+        return path_poses
 
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
