@@ -352,12 +352,12 @@ def train(
                         testpose,
                         2*args.batch_size,
                         estimator,
-                        device,
                         model,
-                        ndc=not args.no_ndc,
                         train=False,
+                        ndc=not args.no_ndc,
                         white_bkgd=args.white_bkgd,
-                        render_step_size=render_step_size
+                        render_step_size=render_step_size,
+                        device=device
                 )
 
                 # log data to wandb
@@ -489,6 +489,7 @@ def main():
                 val_loader,
                 device=device
         )
+        '''
         # final validation set and loader
         val_set = dataset_name(
                 args.scene,
@@ -530,6 +531,7 @@ def main():
         model = init_models()
         # load model
         model.load_state_dict(torch.load(out_dir + '/model/nn.pt'))
+    '''
 
     if not args.debug:
         # build base path for output directories
@@ -556,6 +558,7 @@ def main():
 
     # render frames for poses
     model.eval()
+    estimator.eval()
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
     output = R.render_path(
