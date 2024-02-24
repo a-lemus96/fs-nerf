@@ -451,21 +451,37 @@ class LLFF(Dataset):
 
         c2w = LLFF.__avg_pose(poses)
         path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
-        dists = np.sum(np.square(c2w[:3, 3] - poses[:, :3, 3]), -1)
-        i_test = np.argmin(dists)
 
         hwf = poses[0, :3, -1]
         poses = poses[:, :3, :4]
 
+        # apply K-means to draw N views and ensure maximum scene coverage
+        assert n_imgs <= poses.shape[0], "Number of images {n_imgs} exceeds" + \
+                                         "the number of poses {poses.shape[0]}"
+        x = poses[:, :3, 3]
+        kmeans = KMeans(n_clusters=n_imgs,  n_init=10).fit(x) # kmeans model
+        labels = kmeans.labels_
+        # compute distances to cluster centers
+        dists = np.linalg.norm(x - kmeans.cluster_centers_[labels], axis=1)
+        # choose the closest view for every cluster center
+        idxs = np.empty((n_imgs,), dtype=int) # array for indices of views
+        for i in range(n_imgs):
+            cluster_dists = np.where(labels == i, dists, np.inf)
+            idxs[i] = np.argmin(cluster_dists)
+
+        # choose random index for visual comparisons
+        idx = np.random.randint(0, imgs.shape[0])
+        testimg = imgs[idx]
+        testpose = poses[idx]
+
         # to tensors
-        self.imgs = torch.tensor(imgs, dtype=torch.float32)
-        self.poses = torch.tensor(poses, dtype=torch.float32)
+        self.imgs = torch.tensor(imgs[idxs], dtype=torch.float32)
+        self.poses = torch.tensor(poses[idxs], dtype=torch.float32)
         path_poses = torch.tensor(path_poses, dtype=torch.float32)
         self.path_poses = path_poses[:, :3, :4]
         self.hwf = torch.tensor(hwf, dtype=torch.float32)
-
-        self.testimg = self.imgs[i_test]
-        self.testpose = self.poses[i_test]
+        self.testimg = torch.tensor(testimg, dtype=torch.float32)
+        self.testpose = torch.tensor(testpose, dtype=torch.float32)
 
         # define bounds
         if not ndc:
@@ -474,7 +490,6 @@ class LLFF(Dataset):
         else:
             self.near = 0.
             self.far = 1.
-
 
         # define rays
         if not self.img_mode:
@@ -519,8 +534,8 @@ class LLFF(Dataset):
             c2w: ndarray,
             poses: ndarray,
             bounds: ndarray,
-            n_views: int = 120,
-            n_rots: int = 2,
+            n_views: int = 90,
+            n_rots: int = 1,
             zrate: float = 0.5,
             path_zflat: bool = False
     ) -> Tensor:
