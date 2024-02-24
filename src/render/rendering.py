@@ -112,6 +112,8 @@ def render_frame(
         H: int,
         W: int,
         focal: float,
+        near: float,
+        far: float,
         pose: torch.Tensor, 
         chunksize: int,
         estimator: OccGridEstimator,
@@ -130,6 +132,8 @@ def render_frame(
         H: Image height
         W: Image width
         focal: Camera focal length
+        near: Near bound
+        far: Far bound
         pose: Camera pose
         chunksize: Chunk size for rays
         estimator: OccGridEstimator object
@@ -172,7 +176,7 @@ def render_frame(
 
     # aggregate chunks
     img = torch.cat(img, dim=0)
-    depth = torch.cat(depth_map, dim=0).clamp(0., 6.)
+    depth = torch.cat(depth_map, dim=0).clamp(near, far)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
         
@@ -180,6 +184,8 @@ def render_frame(
 def render_path(
         render_poses: torch.Tensor,
         hwf: torch.Tensor,
+        near: float,
+        far: float,
         chunksize: int,
         model: nn.Module,
         estimator: OccGridEstimator,
@@ -194,6 +200,8 @@ def render_path(
     Args:
         render_poses: (frames, 4, 4)-shape tensor containing poses to render
         hwf: [3]-shape tensor containing height, width and focal length
+        near: Near bound
+        far: Far bound
         chunksize int: Number of rays to render in parallel
         model: nn.Module. NeRF model to use for rendering
         estimator: OccGridEstimator. OccGridEstimator object
@@ -214,7 +222,8 @@ def render_path(
         with torch.no_grad():
             # render frame
             rgb, depth = render_frame(
-                    H, W, focal, pose,
+                    H, W, focal, 
+                    near, far, pose,
                     chunksize,
                     estimator,
                     model,

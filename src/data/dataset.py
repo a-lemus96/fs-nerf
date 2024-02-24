@@ -93,7 +93,7 @@ class SyntheticRealistic(Dataset):
         self.scene = scene
         self.split = split
         self.near = 2.0
-        self.far = 8.0
+        self.far = 6.0
         self.img_mode = img_mode
 
         imgs, poses, hwf = self.__load() # load imgs, poses and intrinsics

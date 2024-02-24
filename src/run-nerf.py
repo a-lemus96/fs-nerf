@@ -564,6 +564,8 @@ def main():
     output = R.render_path(
             path_poses,
             [H, W, focal],
+            train_set.near,
+            train_set.far,
             2*args.batch_size,
             model,
             estimator,
