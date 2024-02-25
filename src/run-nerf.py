@@ -454,11 +454,13 @@ def main():
             )
     )
     # set fixed axis scales
+    t = 1 if args.dataset == 'llff' else 5
+    factor = 1 if args.dataset == 'llff' else 0
     fig.update_layout(
         scene=dict(
-            xaxis=dict(range=[-5, 5]),
-            yaxis=dict(range=[-5, 5]),
-            zaxis=dict(range=[0, 5]),
+            xaxis=dict(range=[-t, t]),
+            yaxis=dict(range=[-t, t]),
+            zaxis=dict(range=[-t*factor, t]),
             xaxis_title='X',
             yaxis_title='Y',
             zaxis_title='Z'
@@ -473,6 +475,7 @@ def main():
                 caption='Ground Truth RGB'
             )
         })
+        exit()
 
     if not args.render_only:
         # initialize modules
