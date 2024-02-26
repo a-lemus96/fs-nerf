@@ -451,6 +451,7 @@ class LLFF(Dataset):
 
         c2w = LLFF.__avg_pose(poses)
         path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
+        path_poses = np.stack(path_poses, 0) # cast to numpy array
 
         hwf = poses[0, :3, -1]
         poses = poses[:, :3, :4]
