@@ -500,7 +500,7 @@ def main():
         val_set = dataset_name(
                 args.scene,
                 'val',
-                n_imgs=args.n_imgs / 2,
+                n_imgs=args.n_imgs // 2,
                 img_mode=True,
                 **dataset_kwargs
         )
