@@ -135,12 +135,15 @@ def validation(
         rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt) # append ground truth rgb
         rgb, _ = R.render_frame(
-                H, W, focal, pose[0],
+                H, W, focal,
+                val_loader.dataset.near,
+                val_loader.dataset.far,
+                pose[0],
                 chunksize,
                 estimator,
                 model,
-                ndc=not args.no_ndc,
                 train=False,
+                ndc=not args.no_ndc,
                 white_bkgd=args.white_bkgd,
                 render_step_size=render_step_size,
                 device=device,
@@ -349,6 +352,8 @@ def train(
                 # render test image
                 rgb, depth = R.render_frame(
                         H, W, focal, 
+                        train_loader.dataset.near,
+                        train_loader.dataset.far,
                         testpose,
                         2*args.batch_size,
                         estimator,
@@ -475,7 +480,6 @@ def main():
                 caption='Ground Truth RGB'
             )
         })
-        exit()
 
     if not args.render_only:
         # initialize modules
@@ -492,12 +496,11 @@ def main():
                 val_loader,
                 device=device
         )
-        '''
         # final validation set and loader
         val_set = dataset_name(
                 args.scene,
                 'val',
-                n_imgs=25,
+                n_imgs=args.n_imgs / 2,
                 img_mode=True,
                 **dataset_kwargs
         )
@@ -534,7 +537,6 @@ def main():
         model = init_models()
         # load model
         model.load_state_dict(torch.load(out_dir + '/model/nn.pt'))
-    '''
 
     if not args.debug:
         # build base path for output directories
