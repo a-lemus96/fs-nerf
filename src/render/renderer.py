@@ -9,18 +9,46 @@ from torch import Tensor
 import utils.utilities as utils
 
 class Renderer:
-    def __init__(self):
-        #self.render_step_size
-        #self.tn
-        #self.tf
-        
-        #self.chunksize
-        #self.mode
-        #self.bkgd
+    def __init__(
+            self, 
+            near: float, 
+            far: float,
+            chunksize: int,
+            white_bkgd: bool = True,
+            train: bool = False,
+            **kwargs
+    ):
+        """
+        Initialize a renderer and associate it with an occupancy grid estimator.
+        ------------------------------------------------------------------------
+        Args:
+            - near: float. Near bound.
+            - far: float. Far bound.
+            - chunksize: int. Chunk size for rendering.
+            - white_bkgd: bool. Whether to use a white background.
+            - train: bool. Whether to use the renderer in training mode.
+            - **kwargs: Dict. Additional arguments for the estimator.
+        ------------------------------------------------------------------------
+        """
+        # unpack kwargs
+        self.tn = near
+        self.tf = far
+        self.chunksize = chunksize
+        # compute background color
         light = torch.ones(3, dtype=torch.float32)
         dark = torch.zeros(3, dtype=torch.float32)
         self.bkgd = torch.where(white_bkgd, light, dark)
-        pass
+        # set operational mode
+        self.train = train
+        # unpack kwargs
+        self.render_step_size = kwargs['render_step_size']
+        aabb = kwargs['aabb']
+        resolution = kwargs['resolution']
+        grid_nlevels = kwargs['grid_nlevels']
+        # init estimator
+        self.estimator = OccGridEstimator(aabb, resolution, grid_nlevels)
+
+        self.k = 0 # step counter
 
     def render_rays(
             self,
@@ -84,7 +112,6 @@ class Renderer:
         
         return data
         
-
     def render_poses(
             self,
             intrinsics: Tuple[int, int, float],
@@ -139,13 +166,12 @@ class Renderer:
 
         return rgb_maps, depth_maps
 
-    def init_estimator(self):
-        pass
-
-    def step(self):
-        pass
-
-
-    @staticmethod
-    def _occ_eval_fn():
-        pass
+    def step(self, model):
+        self.k += 1 # increment step counter
+        # define occupancy evaluation function
+        def occ_eval_fn(x):
+            density = model(x)
+            return density * render_step_size
+        # update estimator
+        self.estimator.update_every_n_steps(step=self.k, 
+                occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)

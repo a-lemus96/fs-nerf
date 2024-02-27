@@ -535,8 +535,8 @@ class LLFF(Dataset):
             c2w: ndarray,
             poses: ndarray,
             bounds: ndarray,
-            n_views: int = 90,
-            n_rots: int = 1,
+            n_views: int = 120,
+            n_rots: int = 2,
             zrate: float = 0.5,
             path_zflat: bool = False
     ) -> Tensor:
