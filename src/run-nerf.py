@@ -263,7 +263,7 @@ def train(
         loss.backward()
         optimizer.step()
         scheduler.step()
-        renderer.step()
+        renderer.step(model)
         optimizer.zero_grad()
 
         # log metrics
