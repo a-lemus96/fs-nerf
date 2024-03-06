@@ -46,28 +46,22 @@ args = P.config_parser() # parse command line arguments
 
 # MODEL INITIALIZATION
 
-def init_models(aabb: int) -> Tuple[nn.Module, R.Renderer]:
+def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     """
     Instantiate radiance field model and its associated occgrid-based renderer.
     Additionally, instantiate LPIPS network for perception metrics.
     ----------------------------------------------------------------------------
     Args:
-        aabb (int): axis-aligned bounding box
+        dataset: Dataset ADT.
     Returns:
         Tuple[nn.Module, R.Renderer, LPIPS]: model, renderer and LPIPS network
     """
     # keyword args for positional encoding
-    kwargs = {
-            'pos_fn': {
-                'n_freqs': args.n_freqs,
-                'log_space': args.log_space
-            },
-            'dir_fn': {
-                'n_freqs': args.n_freqs_views,
-                'log_space': args.log_space
-            }
-    }
-    # instantiate model
+    kwargs = {'pos_fn': {'n_freqs': args.n_freqs,
+                         'log_space': args.log_space},
+              'dir_fn': {'n_freqs': args.n_freqs_views,
+                         'log_space': args.log_space }}
+    # instantiate radiance-field model
     if args.model == 'nerf':
         model = M.NeRF(
                 args.d_input,
@@ -86,9 +80,17 @@ def init_models(aabb: int) -> Tuple[nn.Module, R.Renderer]:
         )
 
     # instantiate OccGrid-based renderer
-    renderer = R.Renderer()
+    near = dataset.near
+    far = dataset.far
+    chunksize
+    white_bkgd = args.white_bkgd
+    kwargs = {'render_step_size': 5e-3,
+              'aabb': dataset.aabb,
+              'resolution': 1 if args.dataset == 'blender' else 4,
+              'grid_nlevels': grid_nlevels}
+    renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
 
-    # initialize LPIPS network
+    # instantiate LPIPS network
     lpips_net = LPIPS(net='vgg')
     
     return model, renderer, lpips_net
