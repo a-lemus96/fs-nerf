@@ -175,3 +175,11 @@ class Renderer:
         # update estimator
         self.estimator.update_every_n_steps(step=self.k, 
                 occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)
+
+    def eval(self):
+        self.train = False
+        self.estimator.eval()
+
+    def train(self):
+        self.train = True
+        self.estimator.train()

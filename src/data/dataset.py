@@ -90,6 +90,7 @@ class SyntheticRealistic(Dataset):
             None
         """
         super(SyntheticRealistic).__init__()  # inherit from Dataset
+        self.ndc = False
         self.scene = scene
         self.split = split
         self.near = 2.0
