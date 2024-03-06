@@ -183,3 +183,6 @@ class Renderer:
     def train(self):
         self.train = True
         self.estimator.train()
+
+    def set_chunksize(self, value):
+        self.chunksize = value
