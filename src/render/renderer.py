@@ -15,7 +15,7 @@ class Renderer:
             far: float,
             chunksize: int,
             white_bkgd: bool = True,
-            train: bool = False,
+            train_mode: bool = False,
             **kwargs
     ):
         """
@@ -26,7 +26,7 @@ class Renderer:
             - far: float. Far bound.
             - chunksize: int. Chunk size for rendering.
             - white_bkgd: bool. Whether to use a white background.
-            - train: bool. Whether to use the renderer in training mode.
+            - train_mode: bool. Whether to use the renderer in training mode.
             - **kwargs: Dict. Additional arguments for the estimator.
         ------------------------------------------------------------------------
         """
@@ -39,7 +39,7 @@ class Renderer:
         dark = torch.zeros(3, dtype=torch.float32)
         self.bkgd = light if white_bkgd else dark
         # set operational mode
-        self.train = train
+        self.train_mode = train_mode
         # unpack kwargs
         self.render_step_size = kwargs['render_step_size']
         aabb = kwargs['aabb']
@@ -83,7 +83,7 @@ class Renderer:
                 rays_o, rays_d,
                 sigma_fn=_sigma_fn,
                 render_step_size=self.render_step_size,
-                stratified=self.train,
+                stratified=self.train_mode,
                 near_plane=self.near,
                 far_plane=self.far
         )
@@ -179,11 +179,11 @@ class Renderer:
                 occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)
 
     def eval(self):
-        self.train = False
+        self.train_mode = False
         self.estimator.eval()
 
     def train(self):
-        self.train = True
+        self.train_mode = True
         self.estimator.train()
 
     def set_chunksize(self, value):
