@@ -32,12 +32,11 @@ def save_origins_and_dirs(poses):
     plt.close()
 
 # RAY HELPERS
-
 def get_rays(
         H: int,
         W: int,
         focal: float,
-        pose: Tensor,
+        poses: Tensor,
         device: torch.device = torch.device('cpu'),
 ) -> Tuple[Tensor, Tensor]:
     """
@@ -48,14 +47,13 @@ def get_rays(
         H: Height of the image.
         W: Width of the image.
         focal: Focal length of the camera.
-        pose: [4, 4]. Camera pose matrix.
+        poses: [..., 3, 4]. Camera poses.
         device: Device to use for computation.
     Returns:
-        origins_w: [height, width, 3]. Ray origins in world coords.
-        dirs_w: [height, width, 3]. Ray directions in world coords.
+        origins_w: [..., 3]. Ray origins in world coords.
+        dirs_w: [..., 3]. Ray directions in world coords.
     ----------------------------------------------------------------------------
     """
-    pose = pose.to(device)
     # create grid of coordinates
     i, j = torch.meshgrid(
             torch.arange(W, dtype=torch.float32).to(device),
@@ -63,24 +61,22 @@ def get_rays(
             indexing='ij'
     )
     i, j = torch.transpose(i, -1, -2), torch.transpose(j, -1, -2)
-
     # use pinhole model to map grid into camera space
     f = focal.item()
     dirs = torch.stack(
             [(i - W*0.5)/f, -(j - H*0.5)/f, -torch.ones_like(i)], 
             dim=-1
     )
-
     # normalize directions
     dirs = dirs/torch.norm(dirs, dim=-1, keepdim=True)
-
+    dirs = dirs[None, ..., None, :]
     # apply camera rotation to ray directions
-    dirs_w = torch.sum(
-            dirs[..., None, :] * pose[:3, :3], 
-            axis=-1
-    )
+    poses = torch.rand(5, 4, 4)
+    poses = poses.unsqueeze(-3) if poses.dim() == 2 else poses
+    poses = poses[..., None, None, :3, :3]
+    dirs_w = torch.sum(dirs * poses, axis=-1)
     # apply camera translation to ray origin
-    origins_w = pose[:3, -1].expand(dirs_w.shape)
+    origins_w = poses[..., :3, -1].expand_as(dirs_w)
 
     return origins_w, dirs_w 
 
