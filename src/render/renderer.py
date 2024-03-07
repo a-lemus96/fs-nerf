@@ -37,7 +37,7 @@ class Renderer:
         # compute background color
         light = torch.ones(3, dtype=torch.float32)
         dark = torch.zeros(3, dtype=torch.float32)
-        self.bkgd = torch.where(white_bkgd, light, dark)
+        self.bkgd = light if white_bkgd else dark
         # set operational mode
         self.train = train
         # unpack kwargs
@@ -107,8 +107,10 @@ class Renderer:
                     rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
         except AssertionError as assert_err:
             print(assert_err)
-            data = (self.bkgd.expand(rays_o.shape), torch.zeros_like(rays_o),
-                    torch.zeros_like(rays_o[:-1]).unsqueeze(-1)), {})
+            data = (self.bkgd.expand(rays_o.shape), 
+                    torch.zeros_like(rays_o),
+                    torch.zeros_like(rays_o[:-1]).unsqueeze(-1), 
+                    {})
         
         return data
         

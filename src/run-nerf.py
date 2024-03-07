@@ -86,8 +86,8 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     white_bkgd = args.white_bkgd
     kwargs = {'render_step_size': 5e-3,
               'aabb': dataset.aabb,
-              'resolution': 1 if args.dataset == 'blender' else 4,
-              'grid_nlevels': grid_nlevels}
+              'resolution': 128,
+              'grid_nlevels': 1 if args.dataset == 'blender' else 4}
     renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
 
     # instantiate LPIPS network
