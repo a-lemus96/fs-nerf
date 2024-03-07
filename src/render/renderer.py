@@ -188,3 +188,6 @@ class Renderer:
 
     def set_chunksize(self, value):
         self.chunksize = value
+
+    def to(self, device):
+        self.estimator.to(device)
