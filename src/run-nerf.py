@@ -126,11 +126,13 @@ def validation(
     poses = next(iter(val_loader))
     ndc = val_loader.dataset.ndc
     
+    renderer.set_chunksize(2*args.batch_size)
     rgbs, _ = renderer.render_poses((H, W, focal),
                                     poses,
                                     model,
                                     ndc,
                                     device)
+    renderer.set_chunksize(args.batch_size)
 
     # compute PSNR
     rgbs = torch.permute(rgbs, (0, 3, 1, 2))
@@ -508,6 +510,7 @@ def main():
     # render maps
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
+    renderer.set_chunksize(2*args.batch_size)
     frames, d_frames = renderer.render_poses((H, W, focal),
                                              path_poses,
                                              model,
