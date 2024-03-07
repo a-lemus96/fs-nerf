@@ -84,8 +84,8 @@ class Renderer:
                 sigma_fn=_sigma_fn,
                 render_step_size=self.render_step_size,
                 stratified=self.train_mode,
-                near_plane=self.near,
-                far_plane=self.far
+                near_plane=self.tn,
+                far_plane=self.tf
         )
 
         # query local rgb and density
