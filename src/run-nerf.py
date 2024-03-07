@@ -28,7 +28,7 @@ import core.models as M
 import core.loss as L
 import core.scheduler as S
 import data.dataset as D
-import render.rendering as R
+import render.renderer as R
 import utils.parser as P
 import utils.plotting as PL
 import utils.utilities as U
@@ -46,27 +46,22 @@ args = P.config_parser() # parse command line arguments
 
 # MODEL INITIALIZATION
 
-def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
+def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     """
-    Initialize NeRF-like model, occupancy grid estimator, and LPIPS net.
+    Instantiate radiance field model and its associated occgrid-based renderer.
+    Additionally, instantiate LPIPS network for perception metrics.
     ----------------------------------------------------------------------------
     Args:
-        aabb (int): axis-aligned bounding box
+        dataset: Dataset ADT.
     Returns:
-        Tuple[nn.Module, OccGridEstimator, LPIPS]: models
+        Tuple[nn.Module, R.Renderer, LPIPS]: model, renderer and LPIPS network
     """
     # keyword args for positional encoding
-    kwargs = {
-            'pos_fn': {
-                'n_freqs': args.n_freqs,
-                'log_space': args.log_space
-            },
-            'dir_fn': {
-                'n_freqs': args.n_freqs_views,
-                'log_space': args.log_space
-            }
-    }
-    # instantiate model
+    kwargs = {'pos_fn': {'n_freqs': args.n_freqs,
+                         'log_space': args.log_space},
+              'dir_fn': {'n_freqs': args.n_freqs_views,
+                         'log_space': args.log_space }}
+    # instantiate radiance-field model
     if args.model == 'nerf':
         model = M.NeRF(
                 args.d_input,
@@ -84,44 +79,42 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
                 [30., 1., 1., 1., 1., 1., 1., 1.],
         )
 
-    # model parameters
-    grid_resolution = 128
-    grid_nlvl = 1 if args.dataset == 'blender' else 4
-    # render parameters
-    render_step_size = 5e-3
-    estimator = OccGridEstimator(
-            roi_aabb=aabb,
-            resolution=grid_resolution, 
-            levels=grid_nlvl
-    )
-    # initialize LPIPS network
+    # instantiate OccGrid-based renderer
+    near = dataset.near
+    far = dataset.far
+    chunksize = args.batch_size
+    white_bkgd = args.white_bkgd
+    kwargs = {'render_step_size': 5e-3,
+              'aabb': dataset.aabb,
+              'resolution': 1 if args.dataset == 'blender' else 4,
+              'grid_nlevels': grid_nlevels}
+    renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
+
+    # instantiate LPIPS network
     lpips_net = LPIPS(net='vgg')
     
-    return model, estimator, lpips_net
+    return model, renderer, lpips_net
 
 # TRAINING FUNCTIONS
 
 def validation(
         hwf: Tensor,
         model: nn.Module,
-        estimator: OccGridEstimator,
+        renderer: R.Renderer,
         lpips_net: LPIPS,
         val_loader: DataLoader,
-        chunksize: int,
         device: torch.device,
-        render_step_size: float = 5e-3,
 ) -> Tuple[float, float, float]:
     """
     Performs validation step for NeRF-like model.
     ----------------------------------------------------------------------------
     Args:
+        hwf (3,): Camera intinsics
         model (nn.Module): NeRF-like model
-        estimator (OccGridEstimator): occupancy grid estimator
+        renderer (R.Renderer): OccGrid-based renderer
         lpips_net (LPIPS): LPIPS network
         val_loader (DataLoader): data loader
-        chunksize (int): size of chunks for rendering frames
         device (torch.device): device to be used
-        render_step_size (float, optional): step size for rendering
     Returns:
         val_psnr (float): validation PSNR
         val_ssim (float): validation SSIM
@@ -129,33 +122,24 @@ def validation(
     """
     H, W, focal = hwf
     H, W = int(H), int(W)
-    rgbs = []
     rgbs_gt = []
-    for val_data in val_loader:
-        rgb_gt, pose = val_data
-        rgbs_gt.append(rgb_gt) # append ground truth rgb
-        rgb, _ = R.render_frame(
-                H, W, focal,
-                val_loader.dataset.near,
-                val_loader.dataset.far,
-                pose[0],
-                chunksize,
-                estimator,
-                model,
-                train=False,
-                ndc=not args.no_ndc,
-                white_bkgd=args.white_bkgd,
-                render_step_size=render_step_size,
-                device=device,
-        )
-        rgbs.append(rgb) # append rendered rgb
+    poses = next(iter(val_loader))
+    ndc = val_loader.dataset.ndc
+    
+    renderer.set_chunksize(2*args.batch_size)
+    rgbs, _ = renderer.render_poses((H, W, focal),
+                                    poses,
+                                    model,
+                                    ndc,
+                                    device)
+    renderer.set_chunksize(args.batch_size)
 
     # compute PSNR
-    rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
+    rgbs = torch.permute(rgbs, (0, 3, 1, 2))
     rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-    val_size = len(val_loader)
+    val_size = len(val_loader.dataset)
 
     # compute LPIPS
     if val_size < 25:
@@ -191,25 +175,20 @@ def validation(
 
 def train(
         model: nn.Module,
-        estimator: OccGridEstimator,
+        renderer: R.Renderer,
         lpips_net: LPIPS,
         train_loader: Dataset,
         val_loader: Dataset,
-        render_step_size: float = 5e-3,
-        device: torch.device = torch.device('cpu'),
-) -> Tuple[float, float]:
+        device: torch.device = torch.device('cpu')) -> None:
     """Train NeRF model.
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF model
-        estimator (OccGridEstimator): occupancy grid estimator
+        renderer (R.Renderer): OccGrid-based renderer
         lpips_net (LPIPS): LPIPS network
         train_loader (Dataset): training set loader
         val_loader (Dataset): validation set loader
-        render_step_size (float, optional): step size for rendering
         device (torch.device): device to train on
-    Returns:
-        Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
     ----------------------------------------------------------------------------
     """
     # retrieve camera intrinsics
@@ -217,6 +196,7 @@ def train(
     H, W, focal = hwf
     H, W = int(H), int(W)
     testpose = train_loader.dataset.testpose
+    ndc = train_loader.dataset.ndc
 
     # set up optimizer and scheduler
     params = list(model.parameters())
@@ -232,15 +212,6 @@ def train(
             args.lro,
             **kwargs
     )
-    '''n_iters = args.n_iters
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, 
-            milestones=[n_iters // 2, 
-                        n_iters * 3 // 4, 
-                        n_iters * 5 // 6, 
-                        n_iters * 9 // 10], 
-            gamma=0.33
-    )'''
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
 
@@ -251,7 +222,7 @@ def train(
     alpha = 0.
     for k in pbar: # loop over the number of iterations
         model.train()
-        estimator.train()
+        renderer.train()
         # get next batch of data
         try:
             rays_o, rays_d, rgb_gt = next(iterator)
@@ -260,16 +231,8 @@ def train(
             rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
-        (rgb, *_, extras), ray_indices = R.render_rays(
-                rays_o=rays_o,
-                rays_d=rays_d,
-                estimator=estimator,
-                model=model,
-                train=True,
-                white_bkgd=args.white_bkgd,
-                render_step_size=render_step_size,
-                device=device
-        )
+        render_output = renderer.render_rays(rays_o, rays_d, model)
+        rgb, _, depth, _ = render_output
         
         # compute loss and PSNR
         rgb_gt = rgb_gt.to(device)
@@ -304,19 +267,8 @@ def train(
         loss.backward()
         optimizer.step()
         scheduler.step()
+        renderer.step(model)
         optimizer.zero_grad()
-
-        # define occupancy evaluation function
-        def occ_eval_fn(x):
-            density = model(x)
-            return density * render_step_size
-
-        # update occupancy grid
-        estimator.update_every_n_steps(
-                step=k,
-                occ_eval_fn=occ_eval_fn,
-                occ_thre=1e-2
-        )
 
         # log metrics
         if not args.debug and k % args.val_rate != 0:
@@ -336,34 +288,26 @@ def train(
         compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
         if compute_val:
             model.eval()
-            estimator.eval()
+            renderer.eval()
             lpips_net.eval()
             with torch.no_grad():
                 val_metrics = validation(
                         hwf,
                         model,
-                        estimator,
+                        renderer,
                         lpips_net,
                         val_loader,
                         2*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
+
                 # render test image
-                rgb, depth = R.render_frame(
-                        H, W, focal, 
-                        train_loader.dataset.near,
-                        train_loader.dataset.far,
-                        testpose,
-                        2*args.batch_size,
-                        estimator,
-                        model,
-                        train=False,
-                        ndc=not args.no_ndc,
-                        white_bkgd=args.white_bkgd,
-                        render_step_size=render_step_size,
-                        device=device
-                )
+                rgb, depth = renderer.render_poses((H, W, focal), 
+                                                   testpose, 
+                                                   model, 
+                                                   ndc, 
+                                                   device)
 
                 # log data to wandb
                 if not args.debug:
@@ -383,7 +327,6 @@ def train(
                             caption='Depth'
                         )
                     })
-    return
 
 def main():
     # select device
@@ -441,7 +384,7 @@ def main():
     )
     val_loader = DataLoader(
             val_set,
-            batch_size=1,
+            batch_size=len(val_set),
             shuffle=True,
             num_workers=8
     )
@@ -483,14 +426,14 @@ def main():
 
     if not args.render_only:
         # initialize modules
-        model, estimator, lpips_net = init_models(train_set.aabb)
+        model, renderer, lpips_net = init_models(train_set)
         model.to(device)
-        estimator.to(device)
+        renderer.to(device)
         lpips_net.to(device)
         # train model
         train(
                 model, 
-                estimator,
+                renderer,
                 lpips_net,
                 train_loader,
                 val_loader,
@@ -506,22 +449,21 @@ def main():
         )
         val_loader = DataLoader(
                 val_set,
-                batch_size=1,
+                batch_size=len(val_set),
                 shuffle=True,
                 num_workers=8
         )
         # compute final validation metrics
         model.eval()
-        estimator.eval()
+        renderer.eval()
         lpips_net.eval()
         with torch.no_grad():
             val_metrics = validation(
                     train_set.hwf,
                     model,
-                    estimator,
+                    renderer,
                     lpips_net,
                     val_loader,
-                    2*args.batch_size,
                     device
             )
         # log final metrics
@@ -563,22 +505,17 @@ def main():
 
     # render frames for poses
     model.eval()
-    estimator.eval()
+    renderer.eval()
+    
+    # render maps
     H, W, focal = train_set.hwf
     H, W = int(H), int(W)
-    output = R.render_path(
-            path_poses,
-            [H, W, focal],
-            train_set.near,
-            train_set.far,
-            2*args.batch_size,
-            model,
-            estimator,
-            ndc=not args.no_ndc,
-            white_bkgd=args.white_bkgd,
-            device=device
-    )
-    frames, d_frames = output
+    renderer.set_chunksize(2*args.batch_size)
+    frames, d_frames = renderer.render_poses((H, W, focal),
+                                             path_poses,
+                                             model,
+                                             train_set.ndc,
+                                             device)
 
     if not args.debug:
         # put together frames and save result into .mp4 file
