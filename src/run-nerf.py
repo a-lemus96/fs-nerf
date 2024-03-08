@@ -231,6 +231,7 @@ def train(
             rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
+        rays_o, rays_d = rays_o.to(device), rays_d.to(device)
         render_output = renderer.render_rays(rays_o, rays_d, model)
         rgb, _, depth, _ = render_output
         

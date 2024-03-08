@@ -3,6 +3,7 @@ from nerfacc.estimators.occ_grid import OccGridEstimator
 
 from typing import Dict, Tuple
 import torch
+import pdb
 from torch import nn
 from torch import Tensor
 
@@ -81,11 +82,11 @@ class Renderer:
         # perform grid sampling
         ray_idxs, t_starts, t_ends = self.estimator.sampling(
                 rays_o, rays_d,
-                sigma_fn=_sigma_fn,
+                _sigma_fn,
+                t_min=self.tn,
+                t_max=self.tf,
                 render_step_size=self.render_step_size,
                 stratified=self.train_mode,
-                near_plane=self.tn,
-                far_plane=self.tf
         )
 
         # query local rgb and density
@@ -99,11 +100,9 @@ class Renderer:
 
                 return rgbs, sigmas.squeeze(-1)
 
-        self.bkgd = self.bkgd.to(device)
-
         # perform volume rendering
         try:
-            data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays),
+            data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
                     rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
         except AssertionError as assert_err:
             print(assert_err)
@@ -191,3 +190,4 @@ class Renderer:
 
     def to(self, device):
         self.estimator.to(device)
+        self.bkgd = self.bkgd.to(device)
