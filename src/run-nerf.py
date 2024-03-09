@@ -15,6 +15,7 @@ import numpy as np
 import plotly.graph_objects as go
 from skimage.metrics import structural_similarity as SSIM
 import torch
+import pdb
 from torch import nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
@@ -234,7 +235,10 @@ def train(
         # render rays
         rays_o, rays_d = rays_o.to(device), rays_d.to(device)
         render_output = renderer.render_rays(rays_o, rays_d, model)
-        rgb, _, depth, _ = render_output
+        # skip if no valid rendering output
+        if render_output is None:
+            continue
+        rgb, _, depth, _ = render_output    # unpack rendering output
         
         # compute loss and PSNR
         rgb_gt = rgb_gt.to(device)
