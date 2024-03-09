@@ -3,6 +3,7 @@ from nerfacc.estimators.occ_grid import OccGridEstimator
 
 from typing import Dict, Tuple
 import torch
+import pdb
 from torch import nn
 from torch import Tensor
 
@@ -15,7 +16,7 @@ class Renderer:
             far: float,
             chunksize: int,
             white_bkgd: bool = True,
-            train: bool = False,
+            train_mode: bool = False,
             **kwargs
     ):
         """
@@ -26,7 +27,7 @@ class Renderer:
             - far: float. Far bound.
             - chunksize: int. Chunk size for rendering.
             - white_bkgd: bool. Whether to use a white background.
-            - train: bool. Whether to use the renderer in training mode.
+            - train_mode: bool. Whether to use the renderer in training mode.
             - **kwargs: Dict. Additional arguments for the estimator.
         ------------------------------------------------------------------------
         """
@@ -37,9 +38,9 @@ class Renderer:
         # compute background color
         light = torch.ones(3, dtype=torch.float32)
         dark = torch.zeros(3, dtype=torch.float32)
-        self.bkgd = torch.where(white_bkgd, light, dark)
+        self.bkgd = light if white_bkgd else dark
         # set operational mode
-        self.train = train
+        self.train_mode = train_mode
         # unpack kwargs
         self.render_step_size = kwargs['render_step_size']
         aabb = kwargs['aabb']
@@ -81,11 +82,11 @@ class Renderer:
         # perform grid sampling
         ray_idxs, t_starts, t_ends = self.estimator.sampling(
                 rays_o, rays_d,
-                sigma_fn=_sigma_fn,
+                _sigma_fn,
+                t_min=self.tn,
+                t_max=self.tf,
                 render_step_size=self.render_step_size,
-                stratified=self.train,
-                near_plane=self.near,
-                far_plane=self.far
+                stratified=self.train_mode,
         )
 
         # query local rgb and density
@@ -99,16 +100,16 @@ class Renderer:
 
                 return rgbs, sigmas.squeeze(-1)
 
-        self.bkgd = self.bkgd.to(device)
-
         # perform volume rendering
         try:
-            data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays),
+            data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
                     rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
         except AssertionError as assert_err:
             print(assert_err)
-            data = (self.bkgd.expand(rays_o.shape), torch.zeros_like(rays_o),
-                    torch.zeros_like(rays_o[:-1]).unsqueeze(-1)), {})
+            data = (self.bkgd.expand(rays_o.shape), 
+                    torch.zeros_like(rays_o),
+                    torch.zeros_like(rays_o[:-1]).unsqueeze(-1), 
+                    {})
         
         return data
         
@@ -177,12 +178,16 @@ class Renderer:
                 occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)
 
     def eval(self):
-        self.train = False
+        self.train_mode = False
         self.estimator.eval()
 
     def train(self):
-        self.train = True
+        self.train_mode = True
         self.estimator.train()
 
     def set_chunksize(self, value):
         self.chunksize = value
+
+    def to(self, device):
+        self.estimator.to(device)
+        self.bkgd = self.bkgd.to(device)

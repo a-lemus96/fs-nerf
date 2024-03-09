@@ -86,8 +86,9 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     white_bkgd = args.white_bkgd
     kwargs = {'render_step_size': 5e-3,
               'aabb': dataset.aabb,
-              'resolution': 1 if args.dataset == 'blender' else 4,
-              'grid_nlevels': grid_nlevels}
+              'resolution': 128,
+              'grid_nlevels': 1 if args.dataset == 'blender' else 4}
+
     renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
 
     # instantiate LPIPS network
@@ -231,6 +232,7 @@ def train(
             rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
+        rays_o, rays_d = rays_o.to(device), rays_d.to(device)
         render_output = renderer.render_rays(rays_o, rays_d, model)
         rgb, _, depth, _ = render_output
         
