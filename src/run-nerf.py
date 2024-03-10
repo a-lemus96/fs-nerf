@@ -88,7 +88,8 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     kwargs = {'render_step_size': 5e-3,
               'aabb': dataset.aabb,
               'resolution': 128,
-              'grid_nlevels': 1 if args.dataset == 'blender' else 4}
+              'grid_nlevels': 1 if args.dataset == 'blender' else 4,
+              'occ_thre': 1e-2}
 
     renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
 
@@ -235,9 +236,6 @@ def train(
         # render rays
         rays_o, rays_d = rays_o.to(device), rays_d.to(device)
         render_output = renderer.render_rays(rays_o, rays_d, model)
-        # skip if no valid rendering output
-        if render_output is None:
-            continue
         rgb, _, depth, _ = render_output    # unpack rendering output
         
         # compute loss and PSNR
@@ -270,7 +268,10 @@ def train(
                 loss += alpha * freq_reg'''
 
         # backpropagate loss
-        loss.backward()
+        try:
+            loss.backward()
+        except RuntimeError:
+            pass
         optimizer.step()
         scheduler.step()
         renderer.step(model)

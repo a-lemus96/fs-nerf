@@ -46,6 +46,7 @@ class Renderer:
         aabb = kwargs['aabb']
         resolution = kwargs['resolution']
         grid_nlevels = kwargs['grid_nlevels']
+        self.occ_thre = kwargs['occ_thre']
         # init estimator
         self.estimator = OccGridEstimator(aabb, resolution, grid_nlevels)
 
@@ -88,9 +89,6 @@ class Renderer:
                 render_step_size=self.render_step_size,
                 stratified=self.training,
         )
-        # check if no rays intersected the grid
-        if ray_idxs.shape[0] == 0:
-            return None
 
         # query local rgb and density
         def _rgb_sigma_fn(t_starts, t_ends, ray_idxs):
@@ -103,7 +101,6 @@ class Renderer:
 
             return rgbs, sigmas.squeeze(-1)
 
-        pdb.set_trace()
         # perform volume rendering
         data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
                 rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
@@ -168,9 +165,9 @@ class Renderer:
     def step(self, model):
         self.k += 1 # increment step counter
         # define occupancy evaluation function
-        def occ_eval_fn(x):
+        def _occ_eval_fn(x):
             density = model(x)
-            return density * render_step_size
+            return density * self.render_step_size
         # update estimator
         self.estimator.update_every_n_steps(step=self.k, 
                 occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)
