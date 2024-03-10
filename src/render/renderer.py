@@ -133,7 +133,7 @@ class Renderer:
         ------------------------------------------------------------------------
         """
         H, W, focal = intrinsics
-        rays_o, rays_d = utils.get_rays(H, W, focal, poses, device)
+        rays_o, rays_d = utils.get_rays(H, W, focal, poses)
         if ndc:
             # convert rays to normalized device coordinates
             rays_o, rays_d = utils.to_ndc(rays_o, rays_d, 1., [H, W, focal])
@@ -150,6 +150,7 @@ class Renderer:
         depth_maps = []
 
         for rays_o, rays_d in zip(chunks_o, chunks_d):
+            rays_o, rays_d = rays_o.to(device), rays_d.to(device)
             (rgb, _, depth, _), _ = self.render_rays(rays_o, rays_d, model)
             rgb_maps.append(rgb)
             depth_maps.append(depth)

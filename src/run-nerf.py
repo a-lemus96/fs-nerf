@@ -124,11 +124,11 @@ def validation(
     """
     H, W, focal = hwf
     H, W = int(H), int(W)
-    rgbs_gt = []
-    poses = next(iter(val_loader))
+    rgbs_gt, poses = next(iter(val_loader))
     ndc = val_loader.dataset.ndc
     
     renderer.set_chunksize(2*args.batch_size)
+    pdb.set_trace()
     rgbs, _ = renderer.render_poses((H, W, focal),
                                     poses,
                                     model,
@@ -138,7 +138,7 @@ def validation(
 
     # compute PSNR
     rgbs = torch.permute(rgbs, (0, 3, 1, 2))
-    rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+    rgbs_gt = torch.permute(rgbs_gt, (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
     val_size = len(val_loader.dataset)
