@@ -522,6 +522,7 @@ def main():
                     estimator,
                     lpips_net,
                     val_loader,
+                    2*args.batch_size,
                     device
             )
         # log final metrics
