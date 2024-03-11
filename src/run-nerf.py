@@ -333,7 +333,7 @@ def train(
                 m += 1
 
         # compute validation
-        compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
+        compute_val = k % args.val_rate == 0 and k > 0 and args.val
         if compute_val:
             model.eval()
             estimator.eval()
@@ -424,7 +424,8 @@ def main():
             img_mode=False,
             **dataset_kwargs
     )
-    subset_size = int(args.val_ratio * 25) # % of val samples
+    nval_imgs = 25 if args.dataset == 'synthetic' else 8
+    subset_size = int(args.val_ratio * nval_imgs) # % of val samples
     val_set = dataset_name(
             args.scene,
             'val',
@@ -500,7 +501,7 @@ def main():
         val_set = dataset_name(
                 args.scene,
                 'val',
-                n_imgs=args.n_imgs // 2,
+                n_imgs=nval_imgs,
                 img_mode=True,
                 **dataset_kwargs
         )
