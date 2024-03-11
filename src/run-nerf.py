@@ -304,7 +304,6 @@ def train(
                         renderer,
                         lpips_net,
                         val_loader,
-                        2*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics
