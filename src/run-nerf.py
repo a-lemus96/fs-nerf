@@ -333,7 +333,7 @@ def train(
                 m += 1
 
         # compute validation
-        compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
+        compute_val = k % args.val_rate == 0 and k > 0 and args.val
         if compute_val:
             model.eval()
             estimator.eval()
