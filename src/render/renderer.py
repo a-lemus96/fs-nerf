@@ -16,7 +16,7 @@ class Renderer:
             far: float,
             chunksize: int,
             white_bkgd: bool = True,
-            train_mode: bool = False,
+            training: bool = False,
             **kwargs
     ):
         """
@@ -27,7 +27,7 @@ class Renderer:
             - far: float. Far bound.
             - chunksize: int. Chunk size for rendering.
             - white_bkgd: bool. Whether to use a white background.
-            - train_mode: bool. Whether to use the renderer in training mode.
+            - training: bool. Whether to use the renderer in training mode.
             - **kwargs: Dict. Additional arguments for the estimator.
         ------------------------------------------------------------------------
         """
@@ -40,12 +40,13 @@ class Renderer:
         dark = torch.zeros(3, dtype=torch.float32)
         self.bkgd = light if white_bkgd else dark
         # set operational mode
-        self.train_mode = train_mode
+        self.training = training
         # unpack kwargs
         self.render_step_size = kwargs['render_step_size']
         aabb = kwargs['aabb']
         resolution = kwargs['resolution']
         grid_nlevels = kwargs['grid_nlevels']
+        self.occ_thre = kwargs['occ_thre']
         # init estimator
         self.estimator = OccGridEstimator(aabb, resolution, grid_nlevels)
 
@@ -86,30 +87,23 @@ class Renderer:
                 t_min=self.tn,
                 t_max=self.tf,
                 render_step_size=self.render_step_size,
-                stratified=self.train_mode,
+                stratified=self.training,
         )
 
         # query local rgb and density
         def _rgb_sigma_fn(t_starts, t_ends, ray_idxs):
-                to = rays_o[ray_idxs]
-                td = rays_d[ray_idxs]
-                x = to + td * (t_starts + t_ends)[:, None] / 2.0
-                out = model(x, td)
-                rgbs = out[..., :3]
-                sigmas = out[..., -1]
+            to = rays_o[ray_idxs]
+            td = rays_d[ray_idxs]
+            x = to + td * (t_starts + t_ends)[:, None] / 2.0
+            out = model(x, td)
+            rgbs = out[..., :3]
+            sigmas = out[..., -1]
 
-                return rgbs, sigmas.squeeze(-1)
+            return rgbs, sigmas.squeeze(-1)
 
         # perform volume rendering
-        try:
-            data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
-                    rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
-        except AssertionError as assert_err:
-            print(assert_err)
-            data = (self.bkgd.expand(rays_o.shape), 
-                    torch.zeros_like(rays_o),
-                    torch.zeros_like(rays_o[:-1]).unsqueeze(-1), 
-                    {})
+        data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
+                rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
         
         return data
         
@@ -136,7 +130,7 @@ class Renderer:
         ------------------------------------------------------------------------
         """
         H, W, focal = intrinsics
-        rays_o, rays_d = utils.get_rays(H, W, focal, poses, device)
+        rays_o, rays_d = utils.get_rays(H, W, focal, poses)
         if ndc:
             # convert rays to normalized device coordinates
             rays_o, rays_d = utils.to_ndc(rays_o, rays_d, 1., [H, W, focal])
@@ -153,7 +147,9 @@ class Renderer:
         depth_maps = []
 
         for rays_o, rays_d in zip(chunks_o, chunks_d):
-            (rgb, _, depth, _), _ = self.render_rays(rays_o, rays_d, model)
+            rays_o, rays_d = rays_o.to(device), rays_d.to(device)
+            render_data = self.render_rays(rays_o, rays_d, model)
+            rgb, _, depth, _ = render_data
             rgb_maps.append(rgb)
             depth_maps.append(depth)
 
@@ -170,19 +166,19 @@ class Renderer:
     def step(self, model):
         self.k += 1 # increment step counter
         # define occupancy evaluation function
-        def occ_eval_fn(x):
+        def _occ_eval_fn(x):
             density = model(x)
-            return density * render_step_size
+            return density * self.render_step_size
         # update estimator
         self.estimator.update_every_n_steps(step=self.k, 
                 occ_eval_fn=_occ_eval_fn, occ_thre=self.occ_thre)
 
     def eval(self):
-        self.train_mode = False
+        self.training = False
         self.estimator.eval()
 
     def train(self):
-        self.train_mode = True
+        self.training = True
         self.estimator.train()
 
     def set_chunksize(self, value):

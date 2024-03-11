@@ -15,6 +15,7 @@ import numpy as np
 import plotly.graph_objects as go
 from skimage.metrics import structural_similarity as SSIM
 import torch
+import pdb
 from torch import nn
 import torch.nn.functional as F
 from torch.optim import Optimizer
@@ -87,7 +88,8 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     kwargs = {'render_step_size': 5e-3,
               'aabb': dataset.aabb,
               'resolution': 128,
-              'grid_nlevels': 1 if args.dataset == 'blender' else 4}
+              'grid_nlevels': 1 if args.dataset == 'blender' else 4,
+              'occ_thre': 1e-2}
 
     renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
 
@@ -123,11 +125,11 @@ def validation(
     """
     H, W, focal = hwf
     H, W = int(H), int(W)
-    rgbs_gt = []
-    poses = next(iter(val_loader))
+    rgbs_gt, poses = next(iter(val_loader))
     ndc = val_loader.dataset.ndc
     
     renderer.set_chunksize(2*args.batch_size)
+    pdb.set_trace()
     rgbs, _ = renderer.render_poses((H, W, focal),
                                     poses,
                                     model,
@@ -137,7 +139,7 @@ def validation(
 
     # compute PSNR
     rgbs = torch.permute(rgbs, (0, 3, 1, 2))
-    rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+    rgbs_gt = torch.permute(rgbs_gt, (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10. * torch.log10(F.mse_loss(rgbs, rgbs_gt))
     val_size = len(val_loader.dataset)
@@ -234,7 +236,7 @@ def train(
         # render rays
         rays_o, rays_d = rays_o.to(device), rays_d.to(device)
         render_output = renderer.render_rays(rays_o, rays_d, model)
-        rgb, _, depth, _ = render_output
+        rgb, _, depth, _ = render_output    # unpack rendering output
         
         # compute loss and PSNR
         rgb_gt = rgb_gt.to(device)
@@ -266,7 +268,10 @@ def train(
                 loss += alpha * freq_reg'''
 
         # backpropagate loss
-        loss.backward()
+        try:
+            loss.backward()
+        except RuntimeError:
+            pass
         optimizer.step()
         scheduler.step()
         renderer.step(model)
@@ -299,7 +304,6 @@ def train(
                         renderer,
                         lpips_net,
                         val_loader,
-                        2*args.batch_size,
                         device
                 )
                 val_psnr, val_ssim, val_lpips = val_metrics

@@ -36,8 +36,7 @@ def get_rays(
         H: int,
         W: int,
         focal: float,
-        poses: Tensor,
-        device: torch.device = torch.device('cpu'),
+        poses: Tensor
 ) -> Tuple[Tensor, Tensor]:
     """
     Computes ray origins and directions in world coordinates for a given camera 
@@ -48,7 +47,6 @@ def get_rays(
         W: Width of the image.
         focal: Focal length of the camera.
         poses: [..., 3, 4]. Camera poses.
-        device: Device to use for computation.
     Returns:
         origins_w: [..., 3]. Ray origins in world coords.
         dirs_w: [..., 3]. Ray directions in world coords.
@@ -56,8 +54,8 @@ def get_rays(
     """
     # create grid of coordinates
     i, j = torch.meshgrid(
-            torch.arange(W, dtype=torch.float32).to(device),
-            torch.arange(H, dtype=torch.float32).to(device),
+            torch.arange(W, dtype=torch.float32),
+            torch.arange(H, dtype=torch.float32),
             indexing='ij'
     )
     i, j = torch.transpose(i, -1, -2), torch.transpose(j, -1, -2)
@@ -71,7 +69,6 @@ def get_rays(
     dirs = dirs/torch.norm(dirs, dim=-1, keepdim=True)
     dirs = dirs[None, ..., None, :]
     # apply camera rotation to ray directions
-    poses = torch.rand(5, 4, 4)
     poses = poses.unsqueeze(-3) if poses.dim() == 2 else poses
     poses = poses[..., None, None, :3, :3]
     dirs_w = torch.sum(dirs * poses, axis=-1)
