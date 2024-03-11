@@ -128,8 +128,8 @@ def config_parser() -> argparse.Namespace:
     #-------------------------------validation---------------------------------#
 
     parser.add_argument(
-            '--no_val', action='store_true',
-            help='If set, do not perform validation during training'
+            '--val', action='store_true',
+            help='If set, perform validation during training'
     )
     parser.add_argument(
             '--val_rate', default=500, type=int,
