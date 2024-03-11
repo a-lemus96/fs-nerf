@@ -148,7 +148,8 @@ class Renderer:
 
         for rays_o, rays_d in zip(chunks_o, chunks_d):
             rays_o, rays_d = rays_o.to(device), rays_d.to(device)
-            (rgb, _, depth, _), _ = self.render_rays(rays_o, rays_d, model)
+            render_data = self.render_rays(rays_o, rays_d, model)
+            rgb, _, depth, _ = render_data
             rgb_maps.append(rgb)
             depth_maps.append(depth)
 
