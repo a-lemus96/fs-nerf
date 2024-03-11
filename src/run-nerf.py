@@ -424,7 +424,8 @@ def main():
             img_mode=False,
             **dataset_kwargs
     )
-    subset_size = int(args.val_ratio * 25) # % of val samples
+    nval_imgs = 25 if args.dataset == 'synthetic' else 8
+    subset_size = int(args.val_ratio * nval_imgs) # % of val samples
     val_set = dataset_name(
             args.scene,
             'val',
@@ -500,7 +501,7 @@ def main():
         val_set = dataset_name(
                 args.scene,
                 'val',
-                n_imgs=args.n_imgs // 2,
+                n_imgs=nval_imgs,
                 img_mode=True,
                 **dataset_kwargs
         )
@@ -521,7 +522,6 @@ def main():
                     estimator,
                     lpips_net,
                     val_loader,
-                    2*args.batch_size,
                     device
             )
         # log final metrics
