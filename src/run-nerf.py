@@ -248,7 +248,7 @@ def train(
     if args.beta is not None:
         occ_reg = L.OcclusionRegularizer(args.beta, args.M)
 
-    alpha = 0.
+    alpha = args.ao
     for k in pbar: # loop over the number of iterations
         model.train()
         estimator.train()
@@ -284,7 +284,7 @@ def train(
                 loss += occ_reg(sigmas, ray_indices)'''
 
         # weight decay regularization
-        '''if args.ao is not None:
+        if alpha is not None:
             freq_reg = torch.tensor(0.).to(device)
             # linear decay schedule
             Ts = int(args.reg_ratio * args.Td)
@@ -296,9 +296,7 @@ def train(
                         else:
                             freq_reg += torch.square(param).sum().sqrt()
 
-                a = args.ao + (1. - args.ao) * (k / Ts)
-                alpha = (args.ao / (1. - args.ao)) * (1. - min(1., a))
-                loss += alpha * freq_reg'''
+                loss += alpha * freq_reg
 
         # backpropagate loss
         loss.backward()
