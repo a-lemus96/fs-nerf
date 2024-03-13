@@ -67,22 +67,23 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
             }
     }
     # instantiate model
-    if args.model == 'nerf':
-        model = M.NeRF(
-                args.d_input,
-                args.d_input,
-                args.n_layers,
-                args.d_filter, 
-                args.skip,
-                **kwargs
-        )
-    elif args.model == 'sinerf':
-        model = M.SiNeRF(
-                args.d_input,
-                args.d_input,
-                args.d_filter,
-                [30., 1., 1., 1., 1., 1., 1., 1.],
-        )
+    match args.model:
+        case 'nerf':
+            model = M.NeRF(
+                    args.d_input,
+                    args.d_input,
+                    args.n_layers,
+                    args.d_filter, 
+                    args.skip,
+                    **kwargs
+            )
+        case 'sinerf':
+            model = M.SiNeRF(
+                    args.d_input,
+                    args.d_input,
+                    args.d_filter,
+                    [30., 1., 1., 1., 1., 1., 1., 1.],
+            )
 
     # model parameters
     grid_resolution = 128
