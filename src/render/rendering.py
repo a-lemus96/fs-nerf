@@ -109,9 +109,7 @@ def render_rays(
 
 
 def render_frame(
-        H: int,
-        W: int,
-        focal: float,
+        hwf: Tuple[int, int, float],
         near: float,
         far: float,
         pose: torch.Tensor, 
@@ -129,9 +127,7 @@ def render_frame(
     ry issues.
     ----------------------------------------------------------------------------
     Args:
-        H: Image height
-        W: Image width
-        focal: Camera focal length
+        hwf: (3,)-shape tuple containing height, width and focal length
         near: Near bound
         far: Far bound
         pose: Camera pose
@@ -147,11 +143,11 @@ def render_frame(
         img: (H, W, 3)-shape tensor containing RGB values
         depth_map: (H, W)-shape tensor containing depth values
     """
-    rays_o, rays_d = U.get_rays(H, W, focal, pose, device) # compute rays
+    rays_o, rays_d = U.get_rays(pose, hwf, device) # compute rays
     rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
     if ndc:
         # convert rays to normalized device coordinates
-        rays_o, rays_d = U.to_ndc(rays_o, rays_d, 1., [H, W, focal])
+        rays_o, rays_d = U.to_ndc(rays_o, rays_d, hwf, 1.)
 
     # chunkify rays to avoid memory issues
     chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
@@ -183,7 +179,7 @@ def render_frame(
 
 def render_path(
         render_poses: torch.Tensor,
-        hwf: torch.Tensor,
+        hwf: Tuple[int, int, float],
         near: float,
         far: float,
         chunksize: int,
@@ -199,7 +195,7 @@ def render_path(
     ----------------------------------------------------------------------------
     Args:
         render_poses: (frames, 4, 4)-shape tensor containing poses to render
-        hwf: [3]-shape tensor containing height, width and focal length
+        hwf: (3,)-shape tuple containing height, width and focal length
         near: Near bound
         far: Far bound
         chunksize int: Number of rays to render in parallel
@@ -214,15 +210,14 @@ def render_path(
         frames: [N, H, W, 3]. N rgb frames
     ----------------------------------------------------------------------------
     """
-    H, W, focal = hwf
-
+    H, W, _ = hwf
     frames, d_frames = [], []
     pbar = tqdm(render_poses, desc=f"[Rendering Frames]")
     for i, pose in enumerate(pbar):
         with torch.no_grad():
             # render frame
             rgb, depth = render_frame(
-                    H, W, focal, 
+                    hwf,
                     near, far, pose,
                     chunksize,
                     estimator,
