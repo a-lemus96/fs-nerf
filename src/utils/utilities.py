@@ -34,10 +34,8 @@ def save_origins_and_dirs(poses):
 # RAY HELPERS
 
 def get_rays(
-        H: int,
-        W: int,
-        focal: float,
         pose: Tensor,
+        hwf: Tuple[int, int, float],
         device: torch.device = torch.device('cpu'),
 ) -> Tuple[Tensor, Tensor]:
     """
@@ -45,16 +43,15 @@ def get_rays(
     pose.
     ----------------------------------------------------------------------------
     Args:
-        H: Height of the image.
-        W: Width of the image.
-        focal: Focal length of the camera.
         pose: [4, 4]. Camera pose matrix.
+        hwf: [3]. Height, width, focal length.
         device: Device to use for computation.
     Returns:
         origins_w: [height, width, 3]. Ray origins in world coords.
         dirs_w: [height, width, 3]. Ray directions in world coords.
     ----------------------------------------------------------------------------
     """
+    H, W, focal = hwf # unpack intrinsics
     pose = pose.to(device)
     # create grid of coordinates
     i, j = torch.meshgrid(
@@ -65,7 +62,7 @@ def get_rays(
     i, j = torch.transpose(i, -1, -2), torch.transpose(j, -1, -2)
 
     # use pinhole model to map grid into camera space
-    f = focal.item()
+    f = focal
     dirs = torch.stack(
             [(i - W*0.5)/f, -(j - H*0.5)/f, -torch.ones_like(i)], 
             dim=-1
@@ -87,8 +84,8 @@ def get_rays(
 def to_ndc(
         rays_o: Tensor,
         rays_d: Tensor,
+        hwf: Tuple[int, int, float]
         near: float,
-        hwf: Tensor,
     ) -> Tuple[Tensor, Tensor]:
     """
     Convert rays from world coordinates to normalized device coordinates.
@@ -102,7 +99,7 @@ def to_ndc(
         ndc_o: [..., 3]. Ray origins in normalized device coords.
         ndc_d: [..., 3]. Ray directions in normalized device coords.
     """
-    H, W, focal = hwf
+    H, W, focal = hwf   # unpack intrinsics
     # shift ray origins to near plane
     t = -(near + rays_o[..., 2]) / rays_d[..., 2]
     rays_o = rays_o + t[..., None] * rays_d
