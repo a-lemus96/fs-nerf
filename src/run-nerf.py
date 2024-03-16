@@ -89,7 +89,7 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
 
     # model parameters
     grid_resolution = 128
-    grid_nlvl = 1 if args.dataset == 'blender' else 4
+    grid_nlvl = 1 if args.dataset == 'synthetic' else 4
     # render parameters
     render_step_size = 5e-3
     estimator = OccGridEstimator(
@@ -196,8 +196,8 @@ def train(
         model: nn.Module,
         estimator: OccGridEstimator,
         lpips_net: LPIPS,
-        train_loader: Dataset,
-        val_loader: Dataset,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
         render_step_size: float = 5e-3,
         device: torch.device = torch.device('cpu'),
 ) -> Tuple[float, float]:
@@ -207,8 +207,8 @@ def train(
         model (nn.Module): NeRF model
         estimator (OccGridEstimator): occupancy grid estimator
         lpips_net (LPIPS): LPIPS network
-        train_loader (Dataset): training set loader
-        val_loader (Dataset): validation set loader
+        train_loader (DataLoader): training set loader
+        val_loader (DataLoader): validation set loader
         render_step_size (float, optional): step size for rendering
         device (torch.device): device to train on
     Returns:
