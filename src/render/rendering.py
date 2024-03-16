@@ -143,6 +143,7 @@ def render_frame(
         img: (H, W, 3)-shape tensor containing RGB values
         depth_map: (H, W)-shape tensor containing depth values
     """
+    H, W, _ = hwf
     rays_o, rays_d = U.get_rays(pose, hwf, device) # compute rays
     rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
     if ndc:

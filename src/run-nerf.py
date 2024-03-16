@@ -160,7 +160,7 @@ def validation(
     val_size = len(val_loader)
 
     # compute LPIPS
-    if val_size < 25:
+    '''if val_size < 25:
         val_lpips = lpips_net(rgbs, rgbs_gt).mean()
     else:
         # compute LPIPS in chunks
@@ -172,7 +172,8 @@ def validation(
         val_lpips = 0.
         for chunk, chunk_gt in chunks:
             val_lpips += lpips_net(chunk, chunk_gt).mean()
-        val_lpips /= n_chunks
+        val_lpips /= n_chunks'''
+    val_lpips = None
 
     # compute SSIM
     rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
@@ -336,7 +337,7 @@ def train(
         if compute_val:
             model.eval()
             estimator.eval()
-            lpips_net.eval()
+            #lpips_net.eval()
             with torch.no_grad():
                 val_metrics = validation(
                         hwf,
@@ -486,7 +487,7 @@ def main():
         model, estimator, lpips_net = init_models(train_set.aabb)
         model.to(device)
         estimator.to(device)
-        lpips_net.to(device)
+        #lpips_net.to(device)
         # train model
         train(
                 model, 
@@ -564,7 +565,6 @@ def main():
     # render frames for poses
     model.eval()
     estimator.eval()
-    H, W = int(H), int(W)
     output = R.render_path(
             path_poses,
             train_set.hwf,
