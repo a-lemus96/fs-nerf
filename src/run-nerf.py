@@ -84,6 +84,8 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
                     args.d_filter,
                     [30., 1., 1., 1., 1., 1., 1., 1.],
             )
+        case _:
+            raise ValueError(f"Model {args.model} not supported")
 
     # model parameters
     grid_resolution = 128
