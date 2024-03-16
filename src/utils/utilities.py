@@ -84,8 +84,8 @@ def get_rays(
 def to_ndc(
         rays_o: Tensor,
         rays_d: Tensor,
-        hwf: Tuple[int, int, float]
-        near: float,
+        hwf: Tuple[int, int, float],
+        near: float
     ) -> Tuple[Tensor, Tensor]:
     """
     Convert rays from world coordinates to normalized device coordinates.
