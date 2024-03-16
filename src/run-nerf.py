@@ -105,7 +105,7 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
 # TRAINING FUNCTIONS
 
 def validation(
-        hwf: Tensor,
+        hwf: Tuple[int, int, float],
         model: nn.Module,
         estimator: OccGridEstimator,
         lpips_net: LPIPS,
@@ -131,14 +131,13 @@ def validation(
         val_lpips (float): validation LPIPS
     """
     H, W, focal = hwf
-    H, W = int(H), int(W)
     rgbs = []
     rgbs_gt = []
     for val_data in val_loader:
         rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt) # append ground truth rgb
         rgb, _ = R.render_frame(
-                H, W, focal,
+                hwf,
                 val_loader.dataset.near,
                 val_loader.dataset.far,
                 pose[0],
@@ -218,7 +217,6 @@ def train(
     # retrieve camera intrinsics
     hwf = train_loader.dataset.hwf
     H, W, focal = hwf
-    H, W = int(H), int(W)
     testpose = train_loader.dataset.testpose
 
     # set up optimizer and scheduler
@@ -352,7 +350,7 @@ def train(
                 val_psnr, val_ssim, val_lpips = val_metrics
                 # render test image
                 rgb, depth = R.render_frame(
-                        H, W, focal, 
+                        hwf,
                         train_loader.dataset.near,
                         train_loader.dataset.far,
                         testpose,
@@ -566,11 +564,10 @@ def main():
     # render frames for poses
     model.eval()
     estimator.eval()
-    H, W, focal = train_set.hwf
     H, W = int(H), int(W)
     output = R.render_path(
             path_poses,
-            [H, W, focal],
+            train_set.hwf,
             train_set.near,
             train_set.far,
             2*args.batch_size,
