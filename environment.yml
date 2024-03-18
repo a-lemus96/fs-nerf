@@ -11,4 +11,4 @@ dependencies:
   - plotly::plotly
   - conda-forge::scikit-learn
   - conda-forge::imageio-ffmpeg
-prefix: /home/lemus/miniconda3/envs/nerf
+prefix: ~/lemus/miniconda3/envs/nerf
