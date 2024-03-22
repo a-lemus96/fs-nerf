@@ -58,27 +58,36 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
         Tuple[nn.Module, R.Renderer, LPIPS]: model, renderer and LPIPS network
     """
     # keyword args for positional encoding
-    kwargs = {'pos_fn': {'n_freqs': args.n_freqs,
-                         'log_space': args.log_space},
-              'dir_fn': {'n_freqs': args.n_freqs_views,
-                         'log_space': args.log_space }}
-    # instantiate radiance-field model
-    if args.model == 'nerf':
-        model = M.NeRF(
-                args.d_input,
-                args.d_input,
-                args.n_layers,
-                args.d_filter, 
-                args.skip,
-                **kwargs
-        )
-    elif args.model == 'sinerf':
-        model = M.SiNeRF(
-                args.d_input,
-                args.d_input,
-                args.d_filter,
-                [30., 1., 1., 1., 1., 1., 1., 1.],
-        )
+    kwargs = {
+            'pos_fn': {
+                'n_freqs': args.n_freqs,
+                'log_space': args.log_space
+            },
+            'dir_fn': {
+                'n_freqs': args.n_freqs_views,
+                'log_space': args.log_space
+            }
+    }
+    # instantiate model
+    match args.model:
+        case 'nerf':
+            model = M.NeRF(
+                    args.d_input,
+                    args.d_input,
+                    args.n_layers,
+                    args.d_filter, 
+                    args.skip,
+                    **kwargs
+            )
+        case 'sinerf':
+            model = M.SiNeRF(
+                    args.d_input,
+                    args.d_input,
+                    args.d_filter,
+                    [30., 1., 1., 1., 1., 1., 1., 1.],
+            )
+        case _:
+            raise ValueError(f"Model {args.model} not supported")
 
     # instantiate OccGrid-based renderer
     near = dataset.near
@@ -88,7 +97,7 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
     kwargs = {'render_step_size': 5e-3,
               'aabb': dataset.aabb,
               'resolution': 128,
-              'grid_nlevels': 1 if args.dataset == 'blender' else 4,
+              'grid_nlevels': 1 if args.dataset == 'synthetic' else 4,
               'occ_thre': 1e-2}
 
     renderer = R.Renderer(near, far, chunksize, white_bkgd, **kwargs)
@@ -101,7 +110,7 @@ def init_models(dataset) -> Tuple[nn.Module, R.Renderer]:
 # TRAINING FUNCTIONS
 
 def validation(
-        hwf: Tensor,
+        hwf: Tuple[int, int, float],
         model: nn.Module,
         renderer: R.Renderer,
         lpips_net: LPIPS,
@@ -123,14 +132,12 @@ def validation(
         val_ssim (float): validation SSIM
         val_lpips (float): validation LPIPS
     """
-    H, W, focal = hwf
-    H, W = int(H), int(W)
     rgbs_gt, poses = next(iter(val_loader))
     ndc = val_loader.dataset.ndc
     
     renderer.set_chunksize(2*args.batch_size)
     pdb.set_trace()
-    rgbs, _ = renderer.render_poses((H, W, focal),
+    rgbs, _ = renderer.render_poses(hwf,
                                     poses,
                                     model,
                                     ndc,
@@ -145,7 +152,7 @@ def validation(
     val_size = len(val_loader.dataset)
 
     # compute LPIPS
-    if val_size < 25:
+    '''if val_size < 25:
         val_lpips = lpips_net(rgbs, rgbs_gt).mean()
     else:
         # compute LPIPS in chunks
@@ -157,7 +164,8 @@ def validation(
         val_lpips = 0.
         for chunk, chunk_gt in chunks:
             val_lpips += lpips_net(chunk, chunk_gt).mean()
-        val_lpips /= n_chunks
+        val_lpips /= n_chunks'''
+    val_lpips = None
 
     # compute SSIM
     rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
@@ -180,24 +188,24 @@ def train(
         model: nn.Module,
         renderer: R.Renderer,
         lpips_net: LPIPS,
-        train_loader: Dataset,
-        val_loader: Dataset,
-        device: torch.device = torch.device('cpu')) -> None:
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        device: torch.device = torch.device('cpu')
+) -> Tuple[float, float]:
     """Train NeRF model.
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF model
         renderer (R.Renderer): OccGrid-based renderer
         lpips_net (LPIPS): LPIPS network
-        train_loader (Dataset): training set loader
-        val_loader (Dataset): validation set loader
+        train_loader (DataLoader): training set loader
+        val_loader (DataLoader): validation set loader
         device (torch.device): device to train on
     ----------------------------------------------------------------------------
     """
     # retrieve camera intrinsics
     hwf = train_loader.dataset.hwf
     H, W, focal = hwf
-    H, W = int(H), int(W)
     testpose = train_loader.dataset.testpose
     ndc = train_loader.dataset.ndc
 
@@ -222,7 +230,7 @@ def train(
     if args.beta is not None:
         occ_reg = L.OcclusionRegularizer(args.beta, args.M)
 
-    alpha = 0.
+    alpha = args.ao
     for k in pbar: # loop over the number of iterations
         model.train()
         renderer.train()
@@ -251,7 +259,7 @@ def train(
                 loss += occ_reg(sigmas, ray_indices)'''
 
         # weight decay regularization
-        '''if args.ao is not None:
+        if alpha is not None:
             freq_reg = torch.tensor(0.).to(device)
             # linear decay schedule
             Ts = int(args.reg_ratio * args.Td)
@@ -263,9 +271,7 @@ def train(
                         else:
                             freq_reg += torch.square(param).sum().sqrt()
 
-                a = args.ao + (1. - args.ao) * (k / Ts)
-                alpha = (args.ao / (1. - args.ao)) * (1. - min(1., a))
-                loss += alpha * freq_reg'''
+                loss += alpha * freq_reg
 
         # backpropagate loss
         try:
@@ -292,11 +298,11 @@ def train(
                 m += 1
 
         # compute validation
-        compute_val = k % args.val_rate == 0 and k > 0 and not args.no_val
+        compute_val = k % args.val_rate == 0 and k > 0 and args.val
         if compute_val:
             model.eval()
             renderer.eval()
-            lpips_net.eval()
+            #lpips_net.eval()
             with torch.no_grad():
                 val_metrics = validation(
                         hwf,
@@ -309,11 +315,8 @@ def train(
                 val_psnr, val_ssim, val_lpips = val_metrics
 
                 # render test image
-                rgb, depth = renderer.render_poses((H, W, focal), 
-                                                   testpose, 
-                                                   model, 
-                                                   ndc, 
-                                                   device)
+                rgb, depth = renderer.render_poses(hwf, testpose, 
+                                                   model, ndc, device)
 
                 # log data to wandb
                 if not args.debug:
@@ -363,7 +366,7 @@ def main():
                 {'factor': args.factor, 
                  'bd_factor': args.bd_factor, 
                  'recenter': not args.no_recenter, 
-                 'ndc': not args.no_ndc}),
+                 'ndc': True}),
     }
     dataset_name, dataset_kwargs = dataset_dict[args.dataset]
     train_set = dataset_name(
@@ -373,7 +376,8 @@ def main():
             img_mode=False,
             **dataset_kwargs
     )
-    subset_size = int(args.val_ratio * 25) # % of val samples
+    nval_imgs = 25 if args.dataset == 'synthetic' else 8
+    subset_size = int(args.val_ratio * nval_imgs) # % of val samples
     val_set = dataset_name(
             args.scene,
             'val',
@@ -435,7 +439,8 @@ def main():
         model, renderer, lpips_net = init_models(train_set)
         model.to(device)
         renderer.to(device)
-        lpips_net.to(device)
+        #lpips_net.to(device)
+
         # train model
         train(
                 model, 
@@ -449,7 +454,7 @@ def main():
         val_set = dataset_name(
                 args.scene,
                 'val',
-                n_imgs=args.n_imgs // 2,
+                n_imgs=nval_imgs,
                 img_mode=True,
                 **dataset_kwargs
         )
@@ -514,10 +519,8 @@ def main():
     renderer.eval()
     
     # render maps
-    H, W, focal = train_set.hwf
-    H, W = int(H), int(W)
     renderer.set_chunksize(2*args.batch_size)
-    frames, d_frames = renderer.render_poses((H, W, focal),
+    frames, d_frames = renderer.render_poses(train_set.hwf,
                                              path_poses,
                                              model,
                                              train_set.ndc,

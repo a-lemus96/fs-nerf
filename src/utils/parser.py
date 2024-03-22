@@ -86,10 +86,6 @@ def config_parser() -> argparse.Namespace:
             help="Bound factor for LLFF dataset"
     )
     parser.add_argument(
-            '--no_ndc', action="store_true",
-            help="If set, do not use normalized device coordinates"
-    )
-    parser.add_argument(
             '--no_recenter', action="store_true",
             help="If set, do not recenter LLFF dataset"
     )
@@ -128,8 +124,8 @@ def config_parser() -> argparse.Namespace:
     #-------------------------------validation---------------------------------#
 
     parser.add_argument(
-            '--no_val', action='store_true',
-            help='If set, do not perform validation during training'
+            '--val', action='store_true',
+            help='If set, perform validation during training'
     )
     parser.add_argument(
             '--val_rate', default=500, type=int,

@@ -95,6 +95,7 @@ class SyntheticRealistic(Dataset):
         self.split = split
         self.near = 2.0
         self.far = 6.0
+        self.ndc = False
         self.img_mode = img_mode
 
         imgs, poses, hwf = self.__load() # load imgs, poses and intrinsics
@@ -167,7 +168,7 @@ class SyntheticRealistic(Dataset):
             self,
             imgs: Tensor,
             poses: Tensor,
-            hwf: Tensor
+            hwf: Tuple[int, int, float]
     ) -> None:
         """
         Build set of rays in world coordinate frame and their corresponding 
@@ -176,11 +177,10 @@ class SyntheticRealistic(Dataset):
         Args:
             imgs (Tensor): [N, H, W, 4]. RGBa images
             poses (Tensor): [N, 4, 4]. Camera poses
-            hwf (Tensor): [3,]. Camera intrinsics
+            hwf (Tuple): [3,]. Camera intrinsics
         """
         # compute ray origins and directions
-        H, W, f = hwf
-        rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1) 
+        rays = torch.stack([torch.cat(U.get_rays(p, hwf), -1) 
                             for p in poses], 0)
         rays = rays.reshape(-1, 6)
         self.rays_o = rays[:, :3] # ray origins
@@ -190,31 +190,31 @@ class SyntheticRealistic(Dataset):
     def __downsample(
             self, 
             imgs: Tensor, 
-            hwf: Tensor,
-            factor: int
+            factor: int,
+            hwf: Tuple[int, int, float]
     ) -> None:
         """
         Downsample images and apply resize factor to camera intrinsics.
         ------------------------------------------------------------------------
         Args:
             imgs (Tensor): [N, H, W, 4]. RGBa images
-            hwf (Tensor): [3,]. Camera intrinsics
             factor (int): resize factor
+            hwf (Tuple): [3,]. Camera intrinsics
         Returns:
             new_imgs (Tensor): [N, H // factor, W // factor, 4]. RGBa images
-            new_hwf (Tensor): [3,]. Camera intrinsics
+            new_hwf (Tuple): [3,]. Camera intrinsics
         """
         # apply factor to camera intrinsics
         H, W, f = hwf
-        new_H, new_W = int(H) // factor, int(W) // factor
-        new_focal = hwf[2] / float(factor)
-        new_hwf = torch.Tensor((new_H, new_W, new_focal))
+        new_H, new_W = H // factor, W // factor
+        new_focal = f / float(factor)
+        new_hwf = (new_H, new_W, new_focal)
         # downsample images
         new_imgs = Resize((new_H, new_W))(imgs)
 
         return new_imgs, new_hwf
 
-    def __load(self) -> Tuple[Tensor, Tensor, Tensor]:
+    def __load(self) -> Tuple[Tensor, Tensor, Tuple[int, int, float]]:
         """
         Loads the dataset. It loads images, camera poses and intrinsics.
         ------------------------------------------------------------------------
@@ -223,8 +223,7 @@ class SyntheticRealistic(Dataset):
         Returns:
             imgs (Tensor): [N, H, W, 4]. RGBa images
             poses (Tensor): [N, 4, 4]. Camera poses
-            hwf (Tensor): [3,]. Camera intrinsics. It contains height, width and
-                          focal length
+            hwf (Tuple): [3,]. Camera intrinsics
         """
         scene = self.scene
         path = os.path.join('..', 'datasets', 'synthetic', scene)
@@ -250,12 +249,11 @@ class SyntheticRealistic(Dataset):
         H, W = imgs.shape[1:3]
         fov_x = meta['camera_angle_x'] # field of view along camera x-axis
         focal = 0.5 * W / np.tan(0.5 * fov_x)
-        hwf = np.array([H, W, np.array(focal)])
+        hwf = (H, W, focal.item())
 
         # create tensors
         poses = torch.from_numpy(poses)
         imgs = torch.from_numpy(imgs)
-        hwf = torch.from_numpy(hwf)
 
         return imgs, poses, hwf
 
@@ -453,8 +451,10 @@ class LLFF(Dataset):
         c2w = LLFF.__avg_pose(poses)
         path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
         path_poses = np.stack(path_poses, 0) # cast to numpy array
+        path_poses = path_poses[:, :3, :4]
 
         hwf = poses[0, :3, -1]
+        self.hwf = (int(hwf[0]), int(hwf[1]), float(hwf[2]))
         poses = poses[:, :3, :4]
 
         # apply K-means to draw N views and ensure maximum scene coverage
@@ -481,7 +481,6 @@ class LLFF(Dataset):
         self.poses = torch.tensor(poses[idxs], dtype=torch.float32)
         path_poses = torch.tensor(path_poses, dtype=torch.float32)
         self.path_poses = path_poses[:, :3, :4]
-        self.hwf = torch.tensor(hwf, dtype=torch.float32)
         self.testimg = torch.tensor(testimg, dtype=torch.float32)
         self.testpose = torch.tensor(testpose, dtype=torch.float32)
 
@@ -503,11 +502,10 @@ class LLFF(Dataset):
         Builds rays and samples.
         ------------------------------------------------------------------------
         """
-        H, W, f = self.hwf
-        H, W = int(H), int(W)
+        H, W, _ = self.hwf
         self.rgb = self.imgs.reshape(-1, 3) # reshape to pixels
         # get rays
-        rays = torch.stack([torch.cat(U.get_rays(H, W, f, p), -1)
+        rays = torch.stack([torch.cat(U.get_rays(p, self.hwf), -1)
                             for p in self.poses], 0)
         rays = rays.reshape(-1, 6)
         rays_o = rays[:, :3] # ray origins
@@ -515,7 +513,7 @@ class LLFF(Dataset):
 
         # map to ndc if necessary
         if self.ndc:
-            rays_o, rays_d = U.to_ndc(rays_o, rays_d, 1., self.hwf)
+            rays_o, rays_d = U.to_ndc(rays_o, rays_d, self.hwf, 1.)
             min_roi = torch.vstack(
                     [rays_o.min(dim=0)[0], 
                     (rays_o + rays_d).min(dim=0)[0]]).min(dim=0)[0]
