@@ -131,6 +131,7 @@ def validation(
         val_lpips (float): validation LPIPS
     """
     H, W, focal = hwf
+    ndc = val_loader.dataset.ndc
     rgbs = []
     rgbs_gt = []
     for val_data in val_loader:
@@ -145,7 +146,7 @@ def validation(
                 estimator,
                 model,
                 train=False,
-                ndc=not args.no_ndc,
+                ndc=ndc,
                 white_bkgd=args.white_bkgd,
                 render_step_size=render_step_size,
                 device=device,
@@ -219,6 +220,7 @@ def train(
     hwf = train_loader.dataset.hwf
     H, W, focal = hwf
     testpose = train_loader.dataset.testpose
+    ndc = train_loader.dataset.ndc
 
     # set up optimizer and scheduler
     params = list(model.parameters())
@@ -359,7 +361,7 @@ def train(
                         estimator,
                         model,
                         train=False,
-                        ndc=not args.no_ndc,
+                        ndc=ndc,
                         white_bkgd=args.white_bkgd,
                         render_step_size=render_step_size,
                         device=device
@@ -414,7 +416,7 @@ def main():
                 {'factor': args.factor, 
                  'bd_factor': args.bd_factor, 
                  'recenter': not args.no_recenter, 
-                 'ndc': not args.no_ndc}),
+                 'ndc': True}),
     }
     dataset_name, dataset_kwargs = dataset_dict[args.dataset]
     train_set = dataset_name(
@@ -573,7 +575,7 @@ def main():
             2*args.batch_size,
             model,
             estimator,
-            ndc=not args.no_ndc,
+            ndc=train_set.ndc,
             white_bkgd=args.white_bkgd,
             device=device
     )
