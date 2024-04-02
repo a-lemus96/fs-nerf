@@ -86,10 +86,6 @@ def config_parser() -> argparse.Namespace:
             help="Bound factor for LLFF dataset"
     )
     parser.add_argument(
-            '--no_ndc', action="store_true",
-            help="If set, do not use normalized device coordinates"
-    )
-    parser.add_argument(
             '--no_recenter', action="store_true",
             help="If set, do not recenter LLFF dataset"
     )
