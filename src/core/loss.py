@@ -8,17 +8,20 @@ class OcclusionRegularizer():
     Occlussion regularizer to penalize dense fields near the camera.
     ----------------------------------------------------------------------------
     """
-    def __init__(self, a: float, b: float, type: str = 'linear'):
+    def __init__(self, a: float, b: float, func: str = 'linear'):
         """
         Initializes the occlusion regularizer.
         ------------------------------------------------------------------------
         Args:
             a (float): bias of the regularizer
             b (float): factor of the regularizer
-            type (str): type of the occlusion regularizer
+            func (str): type of the occlusion regularizer
         """
+        assert a >= 0, 'a should be non-negative'
         self.a = a
+        assert b >= 0, 'b should be non-negative'
         self.b = b
+        self.func = func
     
     def __call__(self, sigmas: Tensor, t_vals: Tensor) -> Tensor:
         """
@@ -43,7 +46,7 @@ class OcclusionRegularizer():
         Returns:
             Tensor: importance weights of shape (B, N)
         """
-        match self.type:
+        match self.func:
             case 'linear':
                 weights = -self.a * t_vals + self.b
             case 'exp':
