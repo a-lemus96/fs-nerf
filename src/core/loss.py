@@ -23,19 +23,23 @@ class OcclusionRegularizer():
         self.b = b
         self.func = func
     
-    def __call__(self, sigmas: Tensor, t_vals: Tensor) -> Tensor:
+    def __call__(self, sigmas: Tensor, 
+                 t_vals: Tensor, ray_idxs: Tensor) -> Tensor:
         """
         Computes occlussion regularization term for a batch of density values
         and their corresponding depths.
         ------------------------------------------------------------------------
         Args:
-            sigmas (Tensor): density values of shape (B, N)
-            t_vals (Tensor): depth values of shape (B, N)
+            sigmas (Tensor): density values of shape (N,)
+            t_vals (Tensor): depth values of shape (N,)
+            ray_idxs (Tensor): ray indices of shape (N,)
         Returns:
-            Tensor: occlusion regularization term of shape (B)
+            Tensor: occlusion regularization term of shape (1,)
         """
-        occlusion = self._weights(t_vals) * sigmas
-        return occlusion.sum(dim=-1)
+        uniques = torch.unique_consecutive(ray_idxs)
+        occl = [torch.sum(self._weights(t_vals[ray_idxs == val]) * sigmas[ray_idxs == val])
+                for val in uniques]
+        return torch.mean(torch.stack(occl))
 
     def _weights(self, t_vals: Tensor) -> Tensor:
         """

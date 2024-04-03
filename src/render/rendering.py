@@ -105,7 +105,9 @@ def render_rays(
                 None,
         )
 
-    return output, ray_indices
+    t_vals = (t_starts + t_ends) / 2.0
+
+    return output, ray_indices, t_vals
 
 
 def render_frame(
@@ -167,7 +169,7 @@ def render_frame(
                 render_step_size=render_step_size,
                 device=device,
         )
-        (rgb, _, depth, _), _ = out 
+        (rgb, _, depth, _), *_ = out 
         img.append(rgb)
         depth_map.append(depth)
 

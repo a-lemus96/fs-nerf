@@ -248,9 +248,9 @@ def train(
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]") # set up progress bar
     iterator = iter(train_loader) # data iterator
 
-    # regularizers
+    # occlusion regularizer
     if args.beta is not None:
-        occ_reg = L.OcclusionRegularizer(args.beta, args.M)
+        occ_reg = L.OcclusionRegularizer(args.a, args.b, args.func)
 
     alpha = args.ao
     for k in pbar: # loop over the number of iterations
@@ -264,7 +264,7 @@ def train(
             rays_o, rays_d, rgb_gt = next(iterator)
 
         # render rays
-        (rgb, *_, extras), ray_indices = R.render_rays(
+        (rgb, *_, extras), ray_indices, t_vals = R.render_rays(
                 rays_o=rays_o,
                 rays_d=rays_d,
                 estimator=estimator,
@@ -281,11 +281,11 @@ def train(
         with torch.no_grad():
             psnr = -10. * torch.log10(loss).item()
 
-        '''# occlusion regularization
+        # occlusion regularization
         if args.beta is not None:
             sigmas = extras['sigmas']
             if len(sigmas) > 0:
-                loss += occ_reg(sigmas, ray_indices)'''
+                loss += occ_reg(sigmas, t_vals, ray_indices)
 
         # weight decay regularization
         if alpha is not None:
