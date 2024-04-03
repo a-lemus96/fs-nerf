@@ -3,58 +3,58 @@ import torch
 from torch import Tensor
 import torch.nn.functional as F
 
-class Regularizer:
-    """
-    Base class for regularizer.
-    ----------------------------------------------------------------------------
-    """
-    def __init__(self, weight: float = 1.0):
-        """
-        Args:
-            weight (float): weight for the regularizer
-        """
-        self.weight = weight
-
-    def __call__(self, *args, **kwargs):
-        return self.weight * self.penalty(*args, **kwargs)
-
-    @property
-    def penalty(self, *args, **kwargs):
-        raise NotImplementedError
-
-class OcclusionRegularizer(Regularizer):
+class OcclusionRegularizer():
     """
     Occlussion regularizer to penalize dense fields near the camera.
     ----------------------------------------------------------------------------
-    Reference(s):
-        [1] Yang, J., Pavone, M., Wang, Y. "FreeNeRF: Improving Few-shot Neural 
-        Rendering with Free Frequency Regularization." Proceedings of the 
-        IEEE/CVF International Conference on Computer Vision (CVPR), 2023.
     """
-    def __init__(self, weight: float = 1.0, M: int = 25):
+    def __init__(self, a: float, b: float, func: str = 'linear'):
         """
-        Args:
-            weight (float): weight for the regularizer
-            M (int): index denoting the regularization range
-        """
-        super().__init__(weight)
-        self.M = M
-
-    @property
-    def penalty(self, sigmas: Tensor, ray_indices: Tensor) -> Tensor:
-        """
-        Computes the mean density value within the regularization range for a
-        batch of rays.
+        Initializes the occlusion regularizer.
         ------------------------------------------------------------------------
         Args:
-            sigmas (Tensor): (K,) denoting the density values at query points
-        Returns:
-            Tensor: (1,) mean density value within the regularization range
+            a (float): bias of the regularizer
+            b (float): factor of the regularizer
+            func (str): type of the occlusion regularizer
         """
-        samples_per_ray = torch.bincount(ray_indices)
-        nonzero_idxs = torch.nonzero(samples_per_ray).view(-1)
-        splits = samples_per_ray[nonzero_idxs]
-        s_groups = torch.split(sigmas, splits.tolist())
-        sigmas = torch.cat([s[:min(self.M, len(s))] for s in s_groups])
+        assert a >= 0, 'a should be non-negative'
+        self.a = a
+        assert b >= 0, 'b should be non-negative'
+        self.b = b
+        self.func = func
+    
+    def __call__(self, sigmas: Tensor, 
+                 t_vals: Tensor, ray_idxs: Tensor) -> Tensor:
+        """
+        Computes occlussion regularization term for a batch of density values
+        and their corresponding depths.
+        ------------------------------------------------------------------------
+        Args:
+            sigmas (Tensor): density values of shape (N,)
+            t_vals (Tensor): depth values of shape (N,)
+            ray_idxs (Tensor): ray indices of shape (N,)
+        Returns:
+            Tensor: occlusion regularization term of shape (1,)
+        """
+        uniques = torch.unique_consecutive(ray_idxs)
+        occl = [torch.sum(self._weights(t_vals[ray_idxs == val]) * sigmas[ray_idxs == val])
+                for val in uniques]
+        return torch.mean(torch.stack(occl))
 
-        return self.weight * torch.mean(sigmas)
+    def _weights(self, t_vals: Tensor) -> Tensor:
+        """
+        Computes importance weights for occlusion regularization.
+        ------------------------------------------------------------------------
+        Args:
+            t_vals (Tensor): depth values of shape (B, N)
+        Returns:
+            Tensor: importance weights of shape (B, N)
+        """
+        match self.func:
+            case 'linear':
+                weights = -self.a * t_vals + self.b
+            case 'exp':
+                weights = self.a * torch.exp(-self.b * t_vals)
+            case _:
+                raise ValueError(f'Unknown occlusion regularizer type: {self.type}')
+        return weights

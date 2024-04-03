@@ -155,8 +155,16 @@ def config_parser() -> argparse.Namespace:
             help='Norm for penalizing model parameters'
     )
     parser.add_argument(
-            '--M', default=15, type=int,
-            help='Occlusion regularization range parameter'
+            '--a', type=int, 
+            help='Occlusion regularization hyperparameter 1'
+    )
+    parser.add_argument(
+            '--b', type=int, 
+            help='Occlusion regularization hyperparameter 2'
+    )
+    parser.add_argument(
+            '--func', choices=['linear', 'exp'], default='linear',
+            help='Occlusion regularization base function'
     )
     parser.add_argument(
             '--beta', default=None, type=float,
