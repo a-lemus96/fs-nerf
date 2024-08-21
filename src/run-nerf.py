@@ -66,6 +66,7 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
                 'log_space': args.log_space
             }
     }
+    alpha_values = [30] + [1] * (args.n_layers - 1)
     # instantiate model
     match args.model:
         case 'nerf':
@@ -82,7 +83,7 @@ def init_models(aabb: int) -> Tuple[nn.Module, OccGridEstimator]:
                     args.d_input,
                     args.d_input,
                     args.d_filter,
-                    [30., 1., 1., 1., 1., 1., 1., 1.],
+                    alpha_values,
             )
         case _:
             raise ValueError(f"Model {args.model} not supported")
