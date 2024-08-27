@@ -136,7 +136,6 @@ def validation(
     ndc = val_loader.dataset.ndc
     
     renderer.set_chunksize(2*args.batch_size)
-    pdb.set_trace()
     rgbs, _ = renderer.render_poses(hwf,
                                     poses,
                                     model,
@@ -369,6 +368,7 @@ def main():
                  'ndc': True}),
     }
     dataset_name, dataset_kwargs = dataset_dict[args.dataset]
+    pdb.set_trace()
     train_set = dataset_name(
             args.scene,
             'train',

@@ -33,16 +33,16 @@ def save_origins_and_dirs(poses):
 
 # RAY HELPERS
 def get_rays(
-        pose: Tensor,
+        poses: Tensor,
         hwf: Tuple[int, int, float],
         device: torch.device = torch.device('cpu'),
 ) -> Tuple[Tensor, Tensor]:
     """
-    Computes ray origins and directions in world coordinates for a given camera 
-    pose.
+    Computes ray origins and directions in world coordinates for a batch of cam-
+    era poses.
     ----------------------------------------------------------------------------
     Args:
-        pose: [4, 4]. Camera pose matrix.
+        poses: [4, 4]. Camera poses.
         hwf: [3]. Height, width, focal length.
         device: Device to use for computation.
     Returns:
@@ -51,7 +51,7 @@ def get_rays(
     ----------------------------------------------------------------------------
     """
     H, W, focal = hwf # unpack intrinsics
-    pose = pose.to(device)
+    poses = poses.to(device)
     # create grid of coordinates
     i, j = torch.meshgrid(
             torch.arange(W, dtype=torch.float32),

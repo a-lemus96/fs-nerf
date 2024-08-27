@@ -31,7 +31,6 @@ class Renderer:
             - **kwargs: Dict. Additional arguments for the estimator.
         ------------------------------------------------------------------------
         """
-        # unpack kwargs
         self.tn = near
         self.tf = far
         self.chunksize = chunksize
@@ -82,7 +81,8 @@ class Renderer:
 
         # perform grid sampling
         ray_idxs, t_starts, t_ends = self.estimator.sampling(
-                rays_o, rays_d,
+                rays_o, 
+                rays_d,
                 _sigma_fn,
                 t_min=self.tn,
                 t_max=self.tf,
@@ -90,7 +90,7 @@ class Renderer:
                 stratified=self.training,
         )
 
-        # query local rgb and density
+        # query local rgb and density values
         def _rgb_sigma_fn(t_starts, t_ends, ray_idxs):
             to = rays_o[ray_idxs]
             td = rays_d[ray_idxs]
@@ -102,8 +102,14 @@ class Renderer:
             return rgbs, sigmas.squeeze(-1)
 
         # perform volume rendering
-        data = rendering(t_starts, t_ends, ray_idxs, n_rays=len(rays_o),
-                rgb_sigma_fn=_rgb_sigma_fn, render_bkgd=self.bkgd)
+        data = rendering(
+                t_starts, 
+                t_ends, 
+                ray_idxs, 
+                n_rays=len(rays_o),
+                rgb_sigma_fn=_rgb_sigma_fn, 
+                render_bkgd=self.bkgd
+        )
         
         return data
         
@@ -120,10 +126,10 @@ class Renderer:
         ------------------------------------------------------------------------
         Args:
             - intrinsics: (W, H, focal).
-            - poses: (..., 4, 4). Poses.
+            - poses: (..., 4, 4). Camera poses.
             - model: Radiance field.
-            - ndc: Whether to use normalized device coordinates.
-            - device: Device to run on.
+            - ndc: Enable normalized device coordinates.
+            - device: Device to use.
         Returns:
             - rgb_maps: (..., H, W, 3). Rendered images.
             - depth_maps: (..., H, W). Depth maps.
@@ -134,6 +140,7 @@ class Renderer:
         if ndc:
             # convert rays to normalized device coordinates
             rays_o, rays_d = utils.to_ndc(rays_o, rays_d, 1., [H, W, focal])
+
         # flatten rays
         rays_o = rays_o.reshape(-1, 3)
         rays_d = rays_d.reshape(-1, 3)
