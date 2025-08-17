@@ -449,41 +449,20 @@ def main():
             shuffle=True,
             num_workers=8
     )
-    # log interactive 3D plot of camera positions
-    fig = go.Figure(
-            data=[go.Scatter3d(
-                x=train_set.poses[:, 0, 3],
-                y=train_set.poses[:, 1, 3],
-                z=train_set.poses[:, 2, 3],
-                mode='markers',
-                marker=dict(size=7, opacity=0.8, color='red'),
-            )],
-            layout=go.Layout(
-                margin=dict(l=20,r=20, t=20, b=20),
-            )
-    )
-    # set fixed axis scales
-    t = 1 if args.dataset == 'llff' else 5
-    factor = 1 if args.dataset == 'llff' else 0
-    fig.update_layout(
-        scene=dict(
-            xaxis=dict(range=[-t, t]),
-            yaxis=dict(range=[-t, t]),
-            zaxis=dict(range=[-t*factor, t]),
-            xaxis_title='X',
-            yaxis_title='Y',
-            zaxis_title='Z'
-        )
-    )
 
     if not args.debug:
-        wandb.log({
-            'camera_positions': fig,
-            'rgb_gt': wandb.Image(
-                train_set.testimg.numpy(),
-                caption='Ground Truth RGB'
-            )
-        })
+        # Interactive 3d plot of camera poses
+        poses_plot = PL.CameraPosesPlot()
+        poses_plot.set_poses(train_set.poses)
+        poses_plot.configure_pose_markers(size=7, opacity=0.8, color="red")
+        poses_plot.set_axes_margins(left=20, right=20, top=20, bottom=20)
+        # set fixed axis scales
+        t = 1 if args.dataset == 'llff' else 5
+        factor = 1 if args.dataset == 'llff' else 0
+        poses_plot.set_axes_ranges(
+            xrange=[-t, t], yrange=[-t,t], zrange=[-t*factor,t]
+        )
+        poses_plot.upload_plot()
 
     if not args.render_only:
         # initialize modules
