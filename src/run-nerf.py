@@ -1,6 +1,7 @@
 # stdlib imports
-from datetime import date
+from datetime import date, datetime, timedelta
 import logging
+import socket
 import os
 import random
 from typing import List, Tuple, Union, Optional
@@ -35,6 +36,7 @@ import utils.utilities as U
 
 # GLOBAL VARIABLES
 k = 0 # global step counter
+MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000 # memory snapshot
 
 # RANDOM SEED
 seed = 42
@@ -43,6 +45,51 @@ np.random.seed(seed)
 random.seed(seed)
 
 args = P.config_parser() # parse command line arguments
+
+logging.basicConfig(
+   format="%(levelname)s:%(asctime)s %(message)s",
+   level=logging.INFO,
+   datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(level=logging.INFO)
+
+TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
+
+# MEMORY SNAPSHOT
+def start_record_memory_history() -> None:
+    if not torch.cuda.is_available():
+        logger.info("CUDA unavailable. Not recording memory history")
+        return
+
+    logger.info("Starting snapshot record_memory_history")
+    torch.cuda.memory._record_memory_history(
+        max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT
+    )
+
+def stop_record_memory_history() -> None:
+    if not torch.cuda.is_available():
+        logger.info("CUDA unavailable. Not recording memory history")
+        return
+    logger.info("Stopping snapshot record_memory_history")
+    torch.cuda.memory._record_memory_history(enabled=None)
+
+def export_memory_snapshot() -> None:
+    if not torch.cuda.is_available():
+        logger.info("CUDA unavailable. Not exporting memory snapshot")
+        return
+
+    # Prefix for file names.
+    host_name = socket.gethostname()
+    timestamp = datetime.now().strftime(TIME_FORMAT_STR)
+    file_prefix = f"{host_name}_{timestamp}"
+
+    try:
+        logger.info(f"Saving snapshot to local file: {file_prefix}.pickle")
+        torch.cuda.memory._dump_snapshot(f"{file_prefix}.pickle")
+    except Exception as e:
+        logger.error(f"Failed to capture memory snapshot {e}")
+    return
 
 # MODEL INITIALIZATION
 
@@ -311,15 +358,15 @@ def train(
 
         # define occupancy evaluation function
         def occ_eval_fn(x):
-            density = model(x)
-            return density * render_step_size
+            return model(x) * render_step_size
 
         # update occupancy grid
-        estimator.update_every_n_steps(
-                step=k,
-                occ_eval_fn=occ_eval_fn,
-                occ_thre=1e-2
-        )
+        with torch.cuda.amp.autocast():
+            estimator.update_every_n_steps(
+                    step=k,
+                    occ_eval_fn=occ_eval_fn,
+                    occ_thre=1e-2
+            )
 
         # log metrics
         if not args.debug and k % args.val_rate != 0:
@@ -465,6 +512,8 @@ def main():
         poses_plot.upload_plot()
 
     if not args.render_only:
+        # Start recording memory snapshot history
+        #start_record_memory_history()
         # initialize modules
         model, estimator, lpips_net = init_models(train_set.aabb)
         model.to(device)
@@ -479,6 +528,11 @@ def main():
                 val_loader,
                 device=device
         )
+        # Create the memory snapshot file
+        #export_memory_snapshot()
+
+        # Stop recording memory snapshot history
+        #stop_record_memory_history()
         # final validation set and loader
         val_set = dataset_name(
                 args.scene,
