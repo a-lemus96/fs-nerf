@@ -29,6 +29,7 @@ import core.models as M
 import core.loss as L
 import core.scheduler as S
 import data.dataset as D
+from data.dataset_splitter import DatasetSplitter
 import render.rendering as R
 import utils.parser as P
 import utils.plotting as PL
@@ -438,75 +439,70 @@ def train(
 def main():
     # select device
     device = torch.device(f'cuda' if torch.cuda.is_available() else 'cpu')
-
-    # print device info or abort if no CUDA device available
     print(f"Device: {torch.cuda.get_device_name(device)}")
 
     if not args.debug:
         wandb.login()
         # set up wandb run to track training
-        name = f"{args.model}"
-        name = name + f"-{args.reg}" if args.ao is not None else name
-        name = name + f"-ao={args.ao:.2e}" if args.ao is not None else name
+        name = f"{args.model}_{args.dataset}_img{args.n_imgs}_layer{args.n_layers}"
         run = wandb.init(
             project='fs-nerf',
             name=name,
             config=args
         )
 
-    # training/validation datasets
-    dataset_dict = {
+    # set up dataset configuration
+    dataset_config = {
             'synthetic': 
                 (D.SyntheticRealistic, 
                 {'white_bkgd': args.white_bkgd}),
             'llff': 
                 (D.LLFF, 
-                {'factor': args.factor, 
-                 'bd_factor': args.bd_factor, 
-                 'recenter': not args.no_recenter, 
+                {'white_bkgd': args.white_bkgd,
                  'ndc': True}),
     }
-    dataset_name, dataset_kwargs = dataset_dict[args.dataset]
-    train_set = dataset_name(
-            args.scene,
-            'train',
-            n_imgs=args.n_imgs,
-            img_mode=False,
-            **dataset_kwargs
-    )
-    nval_imgs = 25 if args.dataset == 'synthetic' else 8
-    subset_size = int(args.val_ratio * nval_imgs) # % of val samples
-    val_set = dataset_name(
-            args.scene,
-            'val',
-            n_imgs=subset_size,
-            img_mode=True,
-            **dataset_kwargs
-    )
-    # data loader(s)
-    train_loader = DataLoader(
-            train_set,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=8
-    )
-    val_loader = DataLoader(
-            val_set,
-            batch_size=1,
-            shuffle=True,
-            num_workers=8
-    )
+    dataset_name, dataset_kwargs = dataset_config[args.dataset]
+    
+    # get training, validation and test dataloaders
+    splitter = DatasetSplitter(args.dataset, args.scene, n_training_views=args.n_imgs)
+    splitter.split()
+    dataloaders = splitter.get_dataloaders(train_batch_size=args.batch_size, train_img_mode=False, **dataset_kwargs)
+    train_loader, val_loader, test_loader = dataloaders
+
     # log interactive 3D plot of camera positions
     fig = go.Figure(
             data=[go.Scatter3d(
-                x=train_set.poses[:, 0, 3],
-                y=train_set.poses[:, 1, 3],
-                z=train_set.poses[:, 2, 3],
+                x=splitter.poses[splitter.train_ids, 0, 3],
+                y=splitter.poses[splitter.train_ids, 1, 3],
+                z=splitter.poses[splitter.train_ids, 2, 3],
+                mode='markers',
+                marker=dict(size=7, opacity=0.8, color='black'),
+                name='train'
+            ),
+            go.Scatter3d(
+                x=splitter.poses[splitter.val_ids, 0, 3],
+                y=splitter.poses[splitter.val_ids, 1, 3],
+                z=splitter.poses[splitter.val_ids, 2, 3],
                 mode='markers',
                 marker=dict(size=7, opacity=0.8, color='red'),
+                name='val'
+            ),
+            go.Scatter3d(
+                x=splitter.poses[test_ids, 0, 3],
+                y=splitter.poses[test_ids, 1, 3],
+                z=splitter.poses[test_ids, 2, 3],
+                mode='markers',
+                marker=dict(size=7, opacity=0.8, color='blue'),
+                name='test'
             )],
             layout=go.Layout(
                 margin=dict(l=20,r=20, t=20, b=20),
+                legend=dict(
+                    x=0.05,  # X-coordinate of the legend anchor
+                    y=0.95,  # Y-coordinate of the legend anchor
+                    xanchor='left', # Anchor the left side of the legend to x
+                    yanchor='top'   # Anchor the top side of the legend to y
+                )
             )
     )
     # set fixed axis scales
@@ -524,13 +520,7 @@ def main():
     )
 
     if not args.debug:
-        wandb.log({
-            'camera_positions': fig,
-            'rgb_gt': wandb.Image(
-                train_set.testimg.numpy(),
-                caption='Ground Truth RGB'
-            )
-        })
+        wandb.log({'camera_positions': fig})
 
     if not args.render_only:
         # Start recording memory snapshot history
@@ -555,19 +545,6 @@ def main():
         # Stop recording memory snapshot history
         #stop_record_memory_history()
         # final validation set and loader
-        val_set = dataset_name(
-                args.scene,
-                'val',
-                n_imgs=nval_imgs,
-                img_mode=True,
-                **dataset_kwargs
-        )
-        val_loader = DataLoader(
-                val_set,
-                batch_size=1,
-                shuffle=True,
-                num_workers=8
-        )
         # compute final validation metrics
         model.eval()
         estimator.eval()

@@ -114,7 +114,7 @@ class SyntheticRealistic(Dataset):
 
         # apply K-means to draw N views and ensure maximum scene coverage
         x = poses[:, :3, 3]
-        x = x[x[:, -1] > 0] # remove poses with negative z-coordinates
+        x = x[x[:, -1, -1] > 0] # remove poses with negative z-coordinates
         kmeans = KMeans(n_clusters=n_imgs,  n_init=10).fit(x) # kmeans model
         labels = kmeans.labels_
         # compute distances to cluster centers
@@ -278,212 +278,33 @@ class SyntheticRealistic(Dataset):
 
 class LLFF(Dataset):
     """
-    Local Light Field Fusion dataset.
+    Represents an instance of a Local Light Field Fusion dataset.
     ----------------------------------------------------------------------------
     """
-    @staticmethod
-    def __normalize(v: Tensor) -> Tensor:
-        """
-        Normalizes a vector.
-        ------------------------------------------------------------------------
-        Args:
-            v (Tensor): [N,]. Vector
-        Returns:
-            v (Tensor): [N,]. Normalized vector
-        """
-        return v / np.linalg.norm(v)
-
-    @staticmethod
-    def __viewmatrix(z: ndarray, up: ndarray, pos: ndarray) -> ndarray:
-        """
-        Computes the view matrix.
-        ------------------------------------------------------------------------
-        Args:
-            z (ndarray): [3,]. View direction
-            up (ndarray): [3,]. Up direction
-            pos (ndarray): [3,]. Camera position
-        Returns:
-            view (ndarray): [3, 4]. View matrix without bottom row
-        """
-        z = LLFF.__normalize(z)
-        y = up
-        x = LLFF.__normalize(np.cross(y, z))
-        y = LLFF.__normalize(np.cross(z, x))
-        matrix = np.stack([x, y, z, pos], axis=1)
-
-        return matrix
-
-    @staticmethod
-    def __avg_pose(poses: ndarray) -> ndarray:
-        """
-        Computes camera to world matrix.
-        ------------------------------------------------------------------------
-        Args:
-            poses (Tensor): [N, 3, 5]. Camera poses
-        Returns:
-            c2w (Tensor): [N, 3, 5]. Camera to world matrix
-        """
-        hwf = poses[0, :3, -1:]
-        center = poses[:, :3, 3].mean(0)
-        viewdir = LLFF.__normalize(poses[:, :3, 2].sum(0))
-        up = poses[:, :3, 1].sum(0)
-        c2w = np.concatenate([LLFF.__viewmatrix(viewdir, up, center), hwf], 1)
-
-        return c2w
-
-    @staticmethod
-    def __recenter_poses(poses: ndarray) -> ndarray:
-        """
-        Re-centers camera poses.
-        ------------------------------------------------------------------------
-        Args:
-            poses (Tensor): [N, 3, 5]. Camera poses
-        Returns:
-            poses (Tensor): [N, 3, 5]. Re-centered camera poses
-        """
-        poses_ = poses.copy()
-        bottom = np.reshape([0, 0, 0, 1.], [1, 4]) # last row of camera matrix
-        c2w = LLFF.__avg_pose(poses) # average pose
-        c2w = np.concatenate([c2w[:3, :4], bottom], axis=-2) # center to world
-        bottom = np.tile(np.reshape(bottom, [1, 1, 4]), [poses.shape[0], 1, 1])
-        poses = np.concatenate([poses[:, :3, :4], bottom], -2) # camera to world
-        
-        poses = np.linalg.inv(c2w) @ poses
-        poses_[:, :3, :4] = poses[:, :3, :4]
-        poses = poses_
-
-        return poses
-
-    @staticmethod
-    def __load(
-            basedir,
-            factor
-    ) -> Tuple[ndarray, ndarray, ndarray, ndarray]:
-        """
-        Loads the dataset. It loads images, camera poses, camera bounds and 
-        intrinsics.
-        ------------------------------------------------------------------------
-        Args:
-            basedir (str): base directory
-            factor (int): resize factor
-        Returns:
-            imgs (ndarray): [N, H, W, 3]. RGB images
-            poses (ndarray): [N, 4, 4]. Camera poses
-            bds (ndarray): [N, 2]. Camera bounds
-            hwf (ndarray): [3,]. Camera intrinsics. Contains height, width and
-                          focal length
-        """
-        # load camera poses and bounds
-        data = np.load(os.path.join(basedir, 'poses_bounds.npy'))
-        poses = data[:, :-2].reshape([-1, 3, 5]).transpose([1, 2, 0])
-        bounds = data[:, -2:].transpose([1, 0])
-
-        # search for downsampled images
-        suffix = '' # path suffix
-        if factor > 1:
-            suffix = f'_{factor}'
-        img_dir = os.path.join(basedir, 'images' + suffix)
-        assert os.path.exists(img_dir), f"Images path '{img_dir}' does not exist"
-
-        # load images
-        paths = [os.path.join(img_dir, f)
-                 for f in sorted(os.listdir(img_dir))
-                 if f.endswith(('JPG', 'jpg', 'png'))]
-        assert len(paths) == poses.shape[-1], \
-                'Mismath between the number of images and poses'
-        imgs = np.stack([iio.imread(p)[..., :3] / 255. for p in paths], axis=0)
-
-        # modify camera poses
-        H, W, _ = iio.imread(paths[0]).shape
-        poses[:2, 4, :] = np.array([H, W]).reshape([2, 1])
-        poses[2, 4, :] = poses[2, 4, :] * 1. / factor
-        # correct poses ordering
-        poses = np.concatenate(
-                [poses[:, 1:2, :], -poses[:, 0:1, :], poses[:, 2:, :]],
-                axis=1
-        )
-        poses = np.moveaxis(poses, -1, 0).astype(np.float32)
-        bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
-        
-        return imgs, poses, bounds
-
     def __init__(
             self,
-            scene: str,
-            split: str,
-            n_imgs: int,
+            imgs: np.array,
+            poses: np.array,
+            hwf: Tuple[int, int, float],
             white_bkgd: bool = False,
             img_mode: bool = False,
-            factor: int = 4,
-            bd_factor: float = 0.75,
-            recenter: bool = True,
             ndc: bool = True,
     ) -> None:
         """
-        Initialize dataset.
+        Initializes the dataset.
         ------------------------------------------------------------------------
         Args:
-            scene (str): scene name
-            n_imgs (int): number of images
-            split (str): split name train/val/test
-            white_bkgd (bool): if True, it uses white background
-            img_mode (bool): if True, it returns images instead of rays
-            factor (int): resize factor
-            bd_factor (float): bounding box factor
-            recenter (bool): if True, it re-centers the poses
-            ndc (bool): if True, use normalized device coordinates
+            To be updated...
         """
         super(LLFF, self).__init__()
-        self.ndc = ndc
+        self.imgs = torch.tensor(imgs, dtype=torch.float32)
+        self.poses = torch.tensor(poses, dtype=torch.float32)
+        self.hwf = hwf
+        self.white_bkgd = white_bkgd
         self.img_mode = img_mode
-        basedir = os.path.join('..', 'datasets', 'llff', scene)
-        imgs, poses, bounds = LLFF.__load(basedir, factor)
+        self.ndc = ndc
 
-        # rescale bounds and poses
-        scale = 1. if bd_factor is None else 1. / (bounds.min() * bd_factor)
-        poses[..., :3, 3] *= scale
-        bounds *= scale
-
-        if recenter:
-            poses = LLFF.__recenter_poses(poses)
-
-        c2w = LLFF.__avg_pose(poses)
-        path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
-        path_poses = np.stack(path_poses, 0) # cast to numpy array
-        path_poses = path_poses[:, :3, :4]
-
-        hwf = poses[0, :3, -1]
-        self.hwf = (int(hwf[0]), int(hwf[1]), float(hwf[2]))
-        poses = poses[:, :3, :4]
-
-        # apply K-means to draw N views and ensure maximum scene coverage
-        assert n_imgs <= poses.shape[0], "Number of images {n_imgs} exceeds" + \
-                                         "the number of poses {poses.shape[0]}"
-        x = poses[:, :3, 3]
-        kmeans = KMeans(n_clusters=n_imgs,  n_init=10).fit(x) # kmeans model
-        labels = kmeans.labels_
-        # compute distances to cluster centers
-        dists = np.linalg.norm(x - kmeans.cluster_centers_[labels], axis=1)
-        # choose the closest view for every cluster center
-        idxs = np.empty((n_imgs,), dtype=int) # array for indices of views
-        for i in range(n_imgs):
-            cluster_dists = np.where(labels == i, dists, np.inf)
-            idxs[i] = np.argmin(cluster_dists)
-
-        # choose random index for visual comparisons
-        idx = np.random.randint(0, imgs.shape[0])
-        testimg = imgs[idx]
-        testpose = poses[idx]
-
-        # to tensors
-        self.imgs = torch.tensor(imgs[idxs], dtype=torch.float32)
-        self.poses = torch.tensor(poses[idxs], dtype=torch.float32)
-        path_poses = torch.tensor(path_poses, dtype=torch.float32)
-        self.path_poses = path_poses[:, :3, :4]
-        self.testimg = torch.tensor(testimg, dtype=torch.float32)
-        self.testpose = torch.tensor(testpose, dtype=torch.float32)
-
-        # define bounds
+        # Define the ray bounds
         if not ndc:
             self.near = bounds.min() * .9
             self.far = bounds.max() * 1.
@@ -491,12 +312,11 @@ class LLFF(Dataset):
             self.near = 0.
             self.far = 1.
 
-        # define rays
+        # Build ray-rgb g.t. samples
         if not self.img_mode:
-            # split images into individual per-ray samples
-            self.__build_data()
+            self.__build_samples()
 
-    def __build_data(self) -> None:
+    def __build_samples(self) -> None:
         """
         Builds rays and samples.
         ------------------------------------------------------------------------
