@@ -25,7 +25,7 @@ from nerfdata.datasets import llff, blender
 from nerfdata.utils.splitter import Splitter
 import render.rendering as R
 import utils.parser as P
-import utils.plotting as PL
+from utils.camera3dplotter import Camera3DPlotter
 
 # GLOBAL VARIABLES
 k = 0  # global step counter
@@ -427,60 +427,9 @@ def main():
     )
     train_loader, val_loader, test_loader = dataloaders
 
-    # log interactive 3D plot of camera positions
-    fig = go.Figure(
-        data=[
-            go.Scatter3d(
-                x=splitter.poses[splitter.train_ids, 0, 3],
-                y=splitter.poses[splitter.train_ids, 1, 3],
-                z=splitter.poses[splitter.train_ids, 2, 3],
-                mode="markers",
-                marker=dict(size=7, opacity=0.8, color="black"),
-                name="train",
-            ),
-            go.Scatter3d(
-                x=splitter.poses[splitter.val_ids, 0, 3],
-                y=splitter.poses[splitter.val_ids, 1, 3],
-                z=splitter.poses[splitter.val_ids, 2, 3],
-                mode="markers",
-                marker=dict(size=7, opacity=0.8, color="red"),
-                name="val",
-            ),
-            go.Scatter3d(
-                x=splitter.poses[splitter.test_ids, 0, 3],
-                y=splitter.poses[splitter.test_ids, 1, 3],
-                z=splitter.poses[splitter.test_ids, 2, 3],
-                mode="markers",
-                marker=dict(size=7, opacity=0.8, color="blue"),
-                name="test",
-            ),
-        ],
-        layout=go.Layout(
-            margin=dict(l=20, r=20, t=20, b=20),
-            legend=dict(
-                x=0.05,  # X-coordinate of the legend anchor
-                y=0.95,  # Y-coordinate of the legend anchor
-                xanchor="left",  # Anchor the left side of the legend to x
-                yanchor="top",  # Anchor the top side of the legend to y
-            ),
-        ),
-    )
-    # set fixed axis scales
-    t = 1 if args.dataset == "llff" else 5
-    factor = 1 if args.dataset == "llff" else 0
-    fig.update_layout(
-        scene=dict(
-            xaxis=dict(range=[-t, t]),
-            yaxis=dict(range=[-t, t]),
-            zaxis=dict(range=[-t * factor, t]),
-            xaxis_title="X",
-            yaxis_title="Y",
-            zaxis_title="Z",
-        )
-    )
-
     if not args.debug:
-        wandb.log({"camera_positions": fig})
+        cam_plotter = create_camera_plotter(dataloaders)
+        cam_plotter.upload_plot()
 
     if not args.render_only:
         # Start recording memory snapshot history
@@ -578,6 +527,29 @@ def main():
                 "depth_video": wandb.Video(f"{out_dir}/video/depth.mp4", fps=30),
             }
         )
+
+
+def create_camera_plotter(
+    dataloaders: Tuple[DataLoader, DataLoader, DataLoader],
+) -> Camera3DPlotter:
+    train_loader, val_loader, test_loader = dataloaders
+    cam_plotter = Camera3DPlotter()
+
+    cam_plotter.set_poses(train_loader.dataset.poses, "train")
+    cam_plotter.set_poses(val_loader.dataset.poses, "val")
+    cam_plotter.set_poses(test_loader.dataset.poses, "test")
+
+    cam_plotter.configure_pose_markers("train", size=7, opacity=0.8, color="black")
+    cam_plotter.configure_pose_markers("val", size=7, opacity=0.8, color="red")
+    cam_plotter.configure_pose_markers("test", size=7, opacity=0.8, color="blue")
+
+    cam_plotter.set_axes_margins(left=20, right=20, top=20, bottom=20)
+    # set fixed axis scales
+    t = 1 if args.dataset == "llff" else 5
+    factor = 1 if args.dataset == "llff" else 0
+    cam_plotter.set_axes_ranges(xrange=[-t, t], yrange=[-t, t], zrange=[-t * factor, t])
+
+    return cam_plotter
 
 
 if __name__ == "__main__":
