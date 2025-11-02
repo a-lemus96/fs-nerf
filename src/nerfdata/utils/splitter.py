@@ -48,8 +48,8 @@ class Splitter:
         available_idxs = np.arange(len(self.poses))
         n_test_samples = int(self.test_ratio * len(self.poses))
         self.test_ids, available_idxs = self._select_pose_based(
-            available_idxs, n_test_samples
-        )
+            available_idxs, n_test_samples)
+    
         n_val_samples = int(self.val_ratio * len(self.poses))
         self.val_ids, available_idxs = self._select_pose_based(
             available_idxs, n_val_samples
@@ -179,11 +179,12 @@ class Splitter:
         assert os.path.isdir(
             imgs_folder_path
         ), f"Images folder path {os.path.abspath(imgs_folder_path)} not found."
-        self.img_paths = [
+        img_paths = [
             os.path.abspath(os.path.join(imgs_folder_path, f))
             for f in sorted(os.listdir(imgs_folder_path))
             if f.endswith(("JPG", "jpg", "png"))
         ]
+        self.img_paths = np.array(img_paths)
         assert (
             len(self.img_paths) == poses.shape[-1]
         ), "Mismath between the number of images and poses"
