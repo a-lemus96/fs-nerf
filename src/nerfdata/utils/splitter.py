@@ -72,27 +72,27 @@ class Splitter:
         # Get image files
         test_poses = self.poses[self.test_ids]
         test_img_paths = self.img_paths[self.test_ids]
-        test_imgs = self._load_files(test_img_paths)
+        test_imgs = self._load_img_files(test_img_paths)
 
         val_poses = self.poses[self.val_ids]
         val_img_paths = self.img_paths[self.val_ids]
-        val_imgs = self._load_files(val_img_paths)
+        val_imgs = self._load_img_files(val_img_paths)
 
         train_poses = self.poses[self.train_ids]
         train_img_paths = self.img_paths[self.train_ids]
-        train_imgs = self._load_files(train_img_paths)
+        train_imgs = self._load_img_files(train_img_paths)
 
         # Instantiate datasets
         white_bkgd = kwargs.get("white_bkgd", False)
         ndc = kwargs.get("ndc", True)
         test_dataset = llff.LLFFDataset(
-            test_imgs, test_poses, self.hwf, white_bkgd, True, ndc
+            test_imgs, test_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, True, ndc
         )
         val_dataset = llff.LLFFDataset(
-            val_imgs, val_poses, self.hwf, white_bkgd, True, ndc
+            val_imgs, val_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, True, ndc
         )
         train_dataset = llff.LLFFDataset(
-            train_imgs, train_poses, self.hwf, white_bkgd, train_img_mode, ndc
+            train_imgs, train_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, train_img_mode, ndc
         )
 
         return train_dataset, val_dataset, test_dataset
@@ -304,8 +304,12 @@ class Splitter:
         self.min_bound = poses.min()
         self.max_bound = poses.max()
 
-    def _load_files(self, img_paths):
-        pass
+    def _load_img_files(self, img_paths):
+        imgs = []
+        for path in img_paths:
+            imgs.append(iio.imread(path))
+
+        return np.array(imgs)
 
     def _validate_ratios(self):
         pass

@@ -252,7 +252,6 @@ def train(
     # retrieve camera intrinsics
     hwf = train_loader.dataset.hwf
     H, W, focal = hwf
-    testpose = train_loader.dataset.testpose
     ndc = train_loader.dataset.ndc
 
     # set up optimizer and scheduler
@@ -487,7 +486,7 @@ def main():
         # Start recording memory snapshot history
         # start_record_memory_history()
         # initialize modules
-        model, estimator, lpips_net = init_models(train_loader.train_set.aabb)
+        model, estimator, lpips_net = init_models(train_loader.dataset.aabb)
         model.to(device)
         estimator.to(device)
         # lpips_net.to(device)
@@ -505,7 +504,7 @@ def main():
         lpips_net.eval()
         with torch.no_grad():
             val_metrics = validation(
-                train_loader.train_set.hwf,
+                train_loader.dataset.hwf,
                 model,
                 estimator,
                 lpips_net,
@@ -550,7 +549,7 @@ def main():
             torch.save(model.state_dict(), out_dir + "/model/nn.pt")
 
     # compute path poses for video output
-    path_poses = train_loader.train_set.path_poses
+    path_poses = train_loader.dataset.path_poses
 
     # render frames for poses
     model.eval()
@@ -563,7 +562,7 @@ def main():
         2 * args.batch_size,
         model,
         estimator,
-        ndc=train_loader.train_set.ndc,
+        ndc=train_loader.dataset.ndc,
         white_bkgd=args.white_bkgd,
         device=device,
     )
