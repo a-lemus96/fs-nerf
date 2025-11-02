@@ -21,7 +21,7 @@ import wandb
 import core.models as M
 import core.loss as L
 import core.scheduler as S
-import nerfdata.datasets.dataset as D
+from nerfdata.datasets import llff, blender
 from nerfdata.utils.splitter import Splitter
 import render.rendering as R
 import utils.parser as P
@@ -415,8 +415,8 @@ def main():
 
     # set up dataset configuration
     dataset_config = {
-        "synthetic": (D.SyntheticRealistic, {"white_bkgd": args.white_bkgd}),
-        "llff": (D.LLFF, {"white_bkgd": args.white_bkgd, "ndc": True}),
+        "synthetic": (blender.BlenderDataset, {"white_bkgd": args.white_bkgd}),
+        "llff": (llff.LLFFDataset, {"white_bkgd": args.white_bkgd, "ndc": True}),
     }
     dataset_name, dataset_kwargs = dataset_config[args.dataset]
 
