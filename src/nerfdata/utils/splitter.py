@@ -328,11 +328,9 @@ class Splitter:
         self.max_bound = poses.max()
 
     def _load_img_files(self, img_paths):
-        imgs = []
-        for path in img_paths:
-            imgs.append(iio.imread(path))
+        imgs = np.stack([iio.imread(p)[..., :3] / 255.0 for p in img_paths], axis=0)
 
-        return np.array(imgs)
+        return imgs
 
     def _validate_ratios(self):
         pass

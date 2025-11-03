@@ -212,11 +212,6 @@ def train(
         Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
     ----------------------------------------------------------------------------
     """
-    # retrieve camera intrinsics
-    hwf = train_loader.dataset.hwf
-    H, W, focal = hwf
-    ndc = train_loader.dataset.ndc
-
     # set up optimizer and scheduler
     params = list(model.parameters())
     optimizer = torch.optim.Adam(params, lr=args.lro)
