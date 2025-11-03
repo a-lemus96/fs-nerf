@@ -49,41 +49,6 @@ logger.setLevel(level=logging.INFO)
 
 TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
 
-# MEMORY SNAPSHOT
-""" def start_record_memory_history() -> None:
-    if not torch.cuda.is_available():
-        logger.info("CUDA unavailable. Not recording memory history")
-        return
-
-    logger.info("Starting snapshot record_memory_history")
-    torch.cuda.memory._record_memory_history(
-        max_entries=MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT
-    )
-
-def stop_record_memory_history() -> None:
-    if not torch.cuda.is_available():
-        logger.info("CUDA unavailable. Not recording memory history")
-        return
-    logger.info("Stopping snapshot record_memory_history")
-    torch.cuda.memory._record_memory_history(enabled=None)
-
-def export_memory_snapshot() -> None:
-    if not torch.cuda.is_available():
-        logger.info("CUDA unavailable. Not exporting memory snapshot")
-        return
-
-    # Prefix for file names.
-    host_name = socket.gethostname()
-    timestamp = datetime.now().strftime(TIME_FORMAT_STR)
-    file_prefix = f"{host_name}_{timestamp}"
-
-    try:
-        logger.info(f"Saving snapshot to local file: {file_prefix}.pickle")
-        torch.cuda.memory._dump_snapshot(f"{file_prefix}.pickle")
-    except Exception as e:
-        logger.error(f"Failed to capture memory snapshot {e}")
-    return """
-
 # MODEL INITIALIZATION
 
 
@@ -140,43 +105,42 @@ def init_models(aabb: List[int]) -> Tuple[nn.Module, OccGridEstimator, LPIPS]:
 # TRAINING FUNCTIONS
 
 
-def validation(
+def evaluation(
     hwf: Tuple[int, int, float],
     model: nn.Module,
     estimator: OccGridEstimator,
     lpips_net: LPIPS,
-    val_loader: DataLoader,
+    data_loader: DataLoader,
     chunksize: int,
     device: torch.device,
     render_step_size: float = 5e-3,
 ) -> Tuple[float, float, float]:
     """
-    Performs validation step for NeRF-like model.
+    Performs evaluation for NeRF-like model.
     ----------------------------------------------------------------------------
     Args:
         model (nn.Module): NeRF-like model
         estimator (OccGridEstimator): occupancy grid estimator
         lpips_net (LPIPS): LPIPS network
-        val_loader (DataLoader): data loader
+        data_loader (DataLoader): data loader
         chunksize (int): size of chunks for rendering frames
         device (torch.device): device to be used
         render_step_size (float, optional): step size for rendering
     Returns:
-        val_psnr (float): validation PSNR
-        val_ssim (float): validation SSIM
-        val_lpips (float): validation LPIPS
+        psnr (float): evalaution PSNR
+        sim (float): evalaution SSIM
+        lpips (float): evalaution LPIPS
     """
-    H, W, focal = hwf
-    ndc = val_loader.dataset.ndc
+    ndc = data_loader.dataset.ndc
     rgbs = []
     rgbs_gt = []
-    for val_data in val_loader:
+    for val_data in data_loader:
         rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt)  # append ground truth rgb
         rgb, _ = R.render_frame(
             hwf,
-            val_loader.dataset.near,
-            val_loader.dataset.far,
+            data_loader.dataset.near,
+            data_loader.dataset.far,
             pose[0],
             chunksize,
             estimator,
@@ -194,22 +158,23 @@ def validation(
     rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
     rgbs_gt = rgbs_gt.to(device)
     val_psnr = -10.0 * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-    val_size = len(val_loader)
+    val_size = len(data_loader)
 
     # compute LPIPS
-    """if val_size < 25:
+    if val_size < 25:
         val_lpips = lpips_net(rgbs, rgbs_gt).mean()
     else:
         # compute LPIPS in chunks
         n_chunks = 5
-        chunk_size = val_size //  n_chunks
+        chunk_size = val_size // n_chunks
         chunk_idxs = [i for i in range(0, val_size, chunk_size)]
-        chunks = [(rgbs[i:i+chunk_size], rgbs_gt[i:i+chunk_size]) 
-                  for i in chunk_idxs]
-        val_lpips = 0.
+        chunks = [
+            (rgbs[i : i + chunk_size], rgbs_gt[i : i + chunk_size]) for i in chunk_idxs
+        ]
+        val_lpips = 0.0
         for chunk, chunk_gt in chunks:
             val_lpips += lpips_net(chunk, chunk_gt).mean()
-        val_lpips /= n_chunks"""
+        val_lpips /= n_chunks
     val_lpips = None
 
     # compute SSIM
@@ -229,9 +194,7 @@ def validation(
 def train(
     model: nn.Module,
     estimator: OccGridEstimator,
-    lpips_net: LPIPS,
     train_loader: DataLoader,
-    val_loader: DataLoader,
     render_step_size: float = 5e-3,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[float, float]:
@@ -263,15 +226,6 @@ def train(
     }
     class_name, kwargs = sc_dict[args.scheduler]
     scheduler = class_name(optimizer, args.n_iters, args.lro, **kwargs)
-    """n_iters = args.n_iters
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, 
-            milestones=[n_iters // 2, 
-                        n_iters * 3 // 4, 
-                        n_iters * 5 // 6, 
-                        n_iters * 9 // 10], 
-            gamma=0.33
-    )"""
     pbar = tqdm(range(args.n_iters), desc=f"[NeRF]")  # set up progress bar
     iterator = iter(train_loader)  # data iterator
 
@@ -350,13 +304,13 @@ def train(
             wandb.log({"train_psnr": psnr, "lr": scheduler.lr, "alpha": alpha})
 
         # compute validation
-        compute_val = k % args.val_rate == 0 and k > 0 and args.val
-        if compute_val:
+        """compute_val = k % args.val_rate == 0 and k > 0 and args.val
+        if compute_val: 
             model.eval()
             estimator.eval()
             # lpips_net.eval()
             with torch.no_grad():
-                val_metrics = validation(
+                val_metrics = evaluation(
                     hwf,
                     model,
                     estimator,
@@ -398,13 +352,12 @@ def train(
                             ),
                         }
                     )
+        """
     return
 
 
 def main():
-    # select device
-    device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {torch.cuda.get_device_name(device)}")
+    device = get_computing_device()
 
     if not args.debug:
         wandb.login()
@@ -432,27 +385,17 @@ def main():
         cam_plotter.upload_plot()
 
     if not args.render_only:
-        # Start recording memory snapshot history
-        # start_record_memory_history()
-        # initialize modules
+        # initialize models
         model, estimator, lpips_net = init_models(train_loader.dataset.aabb)
         model.to(device)
         estimator.to(device)
-        # lpips_net.to(device)
         # train model
         train(model, estimator, lpips_net, train_loader, val_loader, device=device)
-        # Create the memory snapshot file
-        # export_memory_snapshot()
-
-        # Stop recording memory snapshot history
-        # stop_record_memory_history()
-        # final validation set and loader
-        # compute final validation metrics
         model.eval()
         estimator.eval()
         lpips_net.eval()
         with torch.no_grad():
-            val_metrics = validation(
+            val_metrics = evaluation(
                 train_loader.dataset.hwf,
                 model,
                 estimator,
@@ -498,7 +441,7 @@ def main():
             torch.save(model.state_dict(), out_dir + "/model/nn.pt")
 
     # compute path poses for video output
-    path_poses = train_loader.dataset.path_poses
+    path_poses = splitter.path_poses
 
     # render frames for poses
     model.eval()
@@ -527,6 +470,12 @@ def main():
                 "depth_video": wandb.Video(f"{out_dir}/video/depth.mp4", fps=30),
             }
         )
+
+
+def get_computing_device() -> torch.device:
+    computing_device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Computing device: {torch.cuda.get_device_name(computing_device)}")
+    return computing_device
 
 
 def create_camera_plotter(

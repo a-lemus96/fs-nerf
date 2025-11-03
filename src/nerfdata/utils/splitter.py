@@ -4,6 +4,7 @@ from typing import Literal, List, Tuple, Optional
 
 import imageio as iio
 from torch.utils.data import Dataset, DataLoader, Subset
+from torch import Tensor
 from sklearn.cluster import KMeans
 
 from ..datasets import llff
@@ -48,8 +49,9 @@ class Splitter:
         available_idxs = np.arange(len(self.poses))
         n_test_samples = int(self.test_ratio * len(self.poses))
         self.test_ids, available_idxs = self._select_pose_based(
-            available_idxs, n_test_samples)
-    
+            available_idxs, n_test_samples
+        )
+
         n_val_samples = int(self.val_ratio * len(self.poses))
         self.val_ids, available_idxs = self._select_pose_based(
             available_idxs, n_val_samples
@@ -84,15 +86,36 @@ class Splitter:
 
         # Instantiate datasets
         white_bkgd = kwargs.get("white_bkgd", False)
-        ndc = kwargs.get("ndc", True)
+        ndc = kwargs.get("ndc", False)
         test_dataset = llff.LLFFDataset(
-            test_imgs, test_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, True, ndc
+            test_imgs,
+            test_poses,
+            self.min_bound,
+            self.max_bound,
+            self.hwf,
+            white_bkgd,
+            True,
+            ndc,
         )
         val_dataset = llff.LLFFDataset(
-            val_imgs, val_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, True, ndc
+            val_imgs,
+            val_poses,
+            self.min_bound,
+            self.max_bound,
+            self.hwf,
+            white_bkgd,
+            True,
+            ndc,
         )
         train_dataset = llff.LLFFDataset(
-            train_imgs, train_poses, self.min_bound, self.max_bound, self.hwf, white_bkgd, train_img_mode, ndc
+            train_imgs,
+            train_poses,
+            self.min_bound,
+            self.max_bound,
+            self.hwf,
+            white_bkgd,
+            train_img_mode,
+            ndc,
         )
 
         return train_dataset, val_dataset, test_dataset
@@ -293,10 +316,10 @@ class Splitter:
         if recenter:
             poses = Splitter.__recenter_poses(poses)
 
-        # c2w = DatasetSplitter.__avg_pose(poses)
-        # path_poses = self.__build_path(c2w, poses, bounds) # for rendering video
-        # path_poses = np.stack(path_poses, 0) # cast to numpy array
-        # path_poses = path_poses[:, :3, :4]
+        c2w = Splitter.__avg_pose(poses)
+        path_poses = self.__build_path(c2w, poses, bounds)  # for rendering video
+        path_poses = np.stack(path_poses, 0)  # cast to numpy array
+        self.path_poses = path_poses[:, :3, :4]
 
         hwf = poses[0, :3, -1]
         self.hwf = (int(hwf[0]), int(hwf[1]), float(hwf[2]))
@@ -313,3 +336,55 @@ class Splitter:
 
     def _validate_ratios(self):
         pass
+
+    def __build_path(
+        self,
+        c2w: np.ndarray,
+        poses: np.ndarray,
+        bounds: np.ndarray,
+        n_views: int = 120,
+        n_rots: int = 2,
+        zrate: float = 0.5,
+        path_zflat: bool = False,
+    ) -> Tensor:
+        """
+        Build spiral path for rendering sample video.
+        ------------------------------------------------------------------------
+        """
+        up = Splitter.__normalize(poses[:, :3, 1].sum(0))  # average up
+        # compute reasonable focus depth for the scene
+        close_depth, inf_depth = bounds.min() * 0.9, bounds.max() * 5.0
+        dt = 0.75
+        mean_dz = 1.0 / (((1.0 - dt) / close_depth + dt / inf_depth))
+        focal = mean_dz
+
+        # compute radii for spiral path
+        shrink_factor = 0.8
+        zdelta = close_depth * 0.2
+        tt = poses[:, :3, 3]
+        rads = np.percentile(np.abs(tt), 90, 0)
+
+        if path_zflat:
+            zloc = -close_depth * 0.1
+            c2w[:3, 3] = c2w[:3, 3] + zloc * c2w[:3, 2]
+            rads[2] = 0.0
+            n_rots = 1
+            n_views /= 2
+
+        # compute spiral path
+        path_poses = []
+        rads = np.array(list(rads) + [1.0])
+        hwf = c2w[:, 4:5]
+
+        for theta in np.linspace(0.0, 2.0 * np.pi * n_rots, n_views + 1)[:-1]:
+            c = np.dot(
+                c2w[:3, :4],
+                np.array([np.cos(theta), -np.sin(theta), -np.sin(theta * zrate), 1.0])
+                * rads,
+            )
+            z = Splitter.__normalize(
+                c - np.dot(c2w[:3, :4], np.array([0, 0, -focal, 1.0]))
+            )
+            path_poses.append(np.concatenate([Splitter.__viewmatrix(z, up, c), hwf], 1))
+        # cast to tensor
+        return path_poses
