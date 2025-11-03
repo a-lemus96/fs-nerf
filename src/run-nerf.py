@@ -390,7 +390,7 @@ def main():
         model.to(device)
         estimator.to(device)
         # train model
-        train(model, estimator, lpips_net, train_loader, val_loader, device=device)
+        train(model, estimator, train_loader, device=device)
         model.eval()
         estimator.eval()
         lpips_net.eval()
