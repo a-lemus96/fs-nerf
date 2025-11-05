@@ -457,12 +457,12 @@ def main():
 
     if not args.debug:
         # put together frames and save result into .mp4 file
-        R.render_video(basedir=f"{out_dir}/video/", frames=frames, d_frames=d_frames)
+        R.render_video(frames=frames, d_frames=d_frames)
         # log final video renderings to wandb
         wandb.log(
             {
-                "rgb_video": wandb.Video(f"{out_dir}/video/rgb.mp4", fps=30),
-                "depth_video": wandb.Video(f"{out_dir}/video/depth.mp4", fps=30),
+                "rgb_video": wandb.Video(frames, format="mp4", fps=30),
+                "depth_video": wandb.Video(d_frames, format="mp4", fps=30),
             }
         )
 

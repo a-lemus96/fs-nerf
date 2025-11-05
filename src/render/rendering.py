@@ -9,7 +9,7 @@ from nerfacc.estimators.occ_grid import OccGridEstimator
 import matplotlib
 import matplotlib.cm as cm
 import numpy as np
-import torch 
+import torch
 from torch import nn
 from torch import Tensor
 from tqdm import tqdm
@@ -19,18 +19,18 @@ import utils.utilities as U
 
 
 # Function to map float values to [0, 255] integer range
-to8b = lambda x : (255 * np.clip(x, 0, 1)).astype(np.uint8)
+to8b = lambda x: (255 * np.clip(x, 0, 1)).astype(np.uint8)
 
 
 def render_rays(
-        rays_o: Tensor,
-        rays_d: Tensor,
-        estimator: OccGridEstimator,
-        model: nn.Module,
-        train: bool = False,
-        white_bkgd: bool = False,
-        render_step_size: float = 5e-3,
-        device: torch.device = torch.device('cpu')
+    rays_o: Tensor,
+    rays_d: Tensor,
+    estimator: OccGridEstimator,
+    model: nn.Module,
+    train: bool = False,
+    white_bkgd: bool = False,
+    render_step_size: float = 5e-3,
+    device: torch.device = torch.device("cpu"),
 ) -> Tuple[Tensor]:
     """Renders rays using a given NeRF model.
     ----------------------------------------------------------------------------
@@ -64,45 +64,42 @@ def render_rays(
         return sigmas.squeeze(-1)
 
     ray_indices, t_starts, t_ends = estimator.sampling(
-            rays_o, rays_d,
-            sigma_fn=sigma_fn,
-            render_step_size=render_step_size,
-            stratified=train,
-            near_plane=0.,
-            far_plane=1e10
+        rays_o,
+        rays_d,
+        sigma_fn=sigma_fn,
+        render_step_size=render_step_size,
+        stratified=train,
+        near_plane=0.0,
+        far_plane=1e10,
     )
 
     def rgb_sigma_fn(t_starts, t_ends, ray_indices):
-            to = rays_o[ray_indices]
-            td = rays_d[ray_indices]
-            x = to + td * (t_starts + t_ends)[:, None] / 2.0
-            out = model(x, td)
-            rgbs = out[..., :3]
-            sigmas = out[..., -1]
+        to = rays_o[ray_indices]
+        td = rays_d[ray_indices]
+        x = to + td * (t_starts + t_ends)[:, None] / 2.0
+        out = model(x, td)
+        rgbs = out[..., :3]
+        sigmas = out[..., -1]
 
-            return rgbs, sigmas.squeeze(-1)
+        return rgbs, sigmas.squeeze(-1)
 
-    render_bkgd = white_bkgd * torch.ones(
-            (3,), 
-            device=device, 
-            requires_grad=train
-    )
+    render_bkgd = white_bkgd * torch.ones((3,), device=device, requires_grad=train)
 
     try:
         output = rendering(
-                t_starts,
-                t_ends,
-                ray_indices,
-                n_rays=len(rays_o),
-                rgb_sigma_fn=rgb_sigma_fn,
-                render_bkgd=render_bkgd
+            t_starts,
+            t_ends,
+            ray_indices,
+            n_rays=len(rays_o),
+            rgb_sigma_fn=rgb_sigma_fn,
+            render_bkgd=render_bkgd,
         )
     except AssertionError as e:
         output = (
-                torch.ones_like(rays_o) * white_bkgd,
-                None,
-                torch.zeros_like(rays_o[:, 0].unsqueeze(1), dtype=torch.float32),
-                None,
+            torch.ones_like(rays_o) * white_bkgd,
+            None,
+            torch.zeros_like(rays_o[:, 0].unsqueeze(1), dtype=torch.float32),
+            None,
         )
 
     t_vals = (t_starts + t_ends) / 2.0
@@ -111,18 +108,18 @@ def render_rays(
 
 
 def render_frame(
-        hwf: Tuple[int, int, float],
-        near: float,
-        far: float,
-        pose: torch.Tensor, 
-        chunksize: int,
-        estimator: OccGridEstimator,
-        model: nn.Module,
-        train: bool = False,
-        ndc: bool = False,
-        white_bkgd: bool = False,
-        render_step_size: float = 5e-3,
-        device: torch.device = torch.device('cpu')
+    hwf: Tuple[int, int, float],
+    near: float,
+    far: float,
+    pose: torch.Tensor,
+    chunksize: int,
+    estimator: OccGridEstimator,
+    model: nn.Module,
+    train: bool = False,
+    ndc: bool = False,
+    white_bkgd: bool = False,
+    render_step_size: float = 5e-3,
+    device: torch.device = torch.device("cpu"),
 ) -> torch.Tensor:
     """
     Render an image from a given pose. Camera rays are chunkified to avoid memo-
@@ -146,11 +143,11 @@ def render_frame(
         depth_map: (H, W)-shape tensor containing depth values
     """
     H, W, _ = hwf
-    rays_o, rays_d = U.get_rays(pose, hwf, device) # compute rays
-    rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3) # flatten rays
+    rays_o, rays_d = U.get_rays(pose, hwf, device)  # compute rays
+    rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3)  # flatten rays
     if ndc:
         # convert rays to normalized device coordinates
-        rays_o, rays_d = U.to_ndc(rays_o, rays_d, hwf, 1.)
+        rays_o, rays_d = U.to_ndc(rays_o, rays_d, hwf, 1.0)
 
     # chunkify rays to avoid memory issues
     chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
@@ -161,15 +158,15 @@ def render_frame(
     depth_map = []
     for rays_o, rays_d in zip(chunked_rays_o, chunked_rays_d):
         out = render_rays(
-                rays_o, 
-                rays_d,
-                estimator,
-                model,
-                white_bkgd,
-                render_step_size=render_step_size,
-                device=device,
+            rays_o,
+            rays_d,
+            estimator,
+            model,
+            white_bkgd,
+            render_step_size=render_step_size,
+            device=device,
         )
-        (rgb, _, depth, _), *_ = out 
+        (rgb, _, depth, _), *_ = out
         img.append(rgb)
         depth_map.append(depth)
 
@@ -178,21 +175,21 @@ def render_frame(
     depth = torch.cat(depth_map, dim=0).clamp(near, far)
 
     return img.reshape(H, W, 3), depth.reshape(H, W)
-        
+
 
 def render_path(
-        render_poses: torch.Tensor,
-        hwf: Tuple[int, int, float],
-        near: float,
-        far: float,
-        chunksize: int,
-        model: nn.Module,
-        estimator: OccGridEstimator,
-        ndc: bool = False,
-        train: bool = False,
-        white_bkgd: bool = False,
-        render_step_size: float = 5e-3,
-        device: torch.device = torch.device('cpu')
+    render_poses: torch.Tensor,
+    hwf: Tuple[int, int, float],
+    near: float,
+    far: float,
+    chunksize: int,
+    model: nn.Module,
+    estimator: OccGridEstimator,
+    ndc: bool = False,
+    train: bool = False,
+    white_bkgd: bool = False,
+    render_step_size: float = 5e-3,
+    device: torch.device = torch.device("cpu"),
 ) -> Tuple[torch.Tensor]:
     """Renders a video from a given path of camera poses.
     ----------------------------------------------------------------------------
@@ -220,21 +217,23 @@ def render_path(
         with torch.no_grad():
             # render frame
             rgb, depth = render_frame(
-                    hwf,
-                    near, far, pose,
-                    chunksize,
-                    estimator,
-                    model,
-                    train=train,
-                    ndc=ndc,
-                    white_bkgd=white_bkgd,
-                    render_step_size=render_step_size,
-                    device=device
+                hwf,
+                near,
+                far,
+                pose,
+                chunksize,
+                estimator,
+                model,
+                train=train,
+                ndc=ndc,
+                white_bkgd=white_bkgd,
+                render_step_size=render_step_size,
+                device=device,
             )
 
             # read predicted rgb frame
             rgb = rgb.reshape([H, W, 3]).detach().cpu().numpy()
-            
+
             # read predicted depth frame
             depth = depth.reshape([H, W]).detach().cpu().numpy()
 
@@ -248,32 +247,20 @@ def render_path(
 
     return frames, d_frames
 
+
 def render_video(
-    basedir: str,
-    frames: torch.Tensor,
-    d_frames: torch.Tensor,
-    cmap: str = 'plasma'
+    frames: torch.Tensor, d_frames: torch.Tensor, cmap: str = "plasma"
 ) -> None:
-    """Video rendering functionality. It takes a series of frames and joins
-    them in .mp4 files.
-    ----------------------------------------------------------------------------
-    Args:
-        basedir: str. Base directory where to store .mp4 file
-        frames: [N, H, W, 3]. N rgb frames
-        d_frames: (N, H, W)-shape. N depth frames
-        cmap: str. Colormap to use for depth frames
-    Returns:
-        None"""
-    # rgb video output
-    imageio.mimwrite(basedir + 'rgb.mp4', to8b(frames), fps=30, quality=8)
-    
+    """Video rendering functionality."""
     # map depth values to RGBA using a colormap
-    norm = matplotlib.colors.Normalize(vmin=np.amin(d_frames),
-                                       vmax=np.amax(d_frames))
+    norm = matplotlib.colors.Normalize(vmin=np.amin(d_frames), vmax=np.amax(d_frames))
     mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
     # flatten d_frames before applying mapping
     d_rgba = mapper.to_rgba(d_frames.flatten())
     # return to normal dimensions
     d_rgba = np.reshape(d_rgba, list(d_frames.shape[:3]) + [-1])
-    # unflatten d_frames
-    imageio.mimwrite(basedir + 'depth.mp4', to8b(d_rgba), fps=30, quality=8)
+
+    return (
+        np.transpose(to8b(frames), (0, 3, 1, 2)),
+        np.transpose(to8b(d_rgba[..., :3]), (0, 3, 1, 2)),
+    )
