@@ -389,6 +389,7 @@ def main():
         model.eval()
         estimator.eval()
         lpips_net.eval()
+        lpips_net.to(device)
         with torch.no_grad():
             val_metrics = evaluation(
                 train_loader.dataset.hwf,
@@ -442,10 +443,10 @@ def main():
     model.eval()
     estimator.eval()
     output = R.render_path(
-        path_poses,
-        train_loader.train_set.hwf,
-        train_loader.train_set.near,
-        train_loader.train_set.far,
+        torch.from_numpy(path_poses).float(),
+        train_loader.dataset.hwf,
+        train_loader.dataset.near,
+        train_loader.dataset.far,
         2 * args.batch_size,
         model,
         estimator,
@@ -457,7 +458,7 @@ def main():
 
     if not args.debug:
         # put together frames and save result into .mp4 file
-        R.render_video(frames=frames, d_frames=d_frames)
+        frames, d_frames = R.render_video(frames=frames, d_frames=d_frames)
         # log final video renderings to wandb
         wandb.log(
             {
