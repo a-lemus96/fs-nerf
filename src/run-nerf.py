@@ -13,19 +13,18 @@ from skimage.metrics import structural_similarity as SSIM
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader
 import wandb
 
 # local imports
 import core.models as M
-import core.loss as L
-import core.scheduler as S
 from nerfdata.datasets import llff, blender
 from nerfdata.utils.splitter import Splitter
 import render.rendering as R
 import utils.parser as P
 from utils.camera3dplotter import Camera3DPlotter
+from playground.model_trainers.nerf_trainer import NeRFModelTrainer
+from playground.training_configuration import TrainingConfiguration
 
 # GLOBAL VARIABLES
 k = 0  # global step counter
@@ -39,27 +38,169 @@ random.seed(seed)
 
 args = P.config_parser()  # parse command line arguments
 
-logging.basicConfig(
-    format="%(levelname)s:%(asctime)s %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger: logging.Logger = logging.getLogger(__name__)
-logger.setLevel(level=logging.INFO)
 
-TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
+def main():
+    device = get_computing_device()
+    if not args.debug:
+        run = init_wandb()
 
-# MODEL INITIALIZATION
+    # set up dataset configuration
+    dataset_config = {
+        "synthetic": (blender.BlenderDataset, {"white_bkgd": args.white_bkgd}),
+        "llff": (llff.LLFFDataset, {"white_bkgd": args.white_bkgd, "ndc": True}),
+    }
+    dataset_name, dataset_kwargs = dataset_config[args.dataset]
+
+    # get training, validation and test dataloaders
+    splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
+    splitter.split()
+    datasets = splitter.get_datasets(train_img_mode=False, **dataset_kwargs)
+    train_dataset, val_dataset, test_dataset = datasets
+
+    if not args.debug:
+        cam_plotter = create_camera_plotter(datasets)
+        cam_plotter.upload_plot()
+
+    if not args.render_only:
+        model, lpips_net = init_models()
+
+        training_settings = TrainingConfiguration(device, args)
+        # TODO: Temporary workaround but probably need to move OccGridConfig one level up
+        training_settings.occupancy_estimator_settings.aabb = train_dataset.aabb
+        model_trainer = NeRFModelTrainer(training_settings, args.debug)
+
+        # trains model using the trainer's configuration
+        model_trainer.fit(model, train_dataset)
+
+        # model_evaluator.evaluate(model, test_dataset)
+        model.eval()
+        estimator.eval()
+        lpips_net.eval()
+        lpips_net.to(device)
+        with torch.no_grad():
+            val_metrics = evaluation(
+                train_dataset.hwf,
+                model,
+                estimator,
+                lpips_net,
+                test_dataset,
+                2 * args.batch_size,
+                device,
+            )
+        # log final metrics
+        final_psnr, final_ssim, final_lpips = val_metrics
+
+        if not args.debug:
+            wandb.log(
+                {
+                    "final_psnr": final_psnr,
+                    "final_ssim": final_ssim,
+                    "final_lpips": final_lpips,
+                }
+            )
+    else:
+        model = init_models()
+        # load model
+        model.load_state_dict(torch.load(out_dir + "/model/nn.pt"))
+
+    if not args.debug:
+        # build base path for output directories
+        out_dir = os.path.normpath(
+            os.path.join(
+                args.out_dir,
+                args.model,
+                args.dataset,
+                args.scene,
+                f"n_imgs_{str(args.n_imgs)}",
+                run.id,
+            )
+        )
+
+        # create output directories
+        folders = ["video", "model"]
+        [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
+        # save model
+        if not args.render_only:
+            torch.save(model.state_dict(), out_dir + "/model/nn.pt")
+
+    # compute path poses for video output
+    path_poses = splitter.path_poses
+
+    # render frames for poses
+    model.eval()
+    estimator = model_trainer.estimator
+    estimator.eval()
+    output = R.render_path(
+        torch.from_numpy(path_poses).float(),
+        train_dataset.hwf,
+        train_dataset.near,
+        train_dataset.far,
+        2 * args.batch_size,
+        model,
+        estimator,
+        ndc=train_dataset.ndc,
+        white_bkgd=args.white_bkgd,
+        device=device,
+    )
+    frames, d_frames = output
+
+    if not args.debug:
+        # put together frames and save result into .mp4 file
+        frames, d_frames = R.render_video(frames=frames, d_frames=d_frames)
+        # log final video renderings to wandb
+        wandb.log(
+            {
+                "rgb_video": wandb.Video(frames, format="mp4", fps=30),
+                "depth_video": wandb.Video(d_frames, format="mp4", fps=30),
+            }
+        )
 
 
-def init_models(aabb: List[int]) -> Tuple[nn.Module, OccGridEstimator, LPIPS]:
+def get_computing_device() -> torch.device:
+    computing_device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Computing device: {torch.cuda.get_device_name(computing_device)}")
+    return computing_device
+
+
+def init_wandb():
+    wandb.login()
+    # set up wandb run to track training
+    name = f"{args.model}_{args.dataset}_img{args.n_imgs}_layer{args.n_layers}"
+    run = wandb.init(project="fs-nerf", name=name, config=args)
+    return run
+
+
+def create_camera_plotter(
+    datasets: Tuple[Dataset, Dataset, Dataset],
+) -> Camera3DPlotter:
+    train_dataset, val_dataset, test_dataset = datasets
+    cam_plotter = Camera3DPlotter()
+
+    cam_plotter.set_poses(train_dataset.poses, "train")
+    cam_plotter.set_poses(val_dataset.poses, "val")
+    cam_plotter.set_poses(test_dataset.poses, "test")
+
+    cam_plotter.configure_pose_markers("train", size=7, opacity=0.8, color="black")
+    cam_plotter.configure_pose_markers("val", size=7, opacity=0.8, color="red")
+    cam_plotter.configure_pose_markers("test", size=7, opacity=0.8, color="blue")
+
+    cam_plotter.set_axes_margins(left=20, right=20, top=20, bottom=20)
+    # set fixed axis scales
+    t = 1 if args.dataset == "llff" else 5
+    factor = 1 if args.dataset == "llff" else 0
+    cam_plotter.set_axes_ranges(xrange=[-t, t], yrange=[-t, t], zrange=[-t * factor, t])
+
+    return cam_plotter
+
+
+def init_models() -> Tuple[nn.Module, LPIPS]:
     """
-    Initialize NeRF-like model, occupancy grid estimator, and LPIPS net.
+    Initialize NeRF-like model and LPIPS net.
     ----------------------------------------------------------------------------
     Args:
-        aabb (int): axis-aligned bounding box
+        None
     Returns:
-        Tuple[nn.Module, OccGridEstimator, LPIPS]: models
+        Tuple[nn.Module, LPIPS]: models
     """
     # keyword args for positional encoding
     kwargs = {
@@ -88,21 +229,9 @@ def init_models(aabb: List[int]) -> Tuple[nn.Module, OccGridEstimator, LPIPS]:
         case _:
             raise ValueError(f"Model {args.model} not supported")
 
-    # model parameters
-    grid_resolution = 128
-    grid_nlvl = 1 if args.dataset == "synthetic" else 4
-    # render parameters
-    render_step_size = 5e-3
-    estimator = OccGridEstimator(
-        roi_aabb=aabb, resolution=grid_resolution, levels=grid_nlvl
-    )
-    # initialize LPIPS network
     lpips_net = LPIPS(net="vgg")
 
-    return model, estimator, lpips_net
-
-
-# TRAINING FUNCTIONS
+    return model, lpips_net
 
 
 def evaluation(
@@ -110,7 +239,7 @@ def evaluation(
     model: nn.Module,
     estimator: OccGridEstimator,
     lpips_net: LPIPS,
-    data_loader: DataLoader,
+    dataset: Dataset,
     chunksize: int,
     device: torch.device,
     render_step_size: float = 5e-3,
@@ -118,22 +247,11 @@ def evaluation(
     """
     Performs evaluation for NeRF-like model.
     ----------------------------------------------------------------------------
-    Args:
-        model (nn.Module): NeRF-like model
-        estimator (OccGridEstimator): occupancy grid estimator
-        lpips_net (LPIPS): LPIPS network
-        data_loader (DataLoader): data loader
-        chunksize (int): size of chunks for rendering frames
-        device (torch.device): device to be used
-        render_step_size (float, optional): step size for rendering
-    Returns:
-        psnr (float): evalaution PSNR
-        sim (float): evalaution SSIM
-        lpips (float): evalaution LPIPS
     """
-    ndc = data_loader.dataset.ndc
+    ndc = dataset.ndc
     rgbs = []
     rgbs_gt = []
+    data_loader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=8)
     for val_data in data_loader:
         rgb_gt, pose = val_data
         rgbs_gt.append(rgb_gt)  # append ground truth rgb
@@ -189,312 +307,6 @@ def evaluation(
     val_ssim /= len(rgbs)
 
     return val_psnr, val_ssim, val_lpips
-
-
-def train(
-    model: nn.Module,
-    estimator: OccGridEstimator,
-    train_loader: DataLoader,
-    render_step_size: float = 5e-3,
-    device: torch.device = torch.device("cpu"),
-) -> Tuple[float, float]:
-    """Train NeRF model.
-    ----------------------------------------------------------------------------
-    Args:
-        model (nn.Module): NeRF model
-        estimator (OccGridEstimator): occupancy grid estimator
-        lpips_net (LPIPS): LPIPS network
-        train_loader (DataLoader): training set loader
-        val_loader (DataLoader): validation set loader
-        render_step_size (float, optional): step size for rendering
-        device (torch.device): device to train on
-    Returns:
-        Tuple[float, float, float]: validation PSNR, SSIM, LPIPS
-    ----------------------------------------------------------------------------
-    """
-    # set up optimizer and scheduler
-    params = list(model.parameters())
-    optimizer = torch.optim.Adam(params, lr=args.lro)
-    sc_dict = {
-        "const": (S.Constant, {}),
-        "exp": (S.ExponentialDecay, {"r": args.decay_rate}),
-    }
-    class_name, kwargs = sc_dict[args.scheduler]
-    scheduler = class_name(optimizer, args.n_iters, args.lro, **kwargs)
-    pbar = tqdm(range(args.n_iters), desc=f"[NeRF]")  # set up progress bar
-    iterator = iter(train_loader)  # data iterator
-
-    # occlusion regularizer
-    if args.beta is not None:
-        occ_reg = L.OcclusionRegularizer(args.a, args.b, args.func)
-
-    alpha = args.ao
-    for k in pbar:  # loop over the number of iterations
-        model.train()
-        estimator.train()
-        # get next batch of data
-        try:
-            rays_o, rays_d, rgb_gt = next(iterator)
-        except StopIteration:
-            iterator = iter(train_loader)
-            rays_o, rays_d, rgb_gt = next(iterator)
-
-        # render rays
-        (rgb, *_, extras), ray_indices, t_vals = R.render_rays(
-            rays_o=rays_o,
-            rays_d=rays_d,
-            estimator=estimator,
-            model=model,
-            train=True,
-            white_bkgd=args.white_bkgd,
-            render_step_size=render_step_size,
-            device=device,
-        )
-
-        # compute loss and PSNR
-        rgb_gt = rgb_gt.to(device)
-        loss = F.mse_loss(rgb, rgb_gt)
-        with torch.no_grad():
-            psnr = -10.0 * torch.log10(loss).item()
-
-        # occlusion regularization
-        if args.beta is not None:
-            sigmas = extras["sigmas"]
-            if len(sigmas) > 0:
-                loss += occ_reg(sigmas, t_vals, ray_indices)
-
-        # weight decay regularization
-        if alpha is not None:
-            freq_reg = torch.tensor(0.0).to(device)
-            # linear decay schedule
-            Ts = int(args.reg_ratio * args.Td)
-            if k < Ts:
-                for name, param in model.named_parameters():
-                    if "weight" in name and param.shape[0] > 3:
-                        if args.reg == "l1":
-                            freq_reg += torch.abs(param).sum()
-                        else:
-                            freq_reg += torch.square(param).sum().sqrt()
-
-                loss += alpha * freq_reg
-
-        # backpropagate loss
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()
-
-        # define occupancy evaluation function
-        def occ_eval_fn(x):
-            return model(x) * render_step_size
-
-        # update occupancy grid
-        with torch.cuda.amp.autocast():
-            estimator.update_every_n_steps(
-                step=k, occ_eval_fn=occ_eval_fn, occ_thre=1e-2
-            )
-
-        # log metrics
-        if not args.debug and k % args.val_rate != 0:
-            wandb.log({"train_psnr": psnr, "lr": scheduler.lr, "alpha": alpha})
-
-        # compute validation
-        """compute_val = k % args.val_rate == 0 and k > 0 and args.val
-        if compute_val: 
-            model.eval()
-            estimator.eval()
-            # lpips_net.eval()
-            with torch.no_grad():
-                val_metrics = evaluation(
-                    hwf,
-                    model,
-                    estimator,
-                    lpips_net,
-                    val_loader,
-                    2 * args.batch_size,
-                    device,
-                )
-                val_psnr, val_ssim, val_lpips = val_metrics
-                # render test image
-                rgb, depth = R.render_frame(
-                    hwf,
-                    train_loader.dataset.near,
-                    train_loader.dataset.far,
-                    testpose,
-                    2 * args.batch_size,
-                    estimator,
-                    model,
-                    train=False,
-                    ndc=ndc,
-                    white_bkgd=args.white_bkgd,
-                    render_step_size=render_step_size,
-                    device=device,
-                )
-
-                # log data to wandb
-                if not args.debug:
-                    wandb.log(
-                        {
-                            "train_psnr": psnr,
-                            "lr": scheduler.lr,
-                            "alpha": alpha,
-                            "val_psnr": val_psnr,
-                            "val_ssim": val_ssim,
-                            "val_lpips": val_lpips,
-                            "rgb": wandb.Image(rgb.cpu().numpy(), caption="RGB"),
-                            "depth": wandb.Image(
-                                PL.apply_colormap(depth.cpu().numpy()), caption="Depth"
-                            ),
-                        }
-                    )
-        """
-    return
-
-
-def main():
-    device = get_computing_device()
-
-    if not args.debug:
-        wandb.login()
-        # set up wandb run to track training
-        name = f"{args.model}_{args.dataset}_img{args.n_imgs}_layer{args.n_layers}"
-        run = wandb.init(project="fs-nerf", name=name, config=args)
-
-    # set up dataset configuration
-    dataset_config = {
-        "synthetic": (blender.BlenderDataset, {"white_bkgd": args.white_bkgd}),
-        "llff": (llff.LLFFDataset, {"white_bkgd": args.white_bkgd, "ndc": True}),
-    }
-    dataset_name, dataset_kwargs = dataset_config[args.dataset]
-
-    # get training, validation and test dataloaders
-    splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
-    splitter.split()
-    dataloaders = splitter.get_dataloaders(
-        train_batch_size=args.batch_size, train_img_mode=False, **dataset_kwargs
-    )
-    train_loader, val_loader, test_loader = dataloaders
-
-    if not args.debug:
-        cam_plotter = create_camera_plotter(dataloaders)
-        cam_plotter.upload_plot()
-
-    if not args.render_only:
-        # initialize models
-        model, estimator, lpips_net = init_models(train_loader.dataset.aabb)
-        model.to(device)
-        estimator.to(device)
-        # train model
-        train(model, estimator, train_loader, device=device)
-        model.eval()
-        estimator.eval()
-        lpips_net.eval()
-        lpips_net.to(device)
-        with torch.no_grad():
-            val_metrics = evaluation(
-                train_loader.dataset.hwf,
-                model,
-                estimator,
-                lpips_net,
-                val_loader,
-                2 * args.batch_size,
-                device,
-            )
-        # log final metrics
-        final_psnr, final_ssim, final_lpips = val_metrics
-
-        if not args.debug:
-            wandb.log(
-                {
-                    "final_psnr": final_psnr,
-                    "final_ssim": final_ssim,
-                    "final_lpips": final_lpips,
-                }
-            )
-    else:
-        model = init_models()
-        # load model
-        model.load_state_dict(torch.load(out_dir + "/model/nn.pt"))
-
-    if not args.debug:
-        # build base path for output directories
-        out_dir = os.path.normpath(
-            os.path.join(
-                args.out_dir,
-                args.model,
-                args.dataset,
-                args.scene,
-                f"n_imgs_{str(args.n_imgs)}",
-                run.id,
-            )
-        )
-
-        # create output directories
-        folders = ["video", "model"]
-        [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
-        # save model
-        if not args.render_only:
-            torch.save(model.state_dict(), out_dir + "/model/nn.pt")
-
-    # compute path poses for video output
-    path_poses = splitter.path_poses
-
-    # render frames for poses
-    model.eval()
-    estimator.eval()
-    output = R.render_path(
-        torch.from_numpy(path_poses).float(),
-        train_loader.dataset.hwf,
-        train_loader.dataset.near,
-        train_loader.dataset.far,
-        2 * args.batch_size,
-        model,
-        estimator,
-        ndc=train_loader.dataset.ndc,
-        white_bkgd=args.white_bkgd,
-        device=device,
-    )
-    frames, d_frames = output
-
-    if not args.debug:
-        # put together frames and save result into .mp4 file
-        frames, d_frames = R.render_video(frames=frames, d_frames=d_frames)
-        # log final video renderings to wandb
-        wandb.log(
-            {
-                "rgb_video": wandb.Video(frames, format="mp4", fps=30),
-                "depth_video": wandb.Video(d_frames, format="mp4", fps=30),
-            }
-        )
-
-
-def get_computing_device() -> torch.device:
-    computing_device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Computing device: {torch.cuda.get_device_name(computing_device)}")
-    return computing_device
-
-
-def create_camera_plotter(
-    dataloaders: Tuple[DataLoader, DataLoader, DataLoader],
-) -> Camera3DPlotter:
-    train_loader, val_loader, test_loader = dataloaders
-    cam_plotter = Camera3DPlotter()
-
-    cam_plotter.set_poses(train_loader.dataset.poses, "train")
-    cam_plotter.set_poses(val_loader.dataset.poses, "val")
-    cam_plotter.set_poses(test_loader.dataset.poses, "test")
-
-    cam_plotter.configure_pose_markers("train", size=7, opacity=0.8, color="black")
-    cam_plotter.configure_pose_markers("val", size=7, opacity=0.8, color="red")
-    cam_plotter.configure_pose_markers("test", size=7, opacity=0.8, color="blue")
-
-    cam_plotter.set_axes_margins(left=20, right=20, top=20, bottom=20)
-    # set fixed axis scales
-    t = 1 if args.dataset == "llff" else 5
-    factor = 1 if args.dataset == "llff" else 0
-    cam_plotter.set_axes_ranges(xrange=[-t, t], yrange=[-t, t], zrange=[-t * factor, t])
-
-    return cam_plotter
 
 
 if __name__ == "__main__":
