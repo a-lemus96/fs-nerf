@@ -109,13 +109,12 @@ class NeRFModelTrainer(ModelTrainerBase):
             freq_reg = torch.tensor(0.0).to(self.training_device)
             # linear decay schedule
             if True:
-                for name, param in model.named_parameters():
-                    if "weight" in name and param.shape[0] > 3:
+                for name, param in model.named_parameters(recurse=True):
+                    if "weight" in name:
                         if self.weight_decay_reg_fn == "l1":
                             freq_reg += torch.abs(param).sum()
                         else:
-                            freq_reg += torch.square(param).sum().sqrt()
-
+                            freq_reg += torch.square(param).sum()
                 loss += alpha * freq_reg
 
         return loss, psnr
