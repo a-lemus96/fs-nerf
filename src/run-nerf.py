@@ -73,6 +73,7 @@ def main():
         model_trainer.fit(model, train_dataset)
 
         # model_evaluator.evaluate(model, test_dataset)
+        estimator = model_trainer.estimator
         model.eval()
         estimator.eval()
         lpips_net.eval()

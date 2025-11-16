@@ -3,13 +3,13 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-import tqdm
+from tqdm import tqdm
 from typing import Dict, Any
 import wandb
 
-from model_trainer_base import ModelTrainerBase
-from training_configuration import TrainingConfiguration
-from occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from playground.model_trainers.model_trainer_base import ModelTrainerBase
+from playground.training_configuration import TrainingConfiguration
+from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
 from core.scheduler import Constant, ExponentialDecay
 
 import render.rendering as R
@@ -42,7 +42,7 @@ class NeRFModelTrainer(ModelTrainerBase):
     def fit(self, model: nn.Module, dataset: Dataset):
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
         self.lr_scheduler = self.__create_lr_scheduler(
-            self.optimizer, self.lr_scheduler_type, self.lr_scheduler_kwargs
+            self.lr_scheduler_type, **self.lr_scheduler_kwargs
         )
 
         model.to(self.training_device)
@@ -79,8 +79,8 @@ class NeRFModelTrainer(ModelTrainerBase):
                 device=self.training_device,
             )
 
-            loss, psnr = self.__compute_total_loss(rgb_predicted, rgb_ground_truths)
-            self.__training_step(loss)
+            loss, psnr = self.__compute_total_loss(model, rgb_predicted, rgb_ground_truths, alpha)
+            self.__training_step(k, model, loss)
 
             # log metrics
             if not self.debug_mode:
@@ -134,7 +134,6 @@ class NeRFModelTrainer(ModelTrainerBase):
         def occ_eval_fn(x):
             return model(x) * self.render_step_size
 
-        self.__update_occupancy_estimator(current_iteration, model)
         # update based on the current iteration
         with torch.cuda.amp.autocast():
             self.estimator.update_every_n_steps(

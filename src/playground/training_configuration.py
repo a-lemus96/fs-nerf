@@ -4,7 +4,7 @@ from torch import device as Device
 from typing import Dict, Any
 from argparse import Namespace
 
-from occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
 
 
 @dataclass
@@ -28,7 +28,7 @@ class TrainingConfiguration:
             self.batch_size = args.batch_size
             self.learning_rate = args.lro
             self.lr_scheduler_type = args.scheduler
-            self.scheduler_kwargs = self.__get_scheduler_kwargs(args)
+            self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
             self.weight_decay_importance = args.ao
             self.weight_decay_reg_fn = args.reg
             self.white_background = args.white_bkgd
