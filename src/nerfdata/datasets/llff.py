@@ -1,6 +1,5 @@
 # standard library modules
 from typing import Tuple
-from dataclasses import dataclass
 
 # third-party modules
 import numpy as np

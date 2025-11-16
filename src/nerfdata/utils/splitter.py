@@ -120,17 +120,6 @@ class Splitter:
 
         return train_dataset, val_dataset, test_dataset
 
-    def get_dataloaders(self, train_batch_size, train_img_mode=False, **kwargs):
-        datasets = self.get_datasets(train_img_mode, **kwargs)
-        train_set, val_set, test_set = datasets
-        train_loader = DataLoader(
-            train_set, batch_size=train_batch_size, shuffle=True, num_workers=8
-        )
-        val_loader = DataLoader(val_set, batch_size=1, shuffle=True, num_workers=8)
-        test_loader = DataLoader(test_set, batch_size=1, shuffle=True, num_workers=8)
-
-        return train_loader, val_loader, test_loader
-
     def _select_pose_based(self, available_idxs: np.ndarray, n_samples: int):
         # apply K-means to position vectors
         x = self.poses[available_idxs, :3, 3]
