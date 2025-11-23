@@ -29,7 +29,7 @@ class TrainingConfiguration:
             self.learning_rate = args.lro
             self.lr_scheduler_type = args.scheduler
             self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
-            self.weight_decay_importance = args.ao
+            self.weight_decay_importance = args.alpha
             self.occ_reg_importance = args.beta
             self.weight_decay_reg_fn = args.reg
             self.white_background = args.white_bkgd
