@@ -70,7 +70,7 @@ class NeRFModelTrainer(ModelTrainerBase):
                 iterator = iter(train_dataloader)
                 ray_origins, ray_dirs, rgb_ground_truths = next(iterator)
 
-            (rgb_predicted, _, depth_predicted, *_), _, _ = R.render_rays(
+            (rgb_predicted, _, depth_predicted, _), _, _ = R.render_rays(
                 rays_o=ray_origins,
                 rays_d=ray_dirs,
                 estimator=self.estimator,
@@ -129,7 +129,7 @@ class NeRFModelTrainer(ModelTrainerBase):
 
         return loss, psnr
 
-    def __compute_occlussion_loss(depths_predicted) -> torch.Tensor:
+    def __compute_occlussion_loss(self, depths_predicted) -> torch.Tensor:
         """Computes occlussion loss based on predicted depths."""
         return -torch.abs(depths_predicted).sum()
 
