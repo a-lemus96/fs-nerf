@@ -36,6 +36,7 @@ class NeRFModelTrainer(ModelTrainerBase):
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
         self.weight_decay_importance = settings.weight_decay_importance
+        self.occ_reg_importance = settings.occ_reg_importance
         self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
 
@@ -49,6 +50,7 @@ class NeRFModelTrainer(ModelTrainerBase):
         self.estimator.to(self.training_device)
 
         alpha = self.weight_decay_importance
+        beta = self.occ_reg_importance
 
         progress_bar = self.__setup_progress_bar(
             self.num_iterations, bar_description=f"[fit]"
@@ -68,7 +70,7 @@ class NeRFModelTrainer(ModelTrainerBase):
                 iterator = iter(train_dataloader)
                 ray_origins, ray_dirs, rgb_ground_truths = next(iterator)
 
-            (rgb_predicted, *_), _, _ = R.render_rays(
+            (rgb_predicted, _, depth_predicted, *_), _, _ = R.render_rays(
                 rays_o=ray_origins,
                 rays_d=ray_dirs,
                 estimator=self.estimator,
@@ -79,7 +81,9 @@ class NeRFModelTrainer(ModelTrainerBase):
                 device=self.training_device,
             )
 
-            loss, psnr = self.__compute_total_loss(model, rgb_predicted, rgb_ground_truths, alpha)
+            loss, psnr = self.__compute_total_loss(
+                model, rgb_predicted, rgb_ground_truths, depth_predicted, alpha, beta
+            )
             self.__training_step(k, model, loss)
 
             # log metrics
@@ -96,7 +100,9 @@ class NeRFModelTrainer(ModelTrainerBase):
         model: nn.Module,
         rgb_predicted: torch.Tensor,
         rgb_ground_truths: torch.Tensor,
+        depths_predicted: torch.Tensor,
         alpha: float,
+        beta: float,
     ):
         # compute loss and PSNR
         rgb_ground_truths = rgb_ground_truths.to(self.training_device)
@@ -117,7 +123,15 @@ class NeRFModelTrainer(ModelTrainerBase):
                             freq_reg += torch.square(param).sum()
                 loss += alpha * freq_reg
 
+        if beta is not None:
+            occlussion_loss = self.__compute_occlussion_loss(depths_predicted)
+            loss += beta * occlussion_loss
+
         return loss, psnr
+
+    def __compute_occlussion_loss(depths_predicted) -> torch.Tensor:
+        """Computes occlussion loss based on predicted depths."""
+        return torch.abs(depths_predicted).sum()
 
     def __training_step(
         self, current_iteration: int, model: nn.Module, loss: torch.Tensor
