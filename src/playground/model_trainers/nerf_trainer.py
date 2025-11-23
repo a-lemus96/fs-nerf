@@ -131,7 +131,7 @@ class NeRFModelTrainer(ModelTrainerBase):
 
     def __compute_occlussion_loss(depths_predicted) -> torch.Tensor:
         """Computes occlussion loss based on predicted depths."""
-        return torch.abs(depths_predicted).sum()
+        return -torch.abs(depths_predicted).sum()
 
     def __training_step(
         self, current_iteration: int, model: nn.Module, loss: torch.Tensor
