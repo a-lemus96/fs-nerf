@@ -70,19 +70,21 @@ class NeRFModelTrainer(ModelTrainerBase):
                 iterator = iter(train_dataloader)
                 ray_origins, ray_dirs, rgb_ground_truths = next(iterator)
 
-            (rgb_predicted, _, depth_predicted, _), _, _ = R.render_rays(
-                rays_o=ray_origins,
-                rays_d=ray_dirs,
-                estimator=self.estimator,
-                model=model,
-                train=True,
-                white_bkgd=self.white_background,
-                render_step_size=self.render_step_size,
-                device=self.training_device,
+            (rgb_predicted, _, depth_predicted, extras), ray_ids, t_values = (
+                R.render_rays(
+                    rays_o=ray_origins,
+                    rays_d=ray_dirs,
+                    estimator=self.estimator,
+                    model=model,
+                    train=True,
+                    white_bkgd=self.white_background,
+                    render_step_size=self.render_step_size,
+                    device=self.training_device,
+                )
             )
 
             loss, psnr = self.__compute_total_loss(
-                model, rgb_predicted, rgb_ground_truths, depth_predicted, alpha, beta
+                model, rgb_predicted, rgb_ground_truths, depth_predicted, extras, ray_ids, t_values, alpha, beta
             )
             self.__training_step(k, model, loss)
 
@@ -101,6 +103,9 @@ class NeRFModelTrainer(ModelTrainerBase):
         rgb_predicted: torch.Tensor,
         rgb_ground_truths: torch.Tensor,
         depths_predicted: torch.Tensor,
+        extras,
+        ray_ids,
+        t_values,
         alpha: float,
         beta: float,
     ):
@@ -124,14 +129,28 @@ class NeRFModelTrainer(ModelTrainerBase):
                 loss += alpha * freq_reg
 
         if beta is not None:
-            occlussion_loss = self.__compute_occlussion_loss(depths_predicted)
-            loss += beta * occlussion_loss
+            occlussion_loss = self.__compute_occlussion_loss(depths_predicted, extras, t_values, ray_ids)
+            if occlussion_loss is not None:
+                loss += beta * occlussion_loss
 
         return loss, psnr
 
-    def __compute_occlussion_loss(self, depths_predicted) -> torch.Tensor:
-        """Computes occlussion loss based on predicted depths."""
-        return -torch.abs(depths_predicted).sum()
+    def __compute_occlussion_loss(
+        self, depths_predicted, extras, t_values, ray_ids
+    ) -> torch.Tensor:
+        """Computes occlussion loss based on predicted depth. Penalizes sigma values before the
+        expected epth along each ray."""
+        if ray_ids.shape[0] > 0:
+            depths_predicted = depths_predicted.view(-1)
+            thresholds = depths_predicted.gather(0, ray_ids)
+            mask = t_values < thresholds
+            if extras is not None:
+                selected_sigmas = extras["sigmas"][mask]
+            else:
+                return None
+            return torch.abs(selected_sigmas).sum() / len(depths_predicted)
+        else:
+            return None
 
     def __training_step(
         self, current_iteration: int, model: nn.Module, loss: torch.Tensor
