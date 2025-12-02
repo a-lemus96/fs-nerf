@@ -49,8 +49,6 @@ class NeRFModelTrainer(ModelTrainerBase):
 
         model.to(self.training_device)
         self.estimator.to(self.training_device)
-        print(dataset.near, dataset.far)
-        exit()
 
         alpha = self.weight_decay_importance
         beta = self.occ_reg_importance
