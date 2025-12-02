@@ -182,6 +182,12 @@ def config_parser() -> argparse.Namespace:
         type=float,
         help="Occlusion regularization importance parameter",
     )
+    parser.add_argument(
+        "--depth_thres",
+        default=0.2,
+        type=float,
+        help="Depth threshold to penalize sigma values",
+    )
     # -------------------------------logging------------------------------------#
 
     parser.add_argument(

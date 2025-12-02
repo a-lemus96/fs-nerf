@@ -39,6 +39,7 @@ class NeRFModelTrainer(ModelTrainerBase):
         self.occ_reg_importance = settings.occ_reg_importance
         self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
+        self.depth_threshold = settings.depth_threshold
 
     def fit(self, model: nn.Module, dataset: Dataset):
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
@@ -48,6 +49,8 @@ class NeRFModelTrainer(ModelTrainerBase):
 
         model.to(self.training_device)
         self.estimator.to(self.training_device)
+        print(dataset.near, dataset.far)
+        exit()
 
         alpha = self.weight_decay_importance
         beta = self.occ_reg_importance
@@ -129,26 +132,24 @@ class NeRFModelTrainer(ModelTrainerBase):
                 loss += alpha * freq_reg
 
         if beta is not None:
-            occlussion_loss = self.__compute_occlussion_loss(depths_predicted, extras, t_values, ray_ids)
+            occlussion_loss = self.__compute_occlussion_loss(extras, t_values, ray_ids, self.depth_threshold)
             if occlussion_loss is not None:
                 loss += beta * occlussion_loss
 
         return loss, psnr
 
     def __compute_occlussion_loss(
-        self, depths_predicted, extras, t_values, ray_ids
+        self, extras, t_values, ray_ids, threshold
     ) -> torch.Tensor:
         """Computes occlussion loss based on predicted depth. Penalizes sigma values before the
         expected epth along each ray."""
         if ray_ids.shape[0] > 0:
-            depths_predicted = depths_predicted.view(-1)
-            thresholds = depths_predicted.gather(0, ray_ids)
-            mask = t_values < thresholds
+            mask = t_values < threshold
             if extras is not None:
                 selected_sigmas = extras["sigmas"][mask]
             else:
                 return None
-            return torch.abs(selected_sigmas).sum() / len(depths_predicted)
+            return torch.abs(selected_sigmas).sum() / self.batch_size
         else:
             return None
 

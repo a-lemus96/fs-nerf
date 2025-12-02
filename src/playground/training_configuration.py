@@ -19,6 +19,7 @@ class TrainingConfiguration:
     weight_decay_reg_fn: str
     occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
     white_background: bool
+    depth_threshold: float
 
     def __init__(self, training_device: Device, args: Namespace):
         """Builds a NeRF training configuration from an :class:`argparse.Namespace` instance and a :class:`torch.device` instance."""
@@ -33,6 +34,7 @@ class TrainingConfiguration:
             self.occ_reg_importance = args.beta
             self.weight_decay_reg_fn = args.reg
             self.white_background = args.white_bkgd
+            self.depth_threshold = args.depth_thres
         except KeyError as e:
             raise KeyError(
                 f"One or more training parameter keys were not found in input args obj:\n{args}\n\nCheck parser arguments. {e}"
