@@ -155,7 +155,7 @@ class NeRFModelTrainer(ModelTrainerBase):
                 loss += alpha * freq_reg
 
             # occlusion regularization
-            metrics = {"train_psnr": psnr, "lr": self.lr_scheduler.lr, "alpha": alpha}
+            metrics = {"train_psnr": psnr, "photo_loss": loss.item(), "lr": self.lr_scheduler.lr, "alpha": alpha}
             if self.occl_regularizer is not None and result.weights is not None and result.weights.numel() > 0:
                 occl_loss = self.occl_regularizer(result)
                 loss += self.occl_beta * occl_loss
