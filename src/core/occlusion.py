@@ -1,41 +1,11 @@
 # standard library imports
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional
 
 # third-party imports
 import torch
 from torch import Tensor
 
-
-@dataclass
-class RenderingResult:
-    """
-    Holds per-ray and per-sample outputs from a volumetric rendering pass.
-
-    Per-ray fields (required, n_rays = number of rays in batch):
-        - rgb         (n_rays, 3): rendered RGB color per ray
-        - depth       (n_rays, 1): rendered depth per ray
-        - opacity     (n_rays, 1): accumulated opacity per ray
-        - n_rays      (int):       total number of rays in the batch
-
-    Per-sample fields (optional, S = total samples across all rays):
-        - weights     (S,): rendering weights w_k = T_k * (1 - exp(-sigma_k * delta_k))
-        - t_vals      (S,): midpoint depth values (in NDC space if ndc=True)
-        - ray_indices (S,): index of the ray each sample belongs to
-
-    Per-sample fields are always populated by render_rays but typed as
-    Optional to reflect that regularizers should guard against the empty-
-    tensor case that arises when the occupancy estimator produces no samples.
-    """
-    rgb:         Tensor
-    depth:       Tensor
-    opacity:     Tensor
-    n_rays:      int
-    weights:     Optional[Tensor] = None
-    t_vals:      Optional[Tensor] = None
-    ray_indices: Optional[Tensor] = None
-
+from render.rendering import RenderingResult
 
 class OcclusionRegularizer(ABC):
     """
