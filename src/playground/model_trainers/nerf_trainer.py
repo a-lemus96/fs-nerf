@@ -79,7 +79,6 @@ class NeRFModelTrainer(ModelTrainerBase):
         self.weight_decay_importance = settings.weight_decay_importance
         self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
-        self.depth_threshold = settings.depth_threshold
 
     def fit(self, model: nn.Module, dataset: Dataset):
         """
