@@ -25,6 +25,7 @@ import utils.parser as P
 from utils.camera3dplotter import Camera3DPlotter
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.training_configuration import TrainingConfiguration
+from core.occlusion import VarianceRegularizer
 
 # GLOBAL VARIABLES
 k = 0  # global step counter
@@ -65,6 +66,8 @@ def main():
         model, lpips_net = init_models()
 
         training_settings = TrainingConfiguration(device, args)
+        occl_regularizer = VarianceRegularizer() if args.beta is not None else None
+        training_settings.occl_regularizer = occl_regularizer
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
         training_settings.occupancy_estimator_settings.aabb = train_dataset.aabb
         model_trainer = NeRFModelTrainer(training_settings, args.debug)
