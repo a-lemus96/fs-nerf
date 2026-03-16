@@ -1,0 +1,25 @@
+program: run-nerf.py
+project: fs-nerf
+method: grid
+name: baseline-llff
+description:
+  Baseline sweep for vanilla NeRF and SiNeRF without any regularization
+  on the LLFF dataset in the 3, 6, and 9-view few-shot setting.
+parameters:
+  scene:
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
+  model:
+    values: [nerf, sinerf]
+  n_imgs:
+    values: [3, 6, 9]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 30000
+  - --dataset
+  - llff
+  - --out_dir
+  - ../output/baseline-llff/
+  - ${args}
