@@ -1,44 +1,34 @@
-from nerfacc.estimators.occ_grid import OccGridEstimator
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
-from typing import Dict, Any, Optional
-import wandb
+from typing import Any, Dict, Optional
 
-from playground.model_trainers.model_trainer_base import ModelTrainerBase
+import torch
+import torch.nn.functional as F
+from torch import nn
+from torch.utils.data import Dataset
+
+import render.rendering as R
+from core.scheduler import ExponentialDecay, Constant
+from core.occlusion import OcclusionRegularizer
+from nerfacc.estimators.occ_grid import OccGridEstimator
 from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
 from playground.training_configuration import TrainingConfiguration
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
-from core.scheduler import Constant, ExponentialDecay
-from core.occlusion import OcclusionRegularizer
 
-import render.rendering as R
+import wandb
+from tqdm import tqdm
 
 
-class NeRFModelTrainer(ModelTrainerBase):
+class NeRFModelTrainer:
     """
-    Trains a NeRF-like model on a ray-based dataset using an occupancy grid
-    estimator to accelerate sampling.
+    Trainer for NeRF-like models using occupancy-grid-accelerated rendering.
 
-    The total loss is a sum of up to three terms, the last two of which are optional:
-        - Photometric loss: MSE between rendered and ground-truth RGB values.
-        - Frequency regularization: norm penalty on model weights, biasing the
-          model toward low-frequency solutions during early training.
-        - Occlusion regularization: penalty on the rendering weight distribution
-          along each ray, encouraging thin and solid geometry.
-
-    The trainer is decoupled from any specific occlusion regularizer
-    implementation. The concrete regularizer is injected via
-    TrainingConfiguration and accessed only through the OcclusionRegularizer
-    abstract interface.
+    The training dataset is preloaded onto GPU at the start of fit(), and
+    batches are sampled directly via torch.randint — no DataLoader or worker
+    processes are used. This is efficient and correct for the small ray
+    datasets typical in few-shot NeRF (a few tens of images).
     """
 
     def __init__(self, settings: TrainingConfiguration, debug: bool = False):
         """
-        Initializes the trainer by delegating to configure().
-
         Args:
             settings (TrainingConfiguration): full training configuration
             debug (bool): if True, disables all wandb logging
@@ -92,11 +82,14 @@ class NeRFModelTrainer(ModelTrainerBase):
         """
         Runs the training loop for a given model and dataset.
 
+        The dataset is expected to already be on the training device before fit()
+        is called — use dataset.to(device) in run-nerf.py alongside val and test.
         At each iteration:
-            1. Samples a batch of rays from the dataset.
+            1. Samples a batch of rays randomly via torch.randint.
             2. Renders the batch using the current model and occupancy estimator.
             3. Computes the total loss as a sum of active loss terms.
-            4. Performs a gradient update and steps the learning rate scheduler.
+            4. Zeroes gradients, performs a backward pass, and steps the optimizer
+               and learning rate scheduler.
             5. Updates the occupancy estimator.
             6. Optionally evaluates on val_dataset every val_every iterations.
 
@@ -120,15 +113,15 @@ class NeRFModelTrainer(ModelTrainerBase):
         model.to(self.training_device)
         self.estimator.to(self.training_device)
 
+        # Dataset is expected to already be on the training device.
+        # Call dataset.to(device) in run-nerf.py before fit() is called.
+        n_rays = len(dataset)
+
         alpha = self.weight_decay_importance
 
         progress_bar = self.__setup_progress_bar(
             self.num_iterations, bar_description="[fit]"
         )
-        train_dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=True, num_workers=8, persistent_workers=True,
-        )
-        iterator = iter(train_dataloader)
 
         run_validation = evaluator is not None and val_dataset is not None
 
@@ -136,11 +129,11 @@ class NeRFModelTrainer(ModelTrainerBase):
             model.train()
             self.estimator.train()
 
-            try:
-                ray_origins, ray_dirs, rgb_ground_truths = next(iterator)
-            except StopIteration:
-                iterator = iter(train_dataloader)
-                ray_origins, ray_dirs, rgb_ground_truths = next(iterator)
+            # Sample a random batch of rays directly from GPU tensors
+            idxs = torch.randint(0, n_rays, (self.batch_size,), device=self.training_device)
+            ray_origins = dataset.rays_o[idxs]
+            ray_dirs = dataset.rays_d[idxs]
+            rgb_ground_truths = dataset.rgb[idxs]
 
             result = R.render_rays(
                 rays_o=ray_origins,
@@ -154,7 +147,6 @@ class NeRFModelTrainer(ModelTrainerBase):
             )
 
             # photometric loss
-            rgb_ground_truths = rgb_ground_truths.to(self.training_device)
             loss = F.mse_loss(result.rgb, rgb_ground_truths)
             with torch.no_grad():
                 psnr = -10.0 * torch.log10(loss).item()
@@ -212,10 +204,10 @@ class NeRFModelTrainer(ModelTrainerBase):
             model (nn.Module): model being trained
             loss (torch.Tensor): scalar total loss for this iteration
         """
+        self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         self.lr_scheduler.step()
-        self.optimizer.zero_grad()
         self.__update_occupancy_estimator(current_iteration, model)
 
     def __update_occupancy_estimator(self, current_iteration: int, model: nn.Module):

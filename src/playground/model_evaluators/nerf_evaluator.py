@@ -4,7 +4,7 @@ from skimage.metrics import structural_similarity as SSIM
 from torch import nn
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from typing import Tuple
 
 from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
@@ -18,6 +18,7 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
     accelerate rendering during evaluation.
 
     Computes PSNR, SSIM, and LPIPS metrics over a full evaluation dataset.
+    Iterates directly over dataset tensors — no DataLoader or worker processes.
     """
 
     def __init__(self, settings: EvaluationConfiguration, debug: bool = False):
@@ -33,7 +34,7 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
             debug (bool): if True, disables all wandb logging
         """
         self._apply_evaluation_config(settings)
-        self._lpips_model = self._create_lpips_model()
+        self._lpips_model = self._create_lpips_model().to(self.training_device)
         self.white_background = settings.white_background
         self.debug_mode = debug
 
@@ -52,33 +53,38 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
 
     def _create_lpips_model(self) -> LPIPS:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
-        return LPIPS(net="vgg").to(self.training_device)
+        return LPIPS(net="vgg")
 
     def evaluate(self, model: nn.Module, estimator: OccGridEstimator,
                  dataset: Dataset) -> Tuple[float, float, float]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM, and LPIPS.
 
+        Iterates directly over dataset.imgs and dataset.poses tensors, avoiding
+        DataLoader and worker process overhead. The dataset should already be on
+        CPU or GPU — no device transfer is performed here.
+
         Args:
             model (nn.Module): trained NeRF-like model
             estimator (OccGridEstimator): occupancy grid estimator
-            dataset (Dataset): evaluation dataset
+            dataset (Dataset): evaluation dataset (img_mode=True)
         Returns:
             Tuple[float, float, float]: (psnr, ssim, lpips)
         """
         rgbs_gt = []
         rgbs_predicted = []
-        data_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=8)
 
         with torch.no_grad():
-            for sample in data_loader:
-                rgb_gt, pose = sample
+            for i in range(len(dataset.imgs)):
+                rgb_gt = dataset.imgs[i]       # (H, W, 3)
+                pose = dataset.poses[i]        # (3, 4)
+
                 rgbs_gt.append(rgb_gt)
                 rgb_predicted, _ = R.render_frame(
                     self.hwf,
-                    data_loader.dataset.near,
-                    data_loader.dataset.far,
-                    pose[0],
+                    dataset.near,
+                    dataset.far,
+                    pose,
                     self.chunk_size,
                     estimator,
                     model,
@@ -90,6 +96,7 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
                 )
                 rgbs_predicted.append(rgb_predicted)
 
+        # Stack and permute to (N, 3, H, W) for metric computation
         rgbs_predicted = torch.permute(torch.stack(rgbs_predicted, dim=0), (0, 3, 1, 2))
         rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
         rgbs_gt = rgbs_gt.to(self.training_device)
@@ -111,30 +118,22 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
         Computes the LPIPS metric. Images are processed in chunks of
         lpips_chunk_size to avoid OOM errors on large datasets.
         """
-        val_size = rgbs_predicted.shape[0]
-        rgbs_predicted = rgbs_predicted.to(self.training_device)
-
-        with torch.no_grad():
-            if val_size <= self.lpips_chunk_size:
-                return self._lpips_model(rgbs_predicted, rgbs_gt).mean().item()
-
-            val_lpips = 0.0
-            n_chunks = 0
-            for i in range(0, val_size, self.lpips_chunk_size):
-                chunk = rgbs_predicted[i:i + self.lpips_chunk_size]
-                chunk_gt = rgbs_gt[i:i + self.lpips_chunk_size]
-                val_lpips += self._lpips_model(chunk, chunk_gt).mean().item()
-                n_chunks += 1
-            return val_lpips / n_chunks
+        n = rgbs_predicted.shape[0]
+        lpips_scores = []
+        for start in range(0, n, self.lpips_chunk_size):
+            end = min(start + self.lpips_chunk_size, n)
+            pred_chunk = rgbs_predicted[start:end].to(self.training_device)
+            gt_chunk = rgbs_gt[start:end].to(self.training_device)
+            lpips_scores.append(self._lpips_model(pred_chunk, gt_chunk).mean())
+        return torch.stack(lpips_scores).mean().item()
 
     def _compute_ssim_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
-        """Computes structural similarity index. Computation is performed on CPU."""
-        rgbs_predicted = torch.permute(rgbs_predicted, (0, 2, 3, 1)).cpu().numpy()
-        rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-
-        ssim = 0.
-        for rgb_predicted, rgb_gt in zip(rgbs_predicted, rgbs_gt):
-            ssim += SSIM(rgb_predicted, rgb_gt, channel_axis=-1,
-                         data_range=1.0, gaussian_weights=True)
-        return ssim / len(rgbs_predicted)
+        """Computes mean SSIM over all images."""
+        pred_np = rgbs_predicted.permute(0, 2, 3, 1).cpu().numpy()
+        gt_np = rgbs_gt.permute(0, 2, 3, 1).cpu().numpy()
+        scores = [
+            SSIM(p, g, channel_axis=-1, data_range=1.0)
+            for p, g in zip(pred_np, gt_np)
+        ]
+        return float(sum(scores) / len(scores))

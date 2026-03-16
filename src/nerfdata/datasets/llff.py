@@ -88,7 +88,30 @@ class LLFFDataset(Dataset):
         self.rays_o = rays_o
         self.rays_d = rays_d
 
-    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def to(self, device: torch.device) -> "LLFFDataset":
+        """
+        Moves dataset tensors to the given device in-place, loading only what
+        is needed for the current mode to avoid duplicating data on the GPU.
+
+        In ray mode (img_mode=False): moves rays_o, rays_d, and rgb.
+        In image mode (img_mode=True): moves imgs only.
+        poses is always moved as it is small (N x 3 x 4).
+        ------------------------------------------------------------------------
+        Args:
+            device (torch.device): target device
+        Returns:
+            self
+        """
+        self.poses = self.poses.to(device)
+        if self.img_mode:
+            self.imgs = self.imgs.to(device)
+        else:
+            self.rays_o = self.rays_o.to(device)
+            self.rays_d = self.rays_d.to(device)
+            self.rgb = self.rgb.to(device)
+        return self
+
+    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor]:
         """Get a training sample by index.
         ------------------------------------------------------------------------
         Args:
