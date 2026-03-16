@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional
 
 import torch
@@ -33,6 +34,7 @@ class NeRFModelTrainer:
             settings (TrainingConfiguration): full training configuration
             debug (bool): if True, disables all wandb logging
         """
+        self.best_model_path = ""
         self.configure(settings, debug)
 
     def configure(self, settings: TrainingConfiguration, debug: bool = False):
@@ -50,7 +52,9 @@ class NeRFModelTrainer:
         self.render_step_size = estimator_settings.render_step_size
         self.estimator = self.__create_occupancy_estimator(estimator_settings)
         self.debug_mode = debug
-        self.occl_regularizer: Optional[OcclusionRegularizer] = settings.occl_regularizer
+        self.occl_regularizer: Optional[OcclusionRegularizer] = (
+            settings.occl_regularizer
+        )
         self.occl_beta: Optional[float] = settings.occl_beta
 
     def __apply_training_config(self, settings: TrainingConfiguration):
@@ -78,6 +82,7 @@ class NeRFModelTrainer:
         evaluator: Optional[ModelEvaluatorBase] = None,
         val_dataset: Optional[Dataset] = None,
         val_every: int = 500,
+        out_dir: Optional[str] = None,
     ):
         """
         Runs the training loop for a given model and dataset.
@@ -92,6 +97,7 @@ class NeRFModelTrainer:
                and learning rate scheduler.
             5. Updates the occupancy estimator.
             6. Optionally evaluates on val_dataset every val_every iterations.
+                6.1. Optionally saves the model with highest validation PSNR.
 
         Logs train PSNR, learning rate, frequency regularization weight, and
         occlusion loss to wandb at every iteration unless debug mode is active.
@@ -130,7 +136,9 @@ class NeRFModelTrainer:
             self.estimator.train()
 
             # Sample a random batch of rays directly from GPU tensors
-            idxs = torch.randint(0, n_rays, (self.batch_size,), device=self.training_device)
+            idxs = torch.randint(
+                0, n_rays, (self.batch_size,), device=self.training_device
+            )
             ray_origins = dataset.rays_o[idxs]
             ray_dirs = dataset.rays_d[idxs]
             rgb_ground_truths = dataset.rgb[idxs]
@@ -163,8 +171,17 @@ class NeRFModelTrainer:
                 loss += alpha * freq_reg
 
             # occlusion regularization
-            metrics = {"train_psnr": psnr, "photo_loss": loss.item(), "lr": self.lr_scheduler.lr, "alpha": alpha}
-            if self.occl_regularizer is not None and result.weights is not None and result.weights.numel() > 0:
+            metrics = {
+                "train_psnr": psnr,
+                "photo_loss": loss.item(),
+                "lr": self.lr_scheduler.lr,
+                "alpha": alpha,
+            }
+            if (
+                self.occl_regularizer is not None
+                and result.weights is not None
+                and result.weights.numel() > 0
+            ):
                 occl_loss = self.occl_beta * self.occl_regularizer(result)
                 loss += occl_loss
                 if not self.debug_mode:
@@ -179,11 +196,19 @@ class NeRFModelTrainer:
                 val_psnr, val_ssim, val_lpips = evaluator.evaluate(
                     model, self.estimator, val_dataset
                 )
-                metrics.update({
-                    "val_psnr": val_psnr,
-                    "val_ssim": val_ssim,
-                    "val_lpips": val_lpips,
-                })
+                metrics.update(
+                    {
+                        "val_psnr": val_psnr,
+                        "val_ssim": val_ssim,
+                        "val_lpips": val_lpips,
+                    }
+                )
+                # save best model
+                if out_dir is not None and val_psnr > self.best_val_psnr:
+                    self.best_val_psnr = val_psnr
+                    torch.save(
+                        model.state_dict(), os.path.join(out_dir, "best_model.pt")
+                    )
                 model.train()
                 self.estimator.train()
 
@@ -219,6 +244,7 @@ class NeRFModelTrainer:
             current_iteration (int): current training iteration index
             model (nn.Module): model used to evaluate occupancy
         """
+
         def occ_eval_fn(x):
             return model(x) * self.render_step_size
 
@@ -258,7 +284,9 @@ class NeRFModelTrainer:
         """
         return tqdm(range(num_iterations), desc=bar_description)
 
-    def __create_optimizer(self, model: nn.Module, learning_rate: float) -> torch.optim.Adam:
+    def __create_optimizer(
+        self, model: nn.Module, learning_rate: float
+    ) -> torch.optim.Adam:
         """
         Instantiates an Adam optimizer over all model parameters.
 

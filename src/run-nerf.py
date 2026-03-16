@@ -1,18 +1,13 @@
 # stdlib imports
-import logging
+import json
 import os
 import random
 from typing import List, Tuple
 
 # third-party imports
-from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
-import plotly.graph_objects as go
-from skimage.metrics import structural_similarity as SSIM
 import torch
 from torch import nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
 import wandb
 
 # local imports
@@ -69,6 +64,11 @@ def main():
     val_dataset.to(device)
     test_dataset.to(device)
 
+    # Resolve output directory: flat structure out_dir/<run_id>/
+    if not args.debug:
+        out_dir = os.path.normpath(os.path.join(args.out_dir, run.id))
+        os.makedirs(out_dir, exist_ok=True)
+
     if not args.render_only:
         model = init_model()
 
@@ -89,6 +89,7 @@ def main():
             evaluator=model_evaluator,
             val_dataset=val_dataset,
             val_every=args.val_rate,
+            out_dir=out_dir if not args.debug else None,
         )
 
         # final evaluation on test set
@@ -100,37 +101,28 @@ def main():
         )
 
         if not args.debug:
-            wandb.log(
-                {
-                    "final_psnr": final_psnr,
-                    "final_ssim": final_ssim,
-                    "final_lpips": final_lpips,
-                }
-            )
+            metrics = {
+                "final_psnr": final_psnr,
+                "final_ssim": final_ssim,
+                "final_lpips": final_lpips,
+            }
+            wandb.log(metrics)
+
+            # Save metrics as JSON (model is saved during training via trainer)
+            with open(os.path.join(out_dir, "metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=2)
+
+            # Save config (args) as JSON
+            with open(os.path.join(out_dir, "config.json"), "w") as f:
+                json.dump(vars(args), f, indent=2)
+
+            # Log best model checkpoint to wandb
+            wandb.save(os.path.join(out_dir, "best_model.pt"))
+
     else:
         model = init_model()
-        # load model
-        model.load_state_dict(torch.load(out_dir + "/model/nn.pt"))
-
-    if not args.debug:
-        # build base path for output directories
-        out_dir = os.path.normpath(
-            os.path.join(
-                args.out_dir,
-                args.model,
-                args.dataset,
-                args.scene,
-                f"n_imgs_{str(args.n_imgs)}",
-                run.id,
-            )
-        )
-
-        # create output directories
-        folders = ["video", "model"]
-        [os.makedirs(os.path.join(out_dir, f), exist_ok=True) for f in folders]
-        # save model
-        if not args.render_only:
-            torch.save(model.state_dict(), out_dir + "/model/nn.pt")
+        # load model from flat run directory
+        model.load_state_dict(torch.load(os.path.join(out_dir, "nn.pt")))
 
     # compute path poses for video output
     path_poses = splitter.path_poses
