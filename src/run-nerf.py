@@ -118,12 +118,12 @@ def main():
                 json.dump(vars(args), f, indent=2)
 
             # Log best model checkpoint to wandb
-            wandb.save(os.path.join(out_dir, "best_model.pt"))
+            wandb.log_model(os.path.join(out_dir, "best_model.pt"))
 
     else:
         model = init_model()
         # load model from flat run directory
-        model.load_state_dict(torch.load(os.path.join(out_dir, "nn.pt")))
+        model.load_state_dict(torch.load(os.path.join(out_dir, "best_model.pt")))
 
     # compute path poses for video output
     path_poses = splitter.path_poses
@@ -152,8 +152,8 @@ def main():
         # log final video renderings to wandb
         wandb.log(
             {
-                "rgb_video": wandb.Video(frames, format="mp4", fps=30),
-                "depth_video": wandb.Video(d_frames, format="mp4", fps=30),
+                "rgb_video": wandb.Video(frames, format="mp4", fps=15),
+                "depth_video": wandb.Video(d_frames, format="mp4", fps=15),
             }
         )
 
