@@ -22,4 +22,6 @@ command:
   - llff
   - --out_dir
   - ../output/baseline-llff/
+  - --val_batch_size_multiplier
+  - 8
   - ${args}
