@@ -174,7 +174,11 @@ def get_computing_device() -> torch.device:
 def init_wandb():
     wandb.login()
     # set up wandb run to track training
-    name = f"{args.model}_{args.dataset}_img{args.n_imgs}_layer{args.n_layers}"
+    alpha_str = f"a{args.alpha}" if args.alpha else "a0"
+    beta_str = f"b{args.beta}" if args.beta else "b0"
+    name = (
+        f"{args.model}_{args.scene}_nimg{args.n_imgs}_{alpha_str}_{beta_str}_{args.reg}"
+    )
     run = wandb.init(project="fs-nerf", name=name, config=args)
     return run
 
