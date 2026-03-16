@@ -34,7 +34,7 @@ class NeRFModelTrainer:
             settings (TrainingConfiguration): full training configuration
             debug (bool): if True, disables all wandb logging
         """
-        self.best_model_path = ""
+        self.best_val_psnr = float("-inf")
         self.configure(settings, debug)
 
     def configure(self, settings: TrainingConfiguration, debug: bool = False):
@@ -130,7 +130,7 @@ class NeRFModelTrainer:
         )
 
         run_validation = evaluator is not None and val_dataset is not None
-
+        self.best_val_psnr = float("-inf")
         for k in progress_bar:
             model.train()
             self.estimator.train()
