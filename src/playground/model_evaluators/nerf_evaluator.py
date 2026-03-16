@@ -52,7 +52,7 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
 
     def _create_lpips_model(self) -> LPIPS:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
-        return LPIPS(net="vgg")
+        return LPIPS(net="vgg").to(self.training_device)
 
     def evaluate(self, model: nn.Module, estimator: OccGridEstimator,
                  dataset: Dataset) -> Tuple[float, float, float]:
@@ -112,7 +112,6 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
         lpips_chunk_size to avoid OOM errors on large datasets.
         """
         val_size = rgbs_predicted.shape[0]
-        self._lpips_model.to(self.training_device)
         rgbs_predicted = rgbs_predicted.to(self.training_device)
 
         with torch.no_grad():

@@ -126,7 +126,7 @@ class NeRFModelTrainer(ModelTrainerBase):
             self.num_iterations, bar_description="[fit]"
         )
         train_dataloader = DataLoader(
-            dataset, batch_size=self.batch_size, shuffle=True, num_workers=8
+            dataset, batch_size=self.batch_size, shuffle=True, num_workers=8, persistent_workers=True,
         )
         iterator = iter(train_dataloader)
 

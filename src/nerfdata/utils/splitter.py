@@ -329,7 +329,7 @@ class Splitter:
         c2w: np.ndarray,
         poses: np.ndarray,
         bounds: np.ndarray,
-        n_views: int = 120,
+        n_views: int = 60,
         n_rots: int = 2,
         zrate: float = 0.5,
         path_zflat: bool = False,
