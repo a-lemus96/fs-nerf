@@ -98,7 +98,7 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
 
         # Stack and permute to (N, 3, H, W) for metric computation
         rgbs_predicted = torch.permute(torch.stack(rgbs_predicted, dim=0), (0, 3, 1, 2))
-        rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
+        rgbs_gt = torch.permute(torch.stack(rgbs_gt, dim=0), (0, 3, 1, 2))
         rgbs_gt = rgbs_gt.to(self.training_device)
 
         psnr = self._compute_psnr_metric(rgbs_predicted, rgbs_gt)
