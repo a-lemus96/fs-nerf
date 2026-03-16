@@ -53,11 +53,16 @@ def main():
     }
     dataset_name, dataset_kwargs = dataset_config[args.dataset]
 
-    # get training, validation and test dataloaders
+    # get training, validation and test datasets
     splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
     splitter.split()
     datasets = splitter.get_datasets(train_img_mode=False, **dataset_kwargs)
     train_dataset, val_dataset, test_dataset = datasets
+
+    # move all datasets to device once — avoids per-batch CPU-to-GPU transfers
+    train_dataset.to(device)
+    val_dataset.to(device)
+    test_dataset.to(device)
 
     if not args.debug:
         cam_plotter = create_camera_plotter(datasets)
