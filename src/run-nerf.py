@@ -59,14 +59,15 @@ def main():
     datasets = splitter.get_datasets(train_img_mode=False, **dataset_kwargs)
     train_dataset, val_dataset, test_dataset = datasets
 
+    # camera plotter needs poses on CPU — must be called before to(device)
+    if not args.debug:
+        cam_plotter = create_camera_plotter(datasets)
+        cam_plotter.upload_plot()
+
     # move all datasets to device once — avoids per-batch CPU-to-GPU transfers
     train_dataset.to(device)
     val_dataset.to(device)
     test_dataset.to(device)
-
-    if not args.debug:
-        cam_plotter = create_camera_plotter(datasets)
-        cam_plotter.upload_plot()
 
     if not args.render_only:
         model = init_model()
