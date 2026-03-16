@@ -31,6 +31,6 @@ class EvaluationConfiguration:
         """
         self.training_device = training_device
         self.hwf = hwf
-        self.chunk_size = 2 * args.batch_size
+        self.chunk_size = args.eval_batch_size_multiplier * args.batch_size
         self.white_background = args.white_bkgd
         self.lpips_chunk_size = args.lpips_chunk_size
