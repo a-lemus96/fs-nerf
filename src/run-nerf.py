@@ -5,7 +5,6 @@ import random
 from typing import List, Tuple
 
 # third-party imports
-from lpips import LPIPS
 from nerfacc.estimators.occ_grid import OccGridEstimator
 import numpy as np
 import plotly.graph_objects as go
@@ -24,7 +23,9 @@ import render.rendering as R
 import utils.parser as P
 from utils.camera3dplotter import Camera3DPlotter
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
+from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
 from playground.training_configuration import TrainingConfiguration
+from playground.configuration.evaluation_configuration import EvaluationConfiguration
 from core.occlusion import VarianceRegularizer
 
 # GLOBAL VARIABLES
@@ -63,7 +64,7 @@ def main():
         cam_plotter.upload_plot()
 
     if not args.render_only:
-        model, lpips_net = init_models()
+        model = init_model()
 
         training_settings = TrainingConfiguration(device, args)
         occl_regularizer = VarianceRegularizer() if args.beta is not None else None
@@ -72,27 +73,25 @@ def main():
         training_settings.occupancy_estimator_settings.aabb = train_dataset.aabb
         model_trainer = NeRFModelTrainer(training_settings, args.debug)
 
-        # trains model using the trainer's configuration
-        model_trainer.fit(model, train_dataset)
+        eval_settings = EvaluationConfiguration(device, train_dataset.hwf, args)
+        model_evaluator = NeRFModelEvaluator(eval_settings, debug=args.debug)
 
-        # model_evaluator.evaluate(model, test_dataset)
+        # trains model using the trainer's configuration
+        model_trainer.fit(
+            model,
+            train_dataset,
+            evaluator=model_evaluator,
+            val_dataset=val_dataset,
+            val_every=args.val_rate,
+        )
+
+        # final evaluation on test set
         estimator = model_trainer.estimator
         model.eval()
         estimator.eval()
-        lpips_net.eval()
-        lpips_net.to(device)
-        with torch.no_grad():
-            val_metrics = evaluation(
-                train_dataset.hwf,
-                model,
-                estimator,
-                lpips_net,
-                test_dataset,
-                2 * args.batch_size,
-                device,
-            )
-        # log final metrics
-        final_psnr, final_ssim, final_lpips = val_metrics
+        final_psnr, final_ssim, final_lpips = model_evaluator.evaluate(
+            model, estimator, test_dataset
+        )
 
         if not args.debug:
             wandb.log(
@@ -103,7 +102,7 @@ def main():
                 }
             )
     else:
-        model = init_models()
+        model = init_model()
         # load model
         model.load_state_dict(torch.load(out_dir + "/model/nn.pt"))
 
@@ -197,14 +196,14 @@ def create_camera_plotter(
     return cam_plotter
 
 
-def init_models() -> Tuple[nn.Module, LPIPS]:
+def init_model() -> nn.Module:
     """
-    Initialize NeRF-like model and LPIPS net.
+    Initialize NeRF-like model.
     ----------------------------------------------------------------------------
     Args:
         None
     Returns:
-        Tuple[nn.Module, LPIPS]: models
+        nn.Module: model
     """
     # keyword args for positional encoding
     kwargs = {
@@ -233,84 +232,7 @@ def init_models() -> Tuple[nn.Module, LPIPS]:
         case _:
             raise ValueError(f"Model {args.model} not supported")
 
-    lpips_net = LPIPS(net="vgg")
-
-    return model, lpips_net
-
-
-def evaluation(
-    hwf: Tuple[int, int, float],
-    model: nn.Module,
-    estimator: OccGridEstimator,
-    lpips_net: LPIPS,
-    dataset: Dataset,
-    chunksize: int,
-    device: torch.device,
-    render_step_size: float = 5e-3,
-) -> Tuple[float, float, float]:
-    """
-    Performs evaluation for NeRF-like model.
-    ----------------------------------------------------------------------------
-    """
-    ndc = dataset.ndc
-    rgbs = []
-    rgbs_gt = []
-    data_loader = DataLoader(dataset, batch_size=1, shuffle=True, num_workers=8)
-    for val_data in data_loader:
-        rgb_gt, pose = val_data
-        rgbs_gt.append(rgb_gt)  # append ground truth rgb
-        rgb, _ = R.render_frame(
-            hwf,
-            data_loader.dataset.near,
-            data_loader.dataset.far,
-            pose[0],
-            chunksize,
-            estimator,
-            model,
-            train=False,
-            ndc=ndc,
-            white_bkgd=args.white_bkgd,
-            render_step_size=render_step_size,
-            device=device,
-        )
-        rgbs.append(rgb)  # append rendered rgb
-
-    # compute PSNR
-    rgbs = torch.permute(torch.stack(rgbs, dim=0), (0, 3, 1, 2))
-    rgbs_gt = torch.permute(torch.cat(rgbs_gt, dim=0), (0, 3, 1, 2))
-    rgbs_gt = rgbs_gt.to(device)
-    val_psnr = -10.0 * torch.log10(F.mse_loss(rgbs, rgbs_gt))
-    val_size = len(data_loader)
-
-    # compute LPIPS
-    if val_size < 25:
-        val_lpips = lpips_net(rgbs, rgbs_gt).mean()
-    else:
-        # compute LPIPS in chunks
-        n_chunks = 5
-        chunk_size = val_size // n_chunks
-        chunk_idxs = [i for i in range(0, val_size, chunk_size)]
-        chunks = [
-            (rgbs[i : i + chunk_size], rgbs_gt[i : i + chunk_size]) for i in chunk_idxs
-        ]
-        val_lpips = 0.0
-        for chunk, chunk_gt in chunks:
-            val_lpips += lpips_net(chunk, chunk_gt).mean()
-        val_lpips /= n_chunks
-    val_lpips = None
-
-    # compute SSIM
-    rgbs = torch.permute(rgbs, (0, 2, 3, 1)).cpu().numpy()
-    rgbs_gt = torch.permute(rgbs_gt, (0, 2, 3, 1)).cpu().numpy()
-    ssims = np.zeros((rgbs.shape[0],))
-    val_ssim = 0.0
-    for rgb, rgb_gt in zip(rgbs, rgbs_gt):
-        val_ssim += SSIM(
-            rgb, rgb_gt, channel_axis=-1, data_range=1.0, gaussian_weights=True
-        )
-    val_ssim /= len(rgbs)
-
-    return val_psnr, val_ssim, val_lpips
+    return model
 
 
 if __name__ == "__main__":

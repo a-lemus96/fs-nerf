@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
-from nerfdata.datasets import llff
+from torch import nn
+from torch.utils.data import Dataset
+from typing import Tuple
 
 
-class ModelEvaluator(ABC):
+class ModelEvaluatorBase(ABC):
     """Base class for model evaluators."""
 
     @abstractmethod
-    def evaluate(model):
+    def evaluate(self, model: nn.Module, dataset: Dataset) -> Tuple[float, float, float]:
         pass

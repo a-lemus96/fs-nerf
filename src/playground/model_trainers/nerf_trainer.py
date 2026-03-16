@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 import wandb
 
 from playground.model_trainers.model_trainer_base import ModelTrainerBase
+from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
 from playground.training_configuration import TrainingConfiguration
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
 from core.scheduler import Constant, ExponentialDecay
@@ -80,7 +81,14 @@ class NeRFModelTrainer(ModelTrainerBase):
         self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
 
-    def fit(self, model: nn.Module, dataset: Dataset):
+    def fit(
+        self,
+        model: nn.Module,
+        dataset: Dataset,
+        evaluator: Optional[ModelEvaluatorBase] = None,
+        val_dataset: Optional[Dataset] = None,
+        val_every: int = 500,
+    ):
         """
         Runs the training loop for a given model and dataset.
 
@@ -90,6 +98,7 @@ class NeRFModelTrainer(ModelTrainerBase):
             3. Computes the total loss as a sum of active loss terms.
             4. Performs a gradient update and steps the learning rate scheduler.
             5. Updates the occupancy estimator.
+            6. Optionally evaluates on val_dataset every val_every iterations.
 
         Logs train PSNR, learning rate, frequency regularization weight, and
         occlusion loss to wandb at every iteration unless debug mode is active.
@@ -97,6 +106,11 @@ class NeRFModelTrainer(ModelTrainerBase):
         Args:
             model (nn.Module): NeRF-like model to train
             dataset (Dataset): ray-based training dataset
+            evaluator (ModelEvaluatorBase | None): evaluator instance to use for
+                validation. If None, validation is skipped.
+            val_dataset (Dataset | None): validation dataset. If None, validation
+                is skipped even if an evaluator is provided.
+            val_every (int): number of iterations between validation steps
         """
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
         self.lr_scheduler = self.__create_lr_scheduler(
@@ -115,6 +129,8 @@ class NeRFModelTrainer(ModelTrainerBase):
             dataset, batch_size=self.batch_size, shuffle=True, num_workers=8
         )
         iterator = iter(train_dataloader)
+
+        run_validation = evaluator is not None and val_dataset is not None
 
         for k in progress_bar:
             model.train()
@@ -163,6 +179,21 @@ class NeRFModelTrainer(ModelTrainerBase):
                     metrics["occl_loss"] = occl_loss.item()
 
             self.__training_step(k, model, loss)
+
+            # periodic validation
+            if run_validation and (k + 1) % val_every == 0:
+                model.eval()
+                self.estimator.eval()
+                val_psnr, val_ssim, val_lpips = evaluator.evaluate(
+                    model, self.estimator, val_dataset
+                )
+                metrics.update({
+                    "val_psnr": val_psnr,
+                    "val_ssim": val_ssim,
+                    "val_lpips": val_lpips,
+                })
+                model.train()
+                self.estimator.train()
 
             if not self.debug_mode:
                 wandb.log(metrics)

@@ -138,7 +138,7 @@ def config_parser() -> argparse.Namespace:
         help="Learning rate scheduler",
     )
 
-    # -------------------------------validation---------------------------------#
+    # -------------------------------evaluation---------------------------------#
 
     parser.add_argument(
         "--val", action="store_true", help="If set, perform validation during training"
@@ -154,6 +154,13 @@ def config_parser() -> argparse.Namespace:
         default=0.25,
         type=float,
         help="Ratio of val data to be used in between epochs",
+    )
+
+    parser.add_argument(
+        "--lpips_chunk_size",
+        default=25,
+        type=int,
+        help="Number of images per chunk for LPIPS evaluation. Larger values use more GPU memory.",
     )
 
     # -----------------------------regularizers---------------------------------#
