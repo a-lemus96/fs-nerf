@@ -7,7 +7,7 @@ from torch import nn
 from torch.utils.data import Dataset
 
 import render.rendering as R
-from core.scheduler import ExponentialDecay, Constant
+from core.lr_scheduler import ExponentialDecay, Constant
 from core.occlusion import OcclusionRegularizer
 from nerfacc.estimators.occ_grid import OccGridEstimator
 from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
