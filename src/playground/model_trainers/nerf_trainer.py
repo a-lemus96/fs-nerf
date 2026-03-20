@@ -72,8 +72,6 @@ class NeRFModelTrainer:
         self.lr_scheduler_kwargs = settings.lr_scheduler_kwargs
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
-        self.weight_decay_importance = settings.weight_decay_importance
-        self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
         self.freq_regularizer: Optional[FrequencyRegularizer] = (
             settings.freq_regularizer
@@ -126,8 +124,6 @@ class NeRFModelTrainer:
         # Dataset is expected to already be on the training device.
         # Call dataset.to(device) in run-nerf.py before fit() is called.
         n_rays = len(dataset)
-
-        alpha = self.weight_decay_importance
 
         progress_bar = self.__setup_progress_bar(
             self.num_iterations, bar_description="[fit]"
