@@ -1,0 +1,33 @@
+program: run-nerf.py
+project: fs-nerf
+method: grid
+name: constant-reg-llff
+description:
+  Constant L1 weight decay regularization sweep for NeRF and SiNeRF
+  on the LLFF dataset in the 3, 6, and 9-view few-shot setting.
+  Goal is to show the effect of regularization strength and that
+  NeRF is not amenable to this kind of regularization.
+parameters:
+  scene:
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
+  model:
+    values: [nerf, sinerf]
+  n_imgs:
+    values: [3, 6, 9]
+  alpha:
+    values: [1e-6, 1e-5, 1e-4]
+  reg:
+    values: [l1]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 30000
+  - --dataset
+  - llff
+  - --out_dir
+  - ../output/constant-reg-llff/
+  - --val_batch_size_multiplier
+  - 8
+  - ${args}
