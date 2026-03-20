@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 from argparse import Namespace
 
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from core.freq_regularizer import FrequencyRegularizer
 from core.occlusion import OcclusionRegularizer
 
 
@@ -25,24 +26,23 @@ class TrainingConfiguration:
         - learning_rate (float):            initial learning rate
         - lr_scheduler_type (str):          one of 'const' or 'exp'
         - lr_scheduler_kwargs (dict):       additional kwargs for the scheduler
-        - weight_decay_importance (float):  alpha, importance of freq. regularizer
-        - weight_decay_reg_fn (str):        norm type for freq. regularizer ('l1' or 'l2')
         - occupancy_estimator_settings:     config for the occupancy grid estimator
         - white_background (bool):          whether to composite over white background
         - occl_beta (float | None):         importance weight for occlusion regularizer
+        - freq_regularizer:                 FrequencyRegularizer with concrete FrequencyScheduler
         - occl_regularizer:                 concrete OcclusionRegularizer, or None
     """
+
     training_device: torch.device
     num_iterations: int
     batch_size: int
     learning_rate: float
     lr_scheduler_type: str
     lr_scheduler_kwargs: Dict[str, Any]
-    weight_decay_importance: float
-    weight_decay_reg_fn: str
     occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
     white_background: bool
     occl_beta: Optional[float]
+    freq_regularizer: Optional[FrequencyRegularizer]
     occl_regularizer: Optional[OcclusionRegularizer]
 
     def __init__(
@@ -59,11 +59,11 @@ class TrainingConfiguration:
         passing it here. Passing None disables occlusion regularization entirely.
 
         Args:
-            training_device (Device):            device to run training on
-            args (Namespace):                    parsed command-line arguments
+            training_device (Device):               device to run training on
+            args (Namespace):                       parsed command-line arguments
             occl_regularizer (OcclusionRegularizer | None):
-                                                 concrete regularizer instance,
-                                                 or None to disable
+                                                    concrete regularizer instance,
+                                                    or None to disable
         Raises:
             KeyError: if a required argument key is missing from args
         """
@@ -74,8 +74,6 @@ class TrainingConfiguration:
             self.learning_rate = args.lro
             self.lr_scheduler_type = args.scheduler
             self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
-            self.weight_decay_importance = args.alpha
-            self.weight_decay_reg_fn = args.reg
             self.white_background = args.white_bkgd
             self.occl_beta = args.beta
         except KeyError as e:

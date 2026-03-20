@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 
 import render.rendering as R
 from core.lr_scheduler import ExponentialDecay, Constant
+from core.freq_regularizer import FrequencyRegularizer
 from core.occlusion import OcclusionRegularizer
 from nerfacc.estimators.occ_grid import OccGridEstimator
 from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
@@ -74,6 +75,9 @@ class NeRFModelTrainer:
         self.weight_decay_importance = settings.weight_decay_importance
         self.weight_decay_reg_fn = settings.weight_decay_reg_fn
         self.white_background = settings.white_background
+        self.freq_regularizer: Optional[FrequencyRegularizer] = (
+            settings.freq_regularizer
+        )
 
     def fit(
         self,
@@ -160,22 +164,19 @@ class NeRFModelTrainer:
                 psnr = -10.0 * torch.log10(loss).item()
 
             # frequency regularization
-            if alpha is not None:
-                freq_reg = torch.tensor(0.0).to(self.training_device)
-                for name, param in model.named_parameters():
-                    if "weight" in name and param.shape[0] > 3:
-                        if self.weight_decay_reg_fn == "l1":
-                            freq_reg += torch.abs(param).sum()
-                        else:
-                            freq_reg += torch.square(param).sum()
-                loss += alpha * freq_reg
+            if self.freq_regularizer is not None:
+                loss += self.freq_regularizer()
 
             # occlusion regularization
             metrics = {
                 "train_psnr": psnr,
                 "photo_loss": loss.item(),
                 "lr": self.lr_scheduler.lr,
-                "alpha": alpha,
+                "alpha": (
+                    self.freq_regularizer.freq_scheduler.alpha
+                    if self.freq_regularizer is not None
+                    else None
+                ),
             }
             if (
                 self.occl_regularizer is not None
@@ -229,6 +230,8 @@ class NeRFModelTrainer:
             model (nn.Module): model being trained
             loss (torch.Tensor): scalar total loss for this iteration
         """
+        if self.freq_regularizer is not None:
+            self.freq_regularizer.step()
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

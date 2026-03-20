@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from torch import device as Device
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from argparse import Namespace
 
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from core.freq_regularizer import FrequencyRegularizer
 
 
 @dataclass
@@ -18,6 +19,7 @@ class TrainingConfiguration:
     weight_decay_reg_fn: str
     occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
     white_background: bool
+    freq_regularizer: Optional[FrequencyRegularizer]
 
     def __init__(self, training_device: Device, args: Namespace):
         """Builds a NeRF training configuration from an :class:`argparse.Namespace` instance and a :class:`torch.device` instance."""
@@ -36,7 +38,6 @@ class TrainingConfiguration:
             raise KeyError(
                 f"One or more training parameter keys were not found in input args obj:\n{args}\n\nCheck parser arguments. {e}"
             )
-
         self.occupancy_estimator_settings = OccupancyGridEstimatorConfiguration()
 
     def __get_scheduler_kwargs(self, args: Namespace) -> Dict[str, Any]:
