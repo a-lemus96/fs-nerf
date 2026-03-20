@@ -87,10 +87,9 @@ def main():
         )
         occl_regularizer = VarianceRegularizer() if args.beta is not None else None
         training_settings.occl_regularizer = occl_regularizer
-        training_settings.freq_reqgularizer = freq_regularizer
+        training_settings.freq_regularizer = freq_regularizer
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
         training_settings.occupancy_estimator_settings.aabb = train_dataset.aabb
-
 
         model_trainer = NeRFModelTrainer(training_settings, args.debug)
 
