@@ -1,0 +1,19 @@
+services:
+  fs-nerf:
+    image: fs-nerf:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ./src:/workspace/src
+      - ./datasets:/workspace/datasets:ro
+      - ./output:/workspace/output
+    working_dir: /workspace/src
+    stdin_open: true
+    tty: true
