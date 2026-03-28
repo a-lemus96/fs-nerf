@@ -52,7 +52,7 @@ class ConstantScheduler(FrequencyScheduler):
 
     @property
     def alpha(self) -> float:
-        """Returns the fixed regularization weight α."""
+        """Returns the fixed regularization weight alpha."""
         return self._alpha
 
 

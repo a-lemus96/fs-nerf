@@ -1,7 +1,6 @@
 # stdlib imports
 import argparse
 
-
 def config_parser() -> argparse.Namespace:
     """Creates a parser for command-line arguments.
     ----------------------------------------------------------------------------
@@ -164,6 +163,12 @@ def config_parser() -> argparse.Namespace:
         default=None,
         type=float,
         help="Initial alpha value for regularizing model parameter weights",
+    )
+    regularizers.add_argument(
+        "--freq_scheduler",
+        choices=["constant", "linear"],
+        default="constant",
+        help="Frequency regularizer scheduler type",
     )
     regularizers.add_argument(
         "--reg_ratio",

@@ -2,7 +2,7 @@
 import json
 import os
 import random
-from typing import List, Tuple
+from typing import Tuple
 
 # third-party imports
 import numpy as np
@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 import wandb
 
 # local imports
-from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler
+from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
 import core.models as M
 from nerfdata.datasets import llff, blender
 from nerfdata.utils.splitter import Splitter
@@ -48,7 +48,7 @@ def main():
         "synthetic": (blender.BlenderDataset, {"white_bkgd": args.white_bkgd}),
         "llff": (llff.LLFFDataset, {"white_bkgd": args.white_bkgd, "ndc": True}),
     }
-    dataset_name, dataset_kwargs = dataset_config[args.dataset]
+    _, dataset_kwargs = dataset_config[args.dataset]
 
     # get training, validation and test datasets
     splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
@@ -76,15 +76,21 @@ def main():
 
         # build training settings
         training_settings = TrainingConfiguration(device, args)
-        freq_regularizer = (
-            FrequencyRegularizer(
+        # build frequency regularizer
+        if args.alpha is not None:
+            match args.freq_scheduler:
+                case "constant":
+                    scheduler = ConstantScheduler(alpha=args.alpha)
+                case "linear":
+                    T = int(args.reg_ratio * args.n_iters)
+                    scheduler = LinearScheduler(alpha_0=args.alpha, alpha_T=0.0, T=T)
+            freq_regularizer = FrequencyRegularizer(
                 model.named_parameters(),
-                ConstantScheduler(alpha=args.alpha),
+                scheduler,
                 reg=args.reg,
             )
-            if args.alpha is not None
-            else None
-        )
+        else:
+            freq_regularizer = None     
         occl_regularizer = VarianceRegularizer() if args.beta is not None else None
         training_settings.occl_regularizer = occl_regularizer
         training_settings.freq_regularizer = freq_regularizer
