@@ -1,0 +1,37 @@
+program: run-nerf.py
+project: fs-nerf
+method: grid
+name: scheduled-reg-llff
+description:
+  Linear frequency regularization sweep for SiNeRF on the LLFF dataset
+  in the 3, 6, and 9-view few-shot setting. Alpha decays linearly from
+  1e-5 to 0 over reg_ratio fraction of training. Goal is to show that
+  scheduled regularization outperforms constant regularization for SiNeRF.
+parameters:
+  scene:
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
+  model:
+    values: [sinerf]
+  n_imgs:
+    values: [3, 6, 9]
+  alpha:
+    values: [1e-05]
+  reg_ratio:
+    values: [0.3, 0.6, 0.9]
+  reg:
+    values: [l1]
+  freq_scheduler:
+    values: [linear]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 30000
+  - --dataset
+  - llff
+  - --out_dir
+  - ../output/scheduled-reg-llff/
+  - --val_batch_size_multiplier
+  - 8
+  - ${args}
