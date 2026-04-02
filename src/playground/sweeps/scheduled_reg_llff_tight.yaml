@@ -1,0 +1,38 @@
+program: run-nerf.py
+project: fs-nerf
+method: grid
+name: scheduled-reg-llff-tight
+description:
+  Linear frequency regularization sweep for SiNeRF on the LLFF dataset
+  in the 3, 6, and 9-view few-shot setting. Targets tighter reg_ratio values
+  (0.05, 0.1, 0.2) motivated by the finding that reg_ratio=0.3 is the only
+  value competitive with the unregularized baseline, with all higher values
+  causing monotonic performance degradation.
+parameters:
+  scene:
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
+  model:
+    values: [sinerf]
+  n_imgs:
+    values: [3, 6, 9]
+  alpha:
+    values: [1e-5]
+  reg_ratio:
+    values: [0.05, 0.1, 0.2]
+  reg:
+    values: [l1]
+  freq_scheduler:
+    values: [linear]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 30000
+  - --dataset
+  - llff
+  - --out_dir
+  - ../output/scheduled-reg-llff-tight/
+  - --val_batch_size_multiplier
+  - 8
+  - ${args}
