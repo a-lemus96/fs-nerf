@@ -23,7 +23,7 @@ class OcclusionRegularizer(ABC):
     def __call__(self, result: RenderingResult) -> Tensor:
         """
         Computes a scalar regularization loss from a RenderingResult.
-   
+
         Args:
             result (RenderingResult): outputs from a volumetric rendering pass
         Returns:
@@ -31,52 +31,47 @@ class OcclusionRegularizer(ABC):
         """
         pass
 
-
-class VarianceRegularizer(OcclusionRegularizer):
+    
+class WeightSumSquaredRegularizer(OcclusionRegularizer):
     """
-    Variance-based occlusion regularizer.
+    Weight-sum-squared occlusion regularizer.
 
-    Penalizes the variance of the rendering weight distribution along each
-    ray, encouraging the model to place geometry at a single depth rather
-    than spreading density across multiple samples. This biases the model
-    toward thin, solid surface-like structures.
+    Encourages each ray to concentrate its rendering weight on as few samples
+    as possible, biasing the model toward opaque, surface-like geometry rather
+    than translucent or foggy density distributions.
 
-    For a ray with rendering weights {w_k} and midpoint depths {t_k}, the
-    per-ray variance is:
+    For a ray r with per-sample rendering weights {w_k}, the per-ray score is:
 
-        Var[t] = E[t^2] - E[t]^2
-               = sum_k(w_k * t_k^2) - (sum_k(w_k * t_k))^2
+        S_r = sum_k w_{r,k}^2
 
-    The loss is the mean variance across all rays in the batch:
+    This is maximized when all weight is on a single sample (S_r = 1) and
+    minimized when weight is spread uniformly across N samples (S_r = 1/N).
 
-        L_var = (1 / |R|) * sum_{r in R} Var_r[t]
+    The loss is the *negative* mean score across all rays in the batch, so
+    that minimizing the loss encourages peaked (concentrated) distributions:
 
-    In NDC space, t values lie in [0, 1), so variance values are naturally
-    small. The effect of this regularizer is stronger near the camera due
-    to the nonlinear NDC compression of depth.
+        L_occ = -(1 / |R|) * sum_{r in R} S_r
+
+    Implementation uses scatter_add_ for efficiency over the packed-ray format
+    produced by nerfacc.
     """
 
     def __call__(self, result: RenderingResult) -> Tensor:
         """
-        Computes the mean variance of the rendering weight distribution
-        across all rays in the batch using a vectorized scatter-based approach.
+        Computes the negative mean per-ray sum-of-squared rendering weights.
 
         Args:
             result (RenderingResult): outputs from a volumetric rendering pass
         Returns:
-            Tensor: scalar mean variance loss
+            Tensor: scalar regularization loss (negative, to be minimized)
         """
-        weights     = result.weights
-        t_vals      = result.t_vals
-        ray_indices = result.ray_indices
+        weights     = result.weights       # (S,)
+        ray_indices = result.ray_indices   # (S,)
         n_rays      = result.n_rays
 
-        e_t = torch.zeros(n_rays, device=weights.device)
-        e_t.scatter_add_(0, ray_indices, weights * t_vals)
+        # Accumulate sum of squared weights per ray: shape (n_rays,)
+        sum_sq = torch.zeros(n_rays, device=weights.device)
+        sum_sq.scatter_add_(0, ray_indices, weights ** 2)
 
-        e_t2 = torch.zeros(n_rays, device=weights.device)
-        e_t2.scatter_add_(0, ray_indices, weights * t_vals ** 2)
-
-        var = (e_t2 - e_t ** 2).clamp(min=0.0)
-
-        return var.mean()
+        # Negate so that minimizing loss maximizes weight concentration
+        return -sum_sq.mean()

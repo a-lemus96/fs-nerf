@@ -23,7 +23,7 @@ from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
 from playground.training_configuration import TrainingConfiguration
 from playground.configuration.evaluation_configuration import EvaluationConfiguration
-from core.occlusion import VarianceRegularizer
+from core.occlusion import WeightSumSquaredRegularizer
 
 # GLOBAL VARIABLES
 k = 0  # global step counter
@@ -91,7 +91,7 @@ def main():
             )
         else:
             freq_regularizer = None     
-        occl_regularizer = VarianceRegularizer() if args.beta is not None else None
+        occl_regularizer = WeightSumSquaredRegularizer() if args.beta is not None else None
         training_settings.occl_regularizer = occl_regularizer
         training_settings.freq_regularizer = freq_regularizer
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
