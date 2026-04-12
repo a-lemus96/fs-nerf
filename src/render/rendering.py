@@ -127,7 +127,7 @@ def render_rays(
     render_bkgd = white_bkgd * torch.ones((3,), device=device, requires_grad=train)
 
     try:
-        rgb, opacity, depth, _ = rendering(
+        rgb, opacity, depth, extras = rendering(
             t_starts,
             t_ends,
             ray_indices,
@@ -135,11 +135,11 @@ def render_rays(
             rgb_sigma_fn=rgb_sigma_fn,
             render_bkgd=render_bkgd,
         )
-
-        _, sigmas = rgb_sigma_fn(t_starts, t_ends, ray_indices)
-        weights, *_ = render_weight_from_density(
-            t_starts, t_ends, sigmas, ray_indices=ray_indices, n_rays=n_rays
-        )
+        with torch.cuda.amp.autocast():
+            _, sigmas = rgb_sigma_fn(t_starts, t_ends, ray_indices)
+            weights, *_ = render_weight_from_density(
+                t_starts, t_ends, sigmas, ray_indices=ray_indices, n_rays=n_rays
+            )
 
     except AssertionError:
         # occupancy estimator found no samples; return background fallback

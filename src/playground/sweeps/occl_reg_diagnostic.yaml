@@ -3,15 +3,15 @@ project: fs-nerf
 method: grid
 name: occl-reg-diagnostic
 description:
-  Occlusion regularization diagnostic sweep for SiNeRF on the room scene
-  (LLFF) in the 3 few-shot setting. Uses the WeightSumSquaredRegularizer
-  with beta ranging from 1e0 to 1e-6 to identify viable regularization 
+  Occlusion regularization diagnostic sweep for SiNeRF on the LLFF dataset
+  in the 3 few-shot setting. Uses the WeightSumSquaredRegularizer
+  with beta ranging from 0.1 to 1e-4 to identify viable regularization 
   strength.
 parameters:
   beta:
-    values: [1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001]
+    values: [0.1, 0.01, 0.001, 0.0001]
   scene:
-    values: [room]
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
   n_imgs:
     values: [3]
 command:
