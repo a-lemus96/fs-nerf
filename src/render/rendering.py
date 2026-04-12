@@ -136,10 +136,7 @@ def render_rays(
             render_bkgd=render_bkgd,
         )
 
-        # recompute sigmas in no-grad context to derive per-sample weights
-        # without introducing a spurious entry into the computational graph
-        with torch.no_grad():
-            _, sigmas = rgb_sigma_fn(t_starts, t_ends, ray_indices)
+        _, sigmas = rgb_sigma_fn(t_starts, t_ends, ray_indices)
         weights, *_ = render_weight_from_density(
             t_starts, t_ends, sigmas, ray_indices=ray_indices, n_rays=n_rays
         )
