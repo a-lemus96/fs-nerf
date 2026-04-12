@@ -179,8 +179,8 @@ class NeRFModelTrainer:
                 and result.weights is not None
                 and result.weights.numel() > 0
             ):
-                occl_loss = self.occl_beta * self.occl_regularizer(result)
-                loss += occl_loss
+                occl_loss = self.occl_regularizer(result)
+                loss += self.occl_beta * occl_loss
                 if not self.debug_mode:
                     metrics["occl_loss"] = occl_loss.item()
 
