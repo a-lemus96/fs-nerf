@@ -1,0 +1,31 @@
+program: run-nerf.py
+project: fs-nerf
+method: grid
+name: occl-reg-high-beta-room
+description:
+  Occlusion regularization diagnostic sweep for SiNeRF on the room scene
+  (LLFF) in the 3 few-shot setting. Uses the WeightSumSquaredRegularizer
+  with beta ranging from 1e01 to 1e02 to identify viable regularization 
+  strength.
+parameters:
+  beta:
+    values: [10.0, 100.0]
+  scene:
+    values: [room]
+  n_imgs:
+    values: [3]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 30000
+  - --dataset
+  - llff
+  - --model
+  - sinerf
+  - --out_dir
+  - ../output/occl-reg-room-diagnostic/
+  - --val_batch_size_multiplier
+  - 8
+  - ${args}
