@@ -1,29 +1,35 @@
 program: run-nerf.py
 project: fs-nerf
 method: grid
-name: occl-reg-diagnostic
+name: occl-reg-llff-diagnostic
 description:
-  Occlusion regularization diagnostic sweep for SiNeRF on the LLFF dataset
-  in the 3 few-shot setting. Uses the WeightSumSquaredRegularizer
-  with beta ranging from 0.1 to 1e-4 to identify viable regularization 
-  strength.
+  Diagnostic sweep for occlusion regularization (WeightSumSquared) combined
+  with frequency scheduler (linear, alpha=1e-5, reg_ratio=0.05) for SiNeRF
+  on the full LLFF dataset in the 3-view setting. Goal is to identify a
+  suitable beta value before committing to the full 3/6/9 combined sweep.
 parameters:
-  beta:
-    values: [0.1, 0.01, 0.001, 0.0001]
+  dataset:
+    values: [llff]
   scene:
     values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
   n_imgs:
     values: [3]
+  model:
+    values: [sinerf]
+  alpha:
+    values: [1e-05]
+  reg_ratio:
+    values: [0.05]
+  freq_scheduler:
+    values: [linear]
+  beta:
+    values: [0.1, 0.01, 0.001, 0.0001]
 command:
   - ${env}
   - ${interpreter}
   - ${program}
   - --n_iters
   - 30000
-  - --dataset
-  - llff
-  - --model
-  - sinerf
   - --out_dir
   - ../output/occl-reg-room-diagnostic/
   - --val_batch_size_multiplier
