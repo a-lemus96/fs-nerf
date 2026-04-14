@@ -5,25 +5,31 @@ name: occl-reg-high-beta-room
 description:
   Occlusion regularization diagnostic sweep for SiNeRF on the room scene
   (LLFF) in the 3 few-shot setting. Uses the WeightSumSquaredRegularizer
-  with beta ranging from 1e01 to 1e02 to identify viable regularization 
+  with beta ranging from 1 to 1e01 to identify viable regularization 
   strength.
 parameters:
-  beta:
-    values: [10.0, 100.0]
+  dataset:
+    values: [llff]
   scene:
-    values: [room]
+    values: [fern, flower, fortress, horns, leaves, orchids, room, trex]
   n_imgs:
     values: [3]
+  model:
+    values: [sinerf]
+  alpha:
+    values: [1e-05]
+  reg_ratio:
+    values: [0.05]
+  freq_scheduler:
+    values: [linear]
+  beta:
+    values: [1.0, 10.0]
 command:
   - ${env}
   - ${interpreter}
   - ${program}
   - --n_iters
   - 30000
-  - --dataset
-  - llff
-  - --model
-  - sinerf
   - --out_dir
   - ../output/occl-reg-room-diagnostic/
   - --val_batch_size_multiplier
