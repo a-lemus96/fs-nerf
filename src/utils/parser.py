@@ -7,32 +7,6 @@ def config_parser() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="Train NeRF for view synthesis.")
 
-    enc = parser.add_argument_group("Encoder")
-    enc.add_argument("--d_input", default=3, type=int, help="Spatial input dimension")
-    enc.add_argument(
-        "--n_freqs",
-        default=10,
-        type=int,
-        help="Number of encoding functions for spatial coordinates",
-    )
-    enc.add_argument(
-        "--log_space",
-        action="store_false",
-        help="If not set, frequency scale is in logarithmic space",
-    )
-    enc.add_argument(
-        "--no_dirs",
-        action="store_true",
-        help="If set, do not model view-dependent effects",
-    )
-    enc.add_argument(
-        "--n_freqs_views",
-        dest="n_freqs_views",
-        default=4,
-        type=int,
-        help="Number of encoding fns for view dirs",
-    )
-
     model = parser.add_argument_group("Model")
     model.add_argument(
         "--model",

@@ -224,16 +224,16 @@ def init_model() -> nn.Module:
     """
     # keyword args for positional encoding
     kwargs = {
-        "pos_fn": {"n_freqs": args.n_freqs, "log_space": args.log_space},
-        "dir_fn": {"n_freqs": args.n_freqs_views, "log_space": args.log_space},
+        "pos_fn": {"n_freqs": 10, "log_space": True},
+        "dir_fn": {"n_freqs": 4, "log_space": True},
     }
     alpha_values = [30] + [1] * (args.n_layers - 1)
     # instantiate model
     match args.model:
         case "nerf":
             model = M.NeRF(
-                args.d_input,
-                args.d_input,
+                3,
+                3,
                 args.n_layers,
                 args.d_filter,
                 args.skip,
@@ -241,8 +241,8 @@ def init_model() -> nn.Module:
             )
         case "sinerf":
             model = M.SiNeRF(
-                args.d_input,
-                args.d_input,
+                3,
+                3,
                 args.d_filter,
                 alpha_values,
             )
