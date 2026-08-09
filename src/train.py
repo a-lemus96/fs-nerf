@@ -222,20 +222,12 @@ def init_model() -> nn.Module:
     Returns:
         nn.Module: model
     """
-    alpha_values = [30] + [1] * (args.n_layers - 1)
     # instantiate model
     match args.model:
         case "nerf":
-            model = M.NeRF(
-                n_layers=args.n_layers,
-                d_hidden=args.d_filter,
-                skip=args.skip,
-            )
+            model = M.NeRF()
         case "sinerf":
-            model = M.SiNeRF(
-                width=args.d_filter,
-                alpha=alpha_values,
-            )
+            model = M.SiNeRF()
         case _:
             raise ValueError(f"Model {args.model} not supported")
 

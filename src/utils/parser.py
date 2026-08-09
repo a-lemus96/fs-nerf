@@ -14,18 +14,6 @@ def config_parser() -> argparse.Namespace:
         default="sinerf",
         help="Model to be used for training",
     )
-    model.add_argument(
-        "--d_filter", default=256, type=int, help="Linear layer filter dimension"
-    )
-    model.add_argument(
-        "--n_layers", default=8, type=int, help="Number of layers preceding bottleneck"
-    )
-    model.add_argument(
-        "--skip",
-        default=[4],
-        type=list,
-        help="Layers at which to apply input residual connections",
-    )
 
     data = parser.add_argument_group("Data")
     data.add_argument(
