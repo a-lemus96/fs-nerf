@@ -1,6 +1,6 @@
 """NeRF-like model definitions exposed through a single namespace."""
 
-from core.models.nerf import NeRF
-from core.models.sinerf import SiNeRF
+from core.models.nerf import Nerf
+from core.models.sinerf import Sinerf
 
-__all__ = ["NeRF", "SiNeRF"]
+__all__ = ["Nerf", "Sinerf"]

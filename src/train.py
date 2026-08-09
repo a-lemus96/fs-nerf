@@ -13,7 +13,7 @@ import wandb
 
 # local imports
 from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
-from core.models import NeRF, SiNeRF
+from core.models import Nerf, Sinerf
 from nerfdata.datasets import llff
 from nerfdata.utils.splitter import Splitter
 import render.rendering as R
@@ -225,9 +225,9 @@ def init_model() -> nn.Module:
     # instantiate model
     match args.model:
         case "nerf":
-            model = NeRF()
+            model = Nerf()
         case "sinerf":
-            model = SiNeRF()
+            model = Sinerf()
         case _:
             raise ValueError(f"Model {args.model} not supported")
 

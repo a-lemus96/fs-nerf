@@ -49,7 +49,7 @@ class PositionalEncoder(nn.Module):
         return torch.concat([fn(x) for fn in self.embedding_fns], dim=-1)
 
 
-class NeRF(nn.Module):
+class Nerf(nn.Module):
     """Neural Radiance Field model definition.
     ----------------------------------------------------------------------------
     """
@@ -76,7 +76,7 @@ class NeRF(nn.Module):
                 'log_space' entries. Defaults are used for missing entries
         ------------------------------------------------------------------------
         """
-        super(NeRF, self).__init__()
+        super(Nerf, self).__init__()
         self.d_pos = d_pos
         self.d_dir = d_dir
         self.skip = skip

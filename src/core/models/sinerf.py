@@ -99,7 +99,7 @@ class SirenLinear(nn.Module):
         return out
 
 
-class SiNeRF(nn.Module):
+class Sinerf(nn.Module):
     """
     SIREN MLP model for NeRF. It is based on the original implementation of [1].
     ----------------------------------------------------------------------------
@@ -124,7 +124,7 @@ class SiNeRF(nn.Module):
             width: int. Base width of the hidden layers
             alpha: List[float]. List of alpha values for each layer
         """
-        super(SiNeRF, self).__init__()
+        super(Sinerf, self).__init__()
         self.pos_dim = pos_dim
         self.dir_dim = dir_dim
         self.alpha = alpha
