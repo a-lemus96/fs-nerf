@@ -20,40 +20,99 @@ class LLFFDataset(Dataset):
     ----------------------------------------------------------------------------
     """
 
+    LLFF_HOLD = 8  # every LLFF_HOLD-th view is held out for testing
+
     def __init__(
         self,
-        imgs: np.array,
-        poses: np.array,
-        min_bound: float,
-        max_bound: float,
-        hwf: Tuple[int, int, float],
+        scene: str,
         img_mode: bool = False,
         ndc: bool = True,
     ) -> None:
         """
-        Initializes the dataset.
+        Loads the scene: images, poses, bounds and intrinsics.
         ------------------------------------------------------------------------
         Args:
-            To be updated...
+            scene (str): scene folder name under ../datasets/llff/
+            img_mode (bool): if True, the dataset yields whole images instead
+                             of rays
+            ndc (bool): if True, maps rays to normalized device coordinates
         """
         super(LLFFDataset, self).__init__()
-        self.imgs = torch.tensor(imgs, dtype=torch.float32)
-        self.poses = torch.tensor(poses, dtype=torch.float32)
-        self.hwf = hwf
+        (
+            img_paths,
+            self.poses,
+            self.hwf,
+            self.min_bound,
+            self.max_bound,
+            self.path_poses,
+        ) = LLFFDataset.load_scene(scene)
+        self.poses = torch.tensor(self.poses, dtype=torch.float32)
         self.img_mode = img_mode
         self.ndc = ndc
 
-        # Define the ray bounds
-        if not ndc:
-            self.near = min_bound * 0.9
-            self.far = max_bound * 1.0
+        imgs = LLFFDataset.load_img_files(img_paths)
+        self.imgs = torch.tensor(imgs, dtype=torch.float32)
+        self.__set_bounds()
+        if not self.img_mode:
+            self.__build_samples()
+
+    @classmethod
+    def __from_split(
+        cls,
+        imgs: Tensor,
+        poses: Tensor,
+        min_bound: float,
+        max_bound: float,
+        hwf: Tuple[int, int, float],
+        path_poses: ndarray,
+        img_mode: bool,
+        ndc: bool,
+    ) -> "LLFFDataset":
+        """
+        Builds a dataset instance from in-memory tensors, bypassing disk
+        access. Used internally by split().
+        ------------------------------------------------------------------------
+        Args:
+            imgs (Tensor): [N, H, W, 3]. RGB images scaled to [0, 1]
+            poses (Tensor): [N, 3, 4]. Camera poses
+            min_bound (float): minimum value across the poses
+            max_bound (float): maximum value across the poses
+            hwf (Tuple[int, int, float]): image height, width and focal length
+            path_poses (ndarray): [M, 3, 4]. Spiral path poses for rendering
+                                  sample videos
+            img_mode (bool): if True, the dataset yields whole images instead
+                             of rays
+            ndc (bool): if True, maps rays to normalized device coordinates
+        Returns:
+            dataset (LLFFDataset): dataset over the given views
+        """
+        self = cls.__new__(cls)
+        Dataset.__init__(self)
+        self.imgs = imgs
+        self.poses = poses
+        self.min_bound = min_bound
+        self.max_bound = max_bound
+        self.hwf = hwf
+        self.path_poses = path_poses
+        self.img_mode = img_mode
+        self.ndc = ndc
+        self.__set_bounds()
+        if not self.img_mode:
+            self.__build_samples()
+
+        return self
+
+    def __set_bounds(self) -> None:
+        """
+        Defines the ray bounds from the scene's min/max poses bounds.
+        ------------------------------------------------------------------------
+        """
+        if not self.ndc:
+            self.near = self.min_bound * 0.9
+            self.far = self.max_bound * 1.0
         else:
             self.near = 0.0
             self.far = 1.0
-
-        # Build ray-rgb g.t. samples
-        if not self.img_mode:
-            self.__build_samples()
 
     def __build_samples(self) -> None:
         """
@@ -87,6 +146,70 @@ class LLFFDataset(Dataset):
         self.aabb = aabb
         self.rays_o = rays_o
         self.rays_d = rays_d
+
+    def split(
+        self, n_views: int = -1, train_img_mode: bool = False
+    ) -> Tuple["LLFFDataset", "LLFFDataset"]:
+        """
+        Splits this dataset into train/test datasets following the FreeNeRF
+        protocol. Reuses the already-loaded images and poses instead of
+        re-reading them from disk, so the parent dataset can be discarded
+        right after this call.
+        ------------------------------------------------------------------------
+        - Test split: every LLFF_HOLD-th view (indices 0, 8, 16, ...). It is
+          evaluated in full and is currently reused as the validation split
+          by the caller.
+        - Train pool: the remaining views.
+        - Few-shot train split: `n_views` evenly spaced picks over the train
+          pool. LLFF captures sweep the scene sequentially, so evenly spaced
+          indices translate to evenly spaced camera poses. Passing a
+          negative `n_views` keeps the whole pool.
+        Args:
+            n_views (int): number of training views to keep. A negative
+                           value keeps every view left in the train pool
+            train_img_mode (bool): if True, the training dataset yields whole
+                                   images instead of rays. The test dataset is
+                                   always built in image mode
+        Returns:
+            train_dataset (LLFFDataset): dataset over the training views
+            test_dataset (LLFFDataset): dataset over the held-out views
+        """
+        all_indices = np.arange(len(self.poses))
+        test_ids = all_indices[all_indices % LLFFDataset.LLFF_HOLD == 0]
+        pool = all_indices[all_indices % LLFFDataset.LLFF_HOLD != 0]
+
+        if n_views < 0:
+            train_ids = pool
+        else:
+            assert 0 < n_views <= len(pool), (
+                f"ValueError, the number of training views must be in [1, {len(pool)}], "
+                f"got {n_views}."
+            )
+            idx_sub = [round(i) for i in np.linspace(0, len(pool) - 1, n_views)]
+            train_ids = pool[idx_sub]
+
+        test_dataset = LLFFDataset.__from_split(
+            self.imgs[test_ids],
+            self.poses[test_ids],
+            self.min_bound,
+            self.max_bound,
+            self.hwf,
+            self.path_poses,
+            True,
+            self.ndc,
+        )
+        train_dataset = LLFFDataset.__from_split(
+            self.imgs[train_ids],
+            self.poses[train_ids],
+            self.min_bound,
+            self.max_bound,
+            self.hwf,
+            self.path_poses,
+            train_img_mode,
+            self.ndc,
+        )
+
+        return train_dataset, test_dataset
 
     def to(self, device: torch.device) -> "LLFFDataset":
         """

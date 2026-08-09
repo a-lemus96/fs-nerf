@@ -14,8 +14,7 @@ import wandb
 # local imports
 from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
 from core.models import Nerf, Sinerf
-from nerfdata.datasets import llff
-from nerfdata.utils.splitter import Splitter
+from nerfdata import LLFFDataset
 import render.rendering as R
 import utils.parser as P
 from utils.camera3dplotter import Camera3DPlotter
@@ -43,14 +42,11 @@ def main():
     if not args.debug:
         run = init_wandb()
 
-    # set up dataset configuration
-    llff_kwargs = {"ndc": True}
-
     # get training, validation and test datasets
-    splitter = Splitter(args.scene)
-    splitter.split(args.n_imgs)
-    datasets = splitter.get_datasets(train_img_mode=False, **llff_kwargs)
-    train_dataset, test_dataset = datasets
+    train_dataset, test_dataset = LLFFDataset(
+        args.scene, img_mode=False, ndc=True
+    ).split(args.n_imgs, train_img_mode=False)
+    datasets = (train_dataset, test_dataset)
 
     # camera plotter needs poses on CPU — must be called before to(device)
     if not args.debug:
@@ -140,7 +136,7 @@ def main():
         model.load_state_dict(torch.load(os.path.join(out_dir, "best_model.pt")))
 
     # compute path poses for video output
-    path_poses = splitter.path_poses
+    path_poses = train_dataset.path_poses
 
     # render frames for poses
     model.eval()
