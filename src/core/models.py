@@ -72,7 +72,9 @@ class NeRF(nn.Module):
             n_layers: int. Number of hidden layers before applying bottleneck
             d_hidden: int. Width of hidden layers
             skip: Tuple[int]. Layer positions at where to concatenate input
-            **kwargs: dict. Positional encoding keyword arguments
+            **kwargs: dict. Positional encoding keyword arguments. Accepts
+                'pos_fn' and 'dir_fn' dicts, each with 'n_freqs' and
+                'log_space' entries. Defaults are used for missing entries
         ------------------------------------------------------------------------
         """
         super(NeRF, self).__init__()
@@ -81,15 +83,19 @@ class NeRF(nn.Module):
         self.skip = skip
         self.activation = nn.functional.relu # use ReLU activation fn
 
+        # default positional encoding settings
+        pos_fn = {'n_freqs': 10, 'log_space': True} | kwargs.get('pos_fn', {})
+        dir_fn = {'n_freqs': 4, 'log_space': True} | kwargs.get('dir_fn', {})
+
         # encoder for spatial coordinates
-        n_freqs = kwargs['pos_fn']['n_freqs']
-        log_space = kwargs['pos_fn']['log_space']
-        self.__pos_encoder = PositionalEncoder(d_pos, n_freqs, log_space)
+        self.__pos_encoder = PositionalEncoder(
+                d_pos, pos_fn['n_freqs'], pos_fn['log_space']
+        )
         d_pos_encoded = self.__pos_encoder.d_output # encoded output dim
         # encoder for viewing directions
-        n_freqs = kwargs['dir_fn']['n_freqs']
-        log_space = kwargs['dir_fn']['log_space']
-        self.__dir_encoder = PositionalEncoder(d_dir, n_freqs, log_space)
+        self.__dir_encoder = PositionalEncoder(
+                d_dir, dir_fn['n_freqs'], dir_fn['log_space']
+        )
         d_dir_encoded = self.__dir_encoder.d_output # encoded output dim
 
         # hidden layers

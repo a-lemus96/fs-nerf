@@ -222,29 +222,19 @@ def init_model() -> nn.Module:
     Returns:
         nn.Module: model
     """
-    # keyword args for positional encoding
-    kwargs = {
-        "pos_fn": {"n_freqs": 10, "log_space": True},
-        "dir_fn": {"n_freqs": 4, "log_space": True},
-    }
     alpha_values = [30] + [1] * (args.n_layers - 1)
     # instantiate model
     match args.model:
         case "nerf":
             model = M.NeRF(
-                3,
-                3,
-                args.n_layers,
-                args.d_filter,
-                args.skip,
-                **kwargs,
+                n_layers=args.n_layers,
+                d_hidden=args.d_filter,
+                skip=args.skip,
             )
         case "sinerf":
             model = M.SiNeRF(
-                3,
-                3,
-                args.d_filter,
-                alpha_values,
+                width=args.d_filter,
+                alpha=alpha_values,
             )
         case _:
             raise ValueError(f"Model {args.model} not supported")
