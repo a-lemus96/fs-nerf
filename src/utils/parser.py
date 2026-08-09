@@ -21,9 +21,10 @@ def config_parser() -> argparse.Namespace:
     )
     data.add_argument(
         "--n_imgs",
-        default=100,
+        choices=[3, 6, 9],
+        default=3,
         type=int,
-        help="Number of images to be used for training",
+        help="Number of training views (FreeNeRF few-shot LLFF settings)",
     )
     data.add_argument(
         "--img_mode",

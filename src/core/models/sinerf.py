@@ -98,7 +98,6 @@ class SirenLinear(nn.Module):
 
         return out
 
-
 class Sinerf(nn.Module):
     """
     SIREN MLP model for NeRF. It is based on the original implementation of [1].
