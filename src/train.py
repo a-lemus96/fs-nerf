@@ -47,10 +47,10 @@ def main():
     llff_kwargs = {"ndc": True}
 
     # get training, validation and test datasets
-    splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
-    splitter.split()
+    splitter = Splitter(args.scene)
+    splitter.split(args.n_imgs)
     datasets = splitter.get_datasets(train_img_mode=False, **llff_kwargs)
-    train_dataset, val_dataset, test_dataset = datasets
+    train_dataset, test_dataset = datasets
 
     # camera plotter needs poses on CPU — must be called before to(device)
     if not args.debug:
@@ -59,7 +59,6 @@ def main():
 
     # move all datasets to device once — avoids per-batch CPU-to-GPU transfers
     train_dataset.to(device)
-    val_dataset.to(device)
     test_dataset.to(device)
 
     # Resolve output directory: flat structure out_dir/<run_id>/
@@ -103,7 +102,7 @@ def main():
             model,
             train_dataset,
             evaluator=model_evaluator,
-            val_dataset=val_dataset,
+            val_dataset=test_dataset,
             val_every=args.val_rate,
             out_dir=out_dir if not args.debug else None,
         )
@@ -191,24 +190,19 @@ def init_wandb():
 
 
 def create_camera_plotter(
-    datasets: Tuple[Dataset, Dataset, Dataset],
+    datasets: Tuple[Dataset, Dataset],
 ) -> Camera3DPlotter:
-    train_dataset, val_dataset, test_dataset = datasets
+    train_dataset, test_dataset = datasets
     cam_plotter = Camera3DPlotter()
 
     cam_plotter.set_poses(train_dataset.poses, "train")
-    cam_plotter.set_poses(val_dataset.poses, "val")
     cam_plotter.set_poses(test_dataset.poses, "test")
 
     cam_plotter.configure_pose_markers("train", size=7, opacity=0.8, color="black")
-    cam_plotter.configure_pose_markers("val", size=7, opacity=0.8, color="red")
     cam_plotter.configure_pose_markers("test", size=7, opacity=0.8, color="blue")
 
     cam_plotter.set_axes_margins(left=20, right=20, top=20, bottom=20)
-    # set fixed axis scales
-    t = 1 if args.dataset == "llff" else 5
-    factor = 1 if args.dataset == "llff" else 0
-    cam_plotter.set_axes_ranges(xrange=[-t, t], yrange=[-t, t], zrange=[-t * factor, t])
+    cam_plotter.set_axes_ranges(xrange=[-1, 1], yrange=[-1, 1], zrange=[-1, 1])
 
     return cam_plotter
 

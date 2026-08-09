@@ -1,73 +1,87 @@
 import os
 import numpy as np
-from typing import Literal, List, Tuple, Optional
 
 import imageio as iio
-from torch.utils.data import Dataset, DataLoader, Subset
 from torch import Tensor
-from sklearn.cluster import KMeans
 
 from ..datasets import llff
+
+LLFF_HOLD = 8  # every LLFF_HOLD-th view is held out for testing
 
 
 class Splitter:
     """
-    Create train/validation/test splits for a NeRF dataset based on cam poses.
+    Create train/test splits for a NeRF dataset following the FreeNeRF protocol.
 
-    Supports two strategies for creating the training split:
-    - 'random': randomly samples the images for the training split.
-    - 'pose_based': selects diverse subsets using pose distances.
+    The split is deterministic and reproduces the one used by FreeNeRF/RegNeRF,
+    so metrics are directly comparable to the numbers published for those methods:
 
-    Note: The split strategy applies to the training split only. Validation and
-    test splits are sampled using the 'pose_based' strategy.
+    - Test split: every LLFF_HOLD-th view (indices 0, 8, 16, ...). It is evaluated
+      in full and is currently reused as the validation split by the caller.
+    - Train pool: the remaining views.
+    - Few-shot train split: `n_views` evenly spaced picks over the train pool. LLFF
+      captures sweep the scene sequentially, so evenly spaced indices translate to
+      evenly spaced camera poses. Passing a negative `n_views` keeps the whole pool.
+
+    Only the LLFF dataset layout is supported. Usage::
+
+        splitter = Splitter("fern")
+        splitter.split(n_views=3)
+        train_dataset, test_dataset = splitter.get_datasets(ndc=True)
     """
 
-    def __init__(
-        self,
-        dataset_type: str,
-        scene: str,
-        strategy: str = "pose_based",
-        n_training_views=-1,
-        val_ratio: float = 0.15,
-        test_ratio: float = 0.15,
-        random_seed: Optional[int] = None,
-    ):
-        self.dataset_type = dataset_type
+    def __init__(self, scene: str):
+        """
+        Loads the scene and prepares its poses, bounds and intrinsics.
+        ------------------------------------------------------------------------
+        Args:
+            scene (str): scene folder name under ../datasets/llff/
+        """
         self.scene = scene
-        self.strategy = strategy
-        self.n_training_views = n_training_views
-        self.val_ratio = val_ratio
-        self.test_ratio = test_ratio
-        self.random_seed = random_seed
 
         self.image_paths = []
         self.poses = np.empty((0, 3, 4))
 
         self._load_dataset()
 
-    def split(self):
-        available_idxs = np.arange(len(self.poses))
-        n_test_samples = int(self.test_ratio * len(self.poses))
-        self.test_ids, available_idxs = self._select_pose_based(
-            available_idxs, n_test_samples
-        )
+    def split(self, n_views: int = -1):
+        """
+        Computes the train and test view indices for the scene.
+        ------------------------------------------------------------------------
+        Args:
+            n_views (int): number of training views to keep. A negative value
+                           keeps every view left in the train pool
+        Returns:
+            None. Sets self.train_ids and self.test_ids
+        """
+        all_indices = np.arange(len(self.poses))
+        self.test_ids = all_indices[all_indices % LLFF_HOLD == 0]
+        pool = all_indices[all_indices % LLFF_HOLD != 0]
 
-        n_val_samples = int(self.val_ratio * len(self.poses))
-        self.val_ids, available_idxs = self._select_pose_based(
-            available_idxs, n_val_samples
-        )
-        if self.n_training_views < 0:
-            self.train_ids = available_idxs
+        if n_views < 0:
+            self.train_ids = pool
         else:
-            assert (
-                self.n_training_views > 0
-            ), "ValueError, the specified number of training images must be greater than zero."
-            self.train_ids, _ = self._select_pose_based(
-                available_idxs, self.n_training_views
+            assert 0 < n_views <= len(pool), (
+                f"ValueError, the number of training views must be in [1, {len(pool)}], "
+                f"got {n_views}."
             )
+            idx_sub = [round(i) for i in np.linspace(0, len(pool) - 1, n_views)]
+            self.train_ids = pool[idx_sub]
 
     def get_datasets(self, train_img_mode: bool = False, **kwargs):
-        """Instantiates and returns datasets based on a prior split. Img mode works for training only."""
+        """
+        Builds the train and test datasets from a prior call to split().
+        ------------------------------------------------------------------------
+        Args:
+            train_img_mode (bool): if True, the training dataset yields whole
+                                   images instead of rays. The test dataset is
+                                   always built in image mode
+            **kwargs: forwarded dataset options. 'ndc' (bool, default False)
+                      maps rays to normalized device coordinates
+        Returns:
+            train_dataset (LLFFDataset): dataset over the training views
+            test_dataset (LLFFDataset): dataset over the held-out views
+        """
         assert (
             self.train_ids is not None
         ), "Split the source data before building the datasets."
@@ -75,10 +89,6 @@ class Splitter:
         test_poses = self.poses[self.test_ids]
         test_img_paths = self.img_paths[self.test_ids]
         test_imgs = self._load_img_files(test_img_paths)
-
-        val_poses = self.poses[self.val_ids]
-        val_img_paths = self.img_paths[self.val_ids]
-        val_imgs = self._load_img_files(val_img_paths)
 
         train_poses = self.poses[self.train_ids]
         train_img_paths = self.img_paths[self.train_ids]
@@ -95,15 +105,7 @@ class Splitter:
             True,
             ndc,
         )
-        val_dataset = llff.LLFFDataset(
-            val_imgs,
-            val_poses,
-            self.min_bound,
-            self.max_bound,
-            self.hwf,
-            True,
-            ndc,
-        )
+
         train_dataset = llff.LLFFDataset(
             train_imgs,
             train_poses,
@@ -114,49 +116,9 @@ class Splitter:
             ndc,
         )
 
-        return train_dataset, val_dataset, test_dataset
-
-    def _select_pose_based(self, available_idxs: np.ndarray, n_samples: int):
-        # apply K-means to position vectors
-        x = self.poses[available_idxs, :3, 3]
-        kmeans = KMeans(n_clusters=n_samples, n_init=10).fit(x)  # kmeans model
-        labels = kmeans.labels_
-
-        # compute distances of each sample to its cluster center
-        dists = np.linalg.norm(x - kmeans.cluster_centers_[labels], axis=1)
-        # choose the closest view for every cluster center
-        idxs = np.empty((n_samples,), dtype=int)  # array for indices of views
-        for i in range(n_samples):
-            cluster_dists = np.where(labels == i, dists, np.inf)
-            idxs[i] = np.argmin(cluster_dists)
-
-        selected_sample_idxs = available_idxs[idxs]
-        #  remove the selected idxs
-        new_available_idxs = []
-        for i in range(len(available_idxs)):
-            current_idx = available_idxs[i]
-            if current_idx not in selected_sample_idxs:
-                new_available_idxs.append(current_idx)
-
-        return selected_sample_idxs, np.array(new_available_idxs)
-
-    def _select_random_based(self):
-        pass
+        return train_dataset, test_dataset
 
     def _load_dataset(self):
-        """
-        Load image paths and corresponding camera poses from the dataset folder.
-        The expected folder structure depends on the dataset type.
-        """
-        if self.dataset_type == "llff":
-            self._load_llff_dataset()
-        else:
-            raise ValueError(f"Dataset of type '{self.dataset_type}' is not supported.")
-
-    def _load_synth_dataset(self):
-        pass
-
-    def _load_llff_dataset(self):
         """
         Load image paths, camera poses, bounds and intrinsics from an llff
         dataset folder.
@@ -293,6 +255,19 @@ class Splitter:
         recenter: bool = True,
         ndc: bool = True,
     ):
+        """
+        Rescales, re-centers and stores the scene poses, bounds and intrinsics.
+        ------------------------------------------------------------------------
+        Args:
+            poses (ndarray): [N, 3, 5]. Camera poses with hwf in the last column
+            bounds (ndarray): [N, 2]. Near and far bounds per view
+            bd_factor (float): shrinks the scene so the nearest bound sits at
+                               1 / bd_factor. None leaves the scale untouched
+            recenter (bool): if True, expresses poses relative to the average pose
+        Returns:
+            None. Sets self.poses, self.path_poses, self.hwf, self.min_bound and
+            self.max_bound
+        """
         # rescale bounds and poses
         scale = 1.0 if bd_factor is None else 1.0 / (bounds.min() * bd_factor)
         poses[..., :3, 3] *= scale
@@ -313,12 +288,17 @@ class Splitter:
         self.max_bound = poses.max()
 
     def _load_img_files(self, img_paths):
+        """
+        Reads image files into a normalized RGB array.
+        ------------------------------------------------------------------------
+        Args:
+            img_paths (ndarray): [N,]. Image file paths
+        Returns:
+            imgs (ndarray): [N, H, W, 3]. RGB images scaled to [0, 1]
+        """
         imgs = np.stack([iio.imread(p)[..., :3] / 255.0 for p in img_paths], axis=0)
 
         return imgs
-
-    def _validate_ratios(self):
-        pass
 
     def __build_path(
         self,
