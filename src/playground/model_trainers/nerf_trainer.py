@@ -90,7 +90,7 @@ class NeRFModelTrainer:
         Runs the training loop for a given model and dataset.
 
         The dataset is expected to already be on the training device before fit()
-        is called — use dataset.to(device) in run-nerf.py alongside val and test.
+        is called — use dataset.to(device) in train.py alongside val and test.
         At each iteration:
             1. Samples a batch of rays randomly via torch.randint.
             2. Renders the batch using the current model and occupancy estimator.
@@ -122,7 +122,7 @@ class NeRFModelTrainer:
         self.estimator.to(self.training_device)
 
         # Dataset is expected to already be on the training device.
-        # Call dataset.to(device) in run-nerf.py before fit() is called.
+        # Call dataset.to(device) in train.py before fit() is called.
         n_rays = len(dataset)
 
         progress_bar = self.__setup_progress_bar(
