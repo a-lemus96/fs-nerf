@@ -35,7 +35,6 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
         """
         self._apply_evaluation_config(settings)
         self._lpips_model = self._create_lpips_model().to(self.training_device)
-        self.white_background = settings.white_background
         self.debug_mode = debug
 
     def _apply_evaluation_config(self, settings: EvaluationConfiguration):
@@ -90,7 +89,6 @@ class NeRFModelEvaluator(ModelEvaluatorBase):
                     model,
                     train=False,
                     ndc=dataset.ndc,
-                    white_bkgd=self.white_background,
                     render_step_size=5e-3,
                     device=self.training_device,
                 )

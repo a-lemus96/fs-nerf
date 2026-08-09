@@ -56,7 +56,6 @@ def render_rays(
     estimator: OccGridEstimator,
     model: nn.Module,
     train: bool = False,
-    white_bkgd: bool = False,
     render_step_size: float = 5e-3,
     device: torch.device = torch.device("cpu"),
 ) -> RenderingResult:
@@ -81,7 +80,6 @@ def render_rays(
         model (nn.Module):         NeRF-like model returning (rgb, sigma) or sigma
         train (bool):              if True, enables stratified sampling and
                                    sets render_bkgd to require gradients
-        white_bkgd (bool):         if True, composites over a white background
         render_step_size (float):  step size used during occupancy grid sampling
         device (torch.device):     device to move rays to before rendering
     Returns:
@@ -124,7 +122,7 @@ def render_rays(
         sigmas = out[..., -1]
         return rgbs, sigmas.squeeze(-1)
 
-    render_bkgd = white_bkgd * torch.ones((3,), device=device, requires_grad=train)
+    render_bkgd = torch.zeros((3,), device=device, requires_grad=train)
 
     try:
         rgb, opacity, depth, extras = rendering(
@@ -143,7 +141,7 @@ def render_rays(
 
     except AssertionError:
         # occupancy estimator found no samples; return background fallback
-        rgb     = torch.ones_like(rays_o) * white_bkgd
+        rgb     = torch.zeros_like(rays_o)
         opacity = torch.zeros(n_rays, 1, device=device)
         depth   = torch.zeros(n_rays, 1, device=device)
         weights = torch.zeros(0, device=device)
@@ -171,7 +169,6 @@ def render_frame(
     model: nn.Module,
     train: bool = False,
     ndc: bool = False,
-    white_bkgd: bool = False,
     render_step_size: float = 5e-3,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -193,7 +190,6 @@ def render_frame(
         model (nn.Module):            NeRF-like model
         train (bool):                 passed through to render_rays
         ndc (bool):                   if True, converts rays to NDC before rendering
-        white_bkgd (bool):            if True, composites over a white background
         render_step_size (float):     step size used during occupancy grid sampling
         device (torch.device):        device to run rendering on
     Returns:
@@ -219,7 +215,6 @@ def render_frame(
             estimator=estimator,
             model=model,
             train=train,
-            white_bkgd=white_bkgd,
             render_step_size=render_step_size,
             device=device,
         )
@@ -242,7 +237,6 @@ def render_path(
     estimator: OccGridEstimator,
     ndc: bool = False,
     train: bool = False,
-    white_bkgd: bool = False,
     render_step_size: float = 5e-3,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -264,7 +258,6 @@ def render_path(
         estimator (OccGridEstimator): occupancy grid estimator for fast sampling
         ndc (bool):                   if True, converts rays to NDC before rendering
         train (bool):                 passed through to render_frame
-        white_bkgd (bool):            if True, composites over a white background
         render_step_size (float):     step size used during occupancy grid sampling
         device (torch.device):        device to run rendering ongi
     Returns:
@@ -287,7 +280,6 @@ def render_path(
                 model,
                 train=train,
                 ndc=ndc,
-                white_bkgd=white_bkgd,
                 render_step_size=render_step_size,
                 device=device,
             )

@@ -16,12 +16,10 @@ class EvaluationConfiguration:
         - training_device (torch.device):   device to run evaluation on
         - hwf (Tuple):                      camera intrinsics (height, width, focal)
         - chunk_size (int):                 number of rays per rendering chunk
-        - white_background (bool):          whether to composite over white background
     """
     training_device: Device
     hwf: Tuple
     chunk_size: int
-    white_background: bool
     lpips_chunk_size: int
 
     def __init__(self, training_device: Device, hwf: Tuple, args: Namespace):
@@ -32,5 +30,4 @@ class EvaluationConfiguration:
         self.training_device = training_device
         self.hwf = hwf
         self.chunk_size = args.val_batch_size_multiplier * args.batch_size
-        self.white_background = args.white_bkgd
         self.lpips_chunk_size = args.lpips_chunk_size

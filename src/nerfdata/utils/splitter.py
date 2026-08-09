@@ -85,7 +85,6 @@ class Splitter:
         train_imgs = self._load_img_files(train_img_paths)
 
         # Instantiate datasets
-        white_bkgd = kwargs.get("white_bkgd", False)
         ndc = kwargs.get("ndc", False)
         test_dataset = llff.LLFFDataset(
             test_imgs,
@@ -93,7 +92,6 @@ class Splitter:
             self.min_bound,
             self.max_bound,
             self.hwf,
-            white_bkgd,
             True,
             ndc,
         )
@@ -103,7 +101,6 @@ class Splitter:
             self.min_bound,
             self.max_bound,
             self.hwf,
-            white_bkgd,
             True,
             ndc,
         )
@@ -113,7 +110,6 @@ class Splitter:
             self.min_bound,
             self.max_bound,
             self.hwf,
-            white_bkgd,
             train_img_mode,
             ndc,
         )

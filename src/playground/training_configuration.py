@@ -27,7 +27,6 @@ class TrainingConfiguration:
         - lr_scheduler_type (str):          one of 'const' or 'exp'
         - lr_scheduler_kwargs (dict):       additional kwargs for the scheduler
         - occupancy_estimator_settings:     config for the occupancy grid estimator
-        - white_background (bool):          whether to composite over white background
         - occl_beta (float | None):         importance weight for occlusion regularizer
         - freq_regularizer:                 FrequencyRegularizer with concrete FrequencyScheduler
         - occl_regularizer:                 concrete OcclusionRegularizer, or None
@@ -40,7 +39,6 @@ class TrainingConfiguration:
     lr_scheduler_type: str
     lr_scheduler_kwargs: Dict[str, Any]
     occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
-    white_background: bool
     occl_beta: Optional[float]
     freq_regularizer: Optional[FrequencyRegularizer]
     occl_regularizer: Optional[OcclusionRegularizer]
@@ -74,7 +72,6 @@ class TrainingConfiguration:
             self.learning_rate = args.lro
             self.lr_scheduler_type = args.scheduler
             self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
-            self.white_background = args.white_bkgd
             self.occl_beta = args.beta
         except KeyError as e:
             raise KeyError(

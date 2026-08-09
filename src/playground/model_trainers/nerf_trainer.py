@@ -72,7 +72,6 @@ class NeRFModelTrainer:
         self.lr_scheduler_kwargs = settings.lr_scheduler_kwargs
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
-        self.white_background = settings.white_background
         self.freq_regularizer: Optional[FrequencyRegularizer] = (
             settings.freq_regularizer
         )
@@ -149,7 +148,6 @@ class NeRFModelTrainer:
                 estimator=self.estimator,
                 model=model,
                 train=True,
-                white_bkgd=self.white_background,
                 render_step_size=self.render_step_size,
                 device=self.training_device,
             )

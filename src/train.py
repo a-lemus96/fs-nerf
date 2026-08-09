@@ -14,7 +14,7 @@ import wandb
 # local imports
 from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
 import core.models as M
-from nerfdata.datasets import llff, blender
+from nerfdata.datasets import llff
 from nerfdata.utils.splitter import Splitter
 import render.rendering as R
 import utils.parser as P
@@ -44,16 +44,12 @@ def main():
         run = init_wandb()
 
     # set up dataset configuration
-    dataset_config = {
-        "synthetic": (blender.BlenderDataset, {"white_bkgd": args.white_bkgd}),
-        "llff": (llff.LLFFDataset, {"white_bkgd": args.white_bkgd, "ndc": True}),
-    }
-    _, dataset_kwargs = dataset_config[args.dataset]
+    llff_kwargs = {"ndc": True}
 
     # get training, validation and test datasets
     splitter = Splitter(args.dataset, args.scene, n_training_views=args.n_imgs)
     splitter.split()
-    datasets = splitter.get_datasets(train_img_mode=False, **dataset_kwargs)
+    datasets = splitter.get_datasets(train_img_mode=False, **llff_kwargs)
     train_dataset, val_dataset, test_dataset = datasets
 
     # camera plotter needs poses on CPU — must be called before to(device)
@@ -160,7 +156,6 @@ def main():
         model,
         estimator,
         ndc=train_dataset.ndc,
-        white_bkgd=args.white_bkgd,
         device=device,
     )
     frames, d_frames = output

@@ -18,7 +18,6 @@ class TrainingConfiguration:
     weight_decay_importance: float
     weight_decay_reg_fn: str
     occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
-    white_background: bool
     freq_regularizer: Optional[FrequencyRegularizer]
 
     def __init__(self, training_device: Device, args: Namespace):
@@ -33,7 +32,6 @@ class TrainingConfiguration:
             self.weight_decay_importance = args.alpha
             self.occ_reg_importance = args.beta
             self.weight_decay_reg_fn = args.reg
-            self.white_background = args.white_bkgd
         except KeyError as e:
             raise KeyError(
                 f"One or more training parameter keys were not found in input args obj:\n{args}\n\nCheck parser arguments. {e}"

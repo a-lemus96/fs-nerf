@@ -25,7 +25,6 @@ class LLFFDataset(Dataset):
         min_bound: float,
         max_bound: float,
         hwf: Tuple[int, int, float],
-        white_bkgd: bool = False,
         img_mode: bool = False,
         ndc: bool = True,
     ) -> None:
@@ -39,7 +38,6 @@ class LLFFDataset(Dataset):
         self.imgs = torch.tensor(imgs, dtype=torch.float32)
         self.poses = torch.tensor(poses, dtype=torch.float32)
         self.hwf = hwf
-        self.white_bkgd = white_bkgd
         self.img_mode = img_mode
         self.ndc = ndc
 

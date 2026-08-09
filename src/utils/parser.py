@@ -55,14 +55,7 @@ def config_parser() -> argparse.Namespace:
 
     data = parser.add_argument_group("Data")
     data.add_argument(
-        "--dataset",
-        choices=["synthetic", "llff"],
-        default="llff",
-        type=str,
-        help="Dataset to choose scenes from",
-    )
-    data.add_argument(
-        "--scene", default="flower", type=str, help="Scene to be used for training"
+        "--scene", default="flower", type=str, help="LLFF scene to be used for training"
     )
     data.add_argument(
         "--n_imgs",
@@ -76,15 +69,10 @@ def config_parser() -> argparse.Namespace:
         help="If set, iterate over images instead of rays for training",
     )
     data.add_argument(
-        "--white_bkgd",
-        action="store_true",
-        help="Use white background for training imgs",
+        "--factor", default=4, type=int, help="LLFF dataset downsample factor"
     )
     data.add_argument(
-        "--factor", default=4, type=int, help="Downsample factor for LLFF dataset"
-    )
-    data.add_argument(
-        "--bd_factor", default=0.75, type=float, help="Bound factor for LLFF dataset"
+        "--bd_factor", default=0.75, type=float, help="LLFF dataset bound factor"
     )
     data.add_argument(
         "--no_recenter",
