@@ -12,8 +12,7 @@ import wandb
 # local imports
 from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
 from core.models import Nerf, Sinerf
-from nerfdata import LLFFDataset
-import render.rendering as R
+from llff import LLFFDataset
 import utils.parser as P
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
@@ -38,14 +37,10 @@ def main():
     if not args.debug:
         run = init_wandb()
 
-    # get training, validation and test datasets
-    train_dataset, test_dataset = LLFFDataset(
-        args.scene, img_mode=False, ndc=True
-    ).split(args.n_imgs, train_img_mode=False)
-
-    # move all datasets to device once — avoids per-batch CPU-to-GPU transfers
-    train_dataset.to(device)
-    test_dataset.to(device)
+    train_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size)
+    eval_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size)
+    train_data.to(device)
+    eval_data.to(device)
 
     # Resolve output directory: flat structure out_dir/<run_id>/
     if not args.debug:
@@ -76,20 +71,17 @@ def main():
         training_settings.occl_regularizer = occl_regularizer
         training_settings.freq_regularizer = freq_regularizer
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
-        training_settings.occupancy_estimator_settings.aabb = train_dataset.aabb
+        training_settings.occupancy_estimator_settings.aabb = train_data.aabb
 
         model_trainer = NeRFModelTrainer(training_settings, args.debug)
 
-        eval_settings = EvaluationConfiguration(device, train_dataset.hwf, args)
+        eval_settings = EvaluationConfiguration(device, train_data.hwf, args)
         model_evaluator = NeRFModelEvaluator(eval_settings, debug=args.debug)
 
         # trains model using the trainer's configuration
         model_trainer.fit(
             model,
-            train_dataset,
-            evaluator=model_evaluator,
-            val_dataset=test_dataset,
-            val_every=args.val_rate,
+            train_data,
             out_dir=out_dir if not args.debug else None,
         )
 
@@ -98,7 +90,7 @@ def main():
         model.eval()
         estimator.eval()
         final_psnr, final_ssim, final_lpips = model_evaluator.evaluate(
-            model, estimator, test_dataset
+            model, estimator, eval_data
         )
 
         if not args.debug:
@@ -119,42 +111,6 @@ def main():
 
             # Log best model checkpoint to wandb
             wandb.log_model(os.path.join(out_dir, "best_model.pt"))
-
-    else:
-        model = init_model()
-        # load model from flat run directory
-        model.load_state_dict(torch.load(os.path.join(out_dir, "best_model.pt")))
-
-    # compute path poses for video output
-    path_poses = train_dataset.path_poses
-
-    # render frames for poses
-    model.eval()
-    estimator = model_trainer.estimator
-    estimator.eval()
-    output = R.render_path(
-        torch.from_numpy(path_poses).float(),
-        train_dataset.hwf,
-        train_dataset.near,
-        train_dataset.far,
-        2 * args.batch_size,
-        model,
-        estimator,
-        ndc=train_dataset.ndc,
-        device=device,
-    )
-    frames, d_frames = output
-
-    if not args.debug:
-        # put together frames and save result into .mp4 file
-        frames, d_frames = R.render_video(frames=frames, d_frames=d_frames)
-        # log final video renderings to wandb
-        wandb.log(
-            {
-                "rgb_video": wandb.Video(frames, format="mp4", fps=15),
-                "depth_video": wandb.Video(d_frames, format="mp4", fps=15),
-            }
-        )
 
 
 def get_computing_device() -> torch.device:

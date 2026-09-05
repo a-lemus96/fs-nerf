@@ -134,13 +134,9 @@ class NeRFModelTrainer:
             model.train()
             self.estimator.train()
 
-            # Sample a random batch of rays directly from GPU tensors
-            idxs = torch.randint(
-                0, n_rays, (self.batch_size,), device=self.training_device
-            )
-            ray_origins = dataset.rays_o[idxs]
-            ray_dirs = dataset.rays_d[idxs]
-            rgb_ground_truths = dataset.rgb[idxs]
+            # Sample a random batch of rays from a random image
+            index = torch.randint(0, n_rays, (1,), device=self.training_device).item()
+            (ray_origins, ray_dirs, rgb_gts) = dataset[index]
 
             result = R.render_rays(
                 rays_o=ray_origins,
@@ -153,7 +149,7 @@ class NeRFModelTrainer:
             )
 
             # photometric loss
-            loss = F.mse_loss(result.rgb, rgb_ground_truths)
+            loss = F.mse_loss(result.rgb, rgb_gts)
             with torch.no_grad():
                 psnr = -10.0 * torch.log10(loss).item()
 

@@ -20,196 +20,67 @@ class LLFFDataset(Dataset):
     ----------------------------------------------------------------------------
     """
 
-    LLFF_HOLD = 8  # every LLFF_HOLD-th view is held out for testing
-
     def __init__(
         self,
         scene: str,
-        img_mode: bool = False,
-        ndc: bool = True,
+        batch_size: int = 1024,
     ) -> None:
         """
-        Loads the scene: images, poses, bounds and intrinsics.
+        Loads the scene: images, poses, bounds and intrinsics. Uses NDC to map
+        rays to normalized device coordinates.
         ------------------------------------------------------------------------
         Args:
             scene (str): scene folder name under ../datasets/llff/
-            img_mode (bool): if True, the dataset yields whole images instead
-                             of rays
-            ndc (bool): if True, maps rays to normalized device coordinates
+            batch_size (int): number of rays sampled per image in __getitem__
         """
         super(LLFFDataset, self).__init__()
         (
             img_paths,
-            self.poses,
+            poses,
             self.hwf,
             self.min_bound,
-            self.max_bound,
-            self.path_poses,
+            self.max_bound
         ) = LLFFDataset.load_scene(scene)
-        self.poses = torch.tensor(self.poses, dtype=torch.float32)
-        self.img_mode = img_mode
-        self.ndc = ndc
 
-        imgs = LLFFDataset.load_img_files(img_paths)
-        self.imgs = torch.tensor(imgs, dtype=torch.float32)
-        self.__set_bounds()
-        if not self.img_mode:
-            self.__build_samples()
+        # set ray bounds for NDC
+        self.near = 0.0
+        self.far = 1.0
+        self.batch_size = batch_size
 
-    @classmethod
-    def __from_split(
-        cls,
-        imgs: Tensor,
-        poses: Tensor,
-        min_bound: float,
-        max_bound: float,
-        hwf: Tuple[int, int, float],
-        path_poses: ndarray,
-        img_mode: bool,
-        ndc: bool,
-    ) -> "LLFFDataset":
-        """
-        Builds a dataset instance from in-memory tensors, bypassing disk
-        access. Used internally by split().
-        ------------------------------------------------------------------------
-        Args:
-            imgs (Tensor): [N, H, W, 3]. RGB images scaled to [0, 1]
-            poses (Tensor): [N, 3, 4]. Camera poses
-            min_bound (float): minimum value across the poses
-            max_bound (float): maximum value across the poses
-            hwf (Tuple[int, int, float]): image height, width and focal length
-            path_poses (ndarray): [M, 3, 4]. Spiral path poses for rendering
-                                  sample videos
-            img_mode (bool): if True, the dataset yields whole images instead
-                             of rays
-            ndc (bool): if True, maps rays to normalized device coordinates
-        Returns:
-            dataset (LLFFDataset): dataset over the given views
-        """
-        self = cls.__new__(cls)
-        Dataset.__init__(self)
-        self.imgs = imgs
-        self.poses = poses
-        self.min_bound = min_bound
-        self.max_bound = max_bound
-        self.hwf = hwf
-        self.path_poses = path_poses
-        self.img_mode = img_mode
-        self.ndc = ndc
-        self.__set_bounds()
-        if not self.img_mode:
-            self.__build_samples()
+        # build rays and get aabb
+        images = torch.tensor(LLFFDataset.load_img_files(img_paths), dtype=torch.float32)
+        poses = torch.tensor(poses, dtype=torch.float32)
+        self.rays_d, self.rays_o, self.aabb = self.__build_samples(images, poses)
 
-        return self
-
-    def __set_bounds(self) -> None:
-        """
-        Defines the ray bounds from the scene's min/max poses bounds.
-        ------------------------------------------------------------------------
-        """
-        if not self.ndc:
-            self.near = self.min_bound * 0.9
-            self.far = self.max_bound * 1.0
-        else:
-            self.near = 0.0
-            self.far = 1.0
-
-    def __build_samples(self) -> None:
+    def __build_samples(self, images, poses) -> tuple[Tensor, Tensor, Tensor]:
         """
         Builds rays and samples.
         ------------------------------------------------------------------------
         """
         H, W, _ = self.hwf
-        self.rgb = self.imgs.reshape(-1, 3)  # reshape to pixels
-        # get rays
+        N = len(images)
+        self.rgb = images.reshape(N, -1, 3)  # [N, H * W, 3]
+
         rays = torch.stack(
-            [torch.cat(U.get_rays(p, self.hwf), -1) for p in self.poses], 0
+            [torch.cat(U.get_rays(p, self.hwf), -1) for p in poses], 0
         )
-        rays = rays.reshape(-1, 6)
-        rays_o = rays[:, :3]  # ray origins
-        rays_d = rays[:, 3:]  # ray directions
+        rays = rays.reshape(N, -1, 6)  # [N, H * W, 6]
+        rays_o = rays[..., :3]  # ray origins, [N, H * W, 3]
+        rays_d = rays[..., 3:]  # ray directions, [N, H * W, 3]
 
-        # map to ndc if necessary
-        if self.ndc:
-            rays_o, rays_d = U.to_ndc(rays_o, rays_d, self.hwf, 1.0)
-            min_roi = torch.vstack(
-                [rays_o.min(dim=0)[0], (rays_o + rays_d).min(dim=0)[0]]
-            ).min(dim=0)[0]
-            max_roi = torch.vstack(
-                [rays_o.max(dim=0)[0], (rays_o + rays_d).max(dim=0)[0]]
-            ).max(dim=0)[0]
-            aabb = torch.hstack([min_roi, max_roi])
-            aabb = aabb / 2 ** (4 - 1)
-        else:
-            aabb = torch.tensor([-1.5, -1.5, -1.5, 1.5, 1.5, 1.5])
+        # map to ndc
+        rays_o, rays_d = U.to_ndc(rays_o, rays_d, self.hwf, 1.0)
+        flat_o, flat_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3)
+        min_roi = torch.vstack(
+            [flat_o.min(dim=0)[0], (flat_o + flat_d).min(dim=0)[0]]
+        ).min(dim=0)[0]
+        max_roi = torch.vstack(
+            [flat_o.max(dim=0)[0], (flat_o + flat_d).max(dim=0)[0]]
+        ).max(dim=0)[0]
+        aabb = torch.hstack([min_roi, max_roi])
+        aabb = aabb / 2 ** (4 - 1)
 
-        self.aabb = aabb
-        self.rays_o = rays_o
-        self.rays_d = rays_d
-
-    def split(
-        self, n_views: int = -1, train_img_mode: bool = False
-    ) -> Tuple["LLFFDataset", "LLFFDataset"]:
-        """
-        Splits this dataset into train/test datasets following the FreeNeRF
-        protocol. Reuses the already-loaded images and poses instead of
-        re-reading them from disk, so the parent dataset can be discarded
-        right after this call.
-        ------------------------------------------------------------------------
-        - Test split: every LLFF_HOLD-th view (indices 0, 8, 16, ...). It is
-          evaluated in full and is currently reused as the validation split
-          by the caller.
-        - Train pool: the remaining views.
-        - Few-shot train split: `n_views` evenly spaced picks over the train
-          pool. LLFF captures sweep the scene sequentially, so evenly spaced
-          indices translate to evenly spaced camera poses. Passing a
-          negative `n_views` keeps the whole pool.
-        Args:
-            n_views (int): number of training views to keep. A negative
-                           value keeps every view left in the train pool
-            train_img_mode (bool): if True, the training dataset yields whole
-                                   images instead of rays. The test dataset is
-                                   always built in image mode
-        Returns:
-            train_dataset (LLFFDataset): dataset over the training views
-            test_dataset (LLFFDataset): dataset over the held-out views
-        """
-        all_indices = np.arange(len(self.poses))
-        test_ids = all_indices[all_indices % LLFFDataset.LLFF_HOLD == 0]
-        pool = all_indices[all_indices % LLFFDataset.LLFF_HOLD != 0]
-
-        if n_views < 0:
-            train_ids = pool
-        else:
-            assert 0 < n_views <= len(pool), (
-                f"ValueError, the number of training views must be in [1, {len(pool)}], "
-                f"got {n_views}."
-            )
-            idx_sub = [round(i) for i in np.linspace(0, len(pool) - 1, n_views)]
-            train_ids = pool[idx_sub]
-
-        test_dataset = LLFFDataset.__from_split(
-            self.imgs[test_ids],
-            self.poses[test_ids],
-            self.min_bound,
-            self.max_bound,
-            self.hwf,
-            self.path_poses,
-            True,
-            self.ndc,
-        )
-        train_dataset = LLFFDataset.__from_split(
-            self.imgs[train_ids],
-            self.poses[train_ids],
-            self.min_bound,
-            self.max_bound,
-            self.hwf,
-            self.path_poses,
-            train_img_mode,
-            self.ndc,
-        )
-
-        return train_dataset, test_dataset
+        return rays_o, rays_d, aabb
 
     def to(self, device: torch.device) -> "LLFFDataset":
         """
@@ -225,35 +96,35 @@ class LLFFDataset(Dataset):
         Returns:
             self
         """
-        self.poses = self.poses.to(device)
-        if self.img_mode:
-            self.imgs = self.imgs.to(device)
-        else:
-            self.rays_o = self.rays_o.to(device)
-            self.rays_d = self.rays_d.to(device)
-            self.rgb = self.rgb.to(device)
+        self.rays_o = self.rays_o.to(device)
+        self.rays_d = self.rays_d.to(device)
+        self.rgb = self.rgb.to(device)
+        
         return self
 
     def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor]:
-        """Get a training sample by index.
+        """Samples a batch of rays from the idx-th image.
         ------------------------------------------------------------------------
         Args:
-            idx (int): index of the training sample
+            idx (int): index of the image to sample from
         Returns:
-            ray_o (Tensor): [3,]. Ray origin
-            ray_d (Tensor): [3,]. Ray direction
-            rgb (Tensor): [3,]. Pixel RGB color
+            ray_o (Tensor): [batch_size, 3]. Ray origins
+            ray_d (Tensor): [batch_size, 3]. Ray directions
+            rgb (Tensor): [batch_size, 3]. Pixel RGB colors
         """
-        if self.img_mode:
-            return self.imgs[idx], self.poses[idx]
+        n_pixels = self.rays_o.shape[1]
+        pixel_idxs = torch.randint(
+            0, n_pixels, (self.batch_size,), device=self.rays_o.device
+        )
 
-        return self.rays_o[idx], self.rays_d[idx], self.rgb[idx]
+        return (
+            self.rays_o[idx, pixel_idxs],
+            self.rays_d[idx, pixel_idxs],
+            self.rgb[idx, pixel_idxs],
+        )
 
     def __len__(self) -> int:
-        """Returns the number of training samples."""
-        if self.img_mode:
-            return self.imgs.shape[0]
-
+        """Returns the number of images in the dataset."""
         return self.rays_o.shape[0]
 
     # ------------------------------------------------------------------------
@@ -299,8 +170,6 @@ class LLFFDataset(Dataset):
             hwf (Tuple[int, int, float]): image height, width and focal length
             min_bound (float): minimum value across the poses
             max_bound (float): maximum value across the poses
-            path_poses (ndarray): [M, 3, 4]. Spiral path poses for rendering
-                                  sample videos
         """
         base_folder_path = os.path.normpath("../datasets/llff/")
         assert os.path.isdir(
@@ -346,11 +215,11 @@ class LLFFDataset(Dataset):
         poses = np.moveaxis(poses, -1, 0).astype(np.float32)
         bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
 
-        (poses, hwf, min_bound, max_bound, path_poses) = cls.__postprocess_poses(
+        (poses, hwf, min_bound, max_bound) = cls.__postprocess_poses(
             poses, bounds, bd_factor, recenter
         )
 
-        return img_paths, poses, hwf, min_bound, max_bound, path_poses
+        return img_paths, poses, hwf, min_bound, max_bound
 
     @staticmethod
     def __normalize(v: np.ndarray) -> np.ndarray:
@@ -436,8 +305,8 @@ class LLFFDataset(Dataset):
         recenter: bool = True,
     ) -> Tuple[ndarray, Tuple[int, int, float], float, float, ndarray]:
         """
-        Rescales and re-centers the scene poses, and derives the bounds,
-        intrinsics and rendering spiral path from them.
+        Rescales and re-centers the scene poses, and derives the bounds and
+        intrinsics.
         ------------------------------------------------------------------------
         Args:
             poses (ndarray): [N, 3, 5]. Camera poses with hwf in the last column
@@ -450,8 +319,6 @@ class LLFFDataset(Dataset):
             hwf (Tuple[int, int, float]): image height, width and focal length
             min_bound (float): minimum value across the poses
             max_bound (float): maximum value across the poses
-            path_poses (ndarray): [M, 3, 4]. Spiral path poses for rendering
-                                  sample videos
         """
         # rescale bounds and poses
         scale = 1.0 if bd_factor is None else 1.0 / (bounds.min() * bd_factor)
@@ -462,9 +329,6 @@ class LLFFDataset(Dataset):
             poses = cls.__recenter_poses(poses)
 
         c2w = cls.__avg_pose(poses)
-        path_poses = cls.__build_path(c2w, poses, bounds)  # for rendering video
-        path_poses = np.stack(path_poses, 0)  # cast to numpy array
-        path_poses = path_poses[:, :3, :4]
 
         hwf = poses[0, :3, -1]
         hwf = (int(hwf[0]), int(hwf[1]), float(hwf[2]))
@@ -472,7 +336,7 @@ class LLFFDataset(Dataset):
         min_bound = poses.min()
         max_bound = poses.max()
 
-        return poses, hwf, min_bound, max_bound, path_poses
+        return poses, hwf, min_bound, max_bound
 
     @staticmethod
     def __build_path(
