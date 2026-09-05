@@ -2,13 +2,11 @@
 import json
 import os
 import random
-from typing import Tuple
 
 # third-party imports
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import Dataset
 import wandb
 
 # local imports
@@ -17,7 +15,6 @@ from core.models import Nerf, Sinerf
 from nerfdata import LLFFDataset
 import render.rendering as R
 import utils.parser as P
-from utils.camera3dplotter import Camera3DPlotter
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
 from playground.training_configuration import TrainingConfiguration
@@ -26,7 +23,6 @@ from core.occlusion import WeightSumSquaredRegularizer
 
 # GLOBAL VARIABLES
 k = 0  # global step counter
-MAX_NUM_OF_MEM_EVENTS_PER_SNAPSHOT: int = 100000  # memory snapshot
 
 # RANDOM SEED
 seed = 42
@@ -46,12 +42,6 @@ def main():
     train_dataset, test_dataset = LLFFDataset(
         args.scene, img_mode=False, ndc=True
     ).split(args.n_imgs, train_img_mode=False)
-    datasets = (train_dataset, test_dataset)
-
-    # camera plotter needs poses on CPU — must be called before to(device)
-    if not args.debug:
-        cam_plotter = create_camera_plotter(datasets)
-        cam_plotter.upload_plot()
 
     # move all datasets to device once — avoids per-batch CPU-to-GPU transfers
     train_dataset.to(device)
@@ -183,24 +173,6 @@ def init_wandb():
     )
     run = wandb.init(project="fs-nerf", name=name, config=args)
     return run
-
-
-def create_camera_plotter(
-    datasets: Tuple[Dataset, Dataset],
-) -> Camera3DPlotter:
-    train_dataset, test_dataset = datasets
-    cam_plotter = Camera3DPlotter()
-
-    cam_plotter.set_poses(train_dataset.poses, "train")
-    cam_plotter.set_poses(test_dataset.poses, "test")
-
-    cam_plotter.configure_pose_markers("train", size=7, opacity=0.8, color="black")
-    cam_plotter.configure_pose_markers("test", size=7, opacity=0.8, color="blue")
-
-    cam_plotter.set_axes_margins(left=20, right=20, top=20, bottom=20)
-    cam_plotter.set_axes_ranges(xrange=[-1, 1], yrange=[-1, 1], zrange=[-1, 1])
-
-    return cam_plotter
 
 
 def init_model() -> nn.Module:
