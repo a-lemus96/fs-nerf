@@ -5,6 +5,18 @@ import os
 import numpy as np
 import yaml
 
+class _FlowListDumper(yaml.SafeDumper):
+    """YAML dumper that renders lists inline (flow style) while keeping
+    mappings in block style."""
+
+
+_FlowListDumper.add_representer(
+    list,
+    lambda dumper, data: dumper.represent_sequence(
+        "tag:yaml.org,2002:seq", data, flow_style=True
+    ),
+)
+
 LLFF_BASE_PATH = os.path.normpath("../datasets/llff")
 IMAGES_FOLDER = "images_8"
 LLFF_HOLD = 8  # standard NeRF LLFF split: every 8th image is held out for eval
@@ -91,7 +103,7 @@ def create_split_file(
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
-        yaml.safe_dump(split, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(split, f, Dumper=_FlowListDumper, default_flow_style=False, sort_keys=False)
 
 
 def load_train_split(
