@@ -1,5 +1,6 @@
 # stdlib imports
 import json
+import logging
 import os
 import random
 
@@ -14,14 +15,15 @@ from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, Linea
 from core.models import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
+from utils import create_split_file, load_train_split, load_eval_split
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
 from playground.training_configuration import TrainingConfiguration
 from playground.configuration.evaluation_configuration import EvaluationConfiguration
 from core.occlusion import WeightSumSquaredRegularizer
 
-# GLOBAL VARIABLES
-k = 0  # global step counter
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # RANDOM SEED
 seed = 42
@@ -37,8 +39,15 @@ def main():
     if not args.debug:
         run = init_wandb()
 
-    train_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size)
-    eval_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size)
+    if not os.path.isfile("../configs/split.yaml"):
+        create_split_file()
+        logger.info("Split file created at ../configs/split.yaml")
+
+    train_ids = load_train_split(scene=args.scene, n_imgs=args.n_imgs)
+    train_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size, img_ids=train_ids)
+    eval_ids = load_eval_split(scene=args.scene)
+    eval_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size, img_ids=eval_ids)
+
     train_data.to(device)
     eval_data.to(device)
 

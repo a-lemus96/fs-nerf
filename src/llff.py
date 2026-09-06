@@ -24,6 +24,7 @@ class LLFFDataset(Dataset):
         self,
         scene: str,
         batch_size: int = 1024,
+        img_ids: list[int] = None,
     ) -> None:
         """
         Loads the scene: images, poses, bounds and intrinsics. Uses NDC to map
@@ -32,6 +33,9 @@ class LLFFDataset(Dataset):
         Args:
             scene (str): scene folder name under ../datasets/llff/
             batch_size (int): number of rays sampled per image in __getitem__
+            img_ids (list[int]): if given, restricts the dataset to these
+                image indices (computed over the full, unfiltered scene) after
+                the full scene has been loaded and its poses normalized
         """
         super(LLFFDataset, self).__init__()
         (
@@ -41,6 +45,10 @@ class LLFFDataset(Dataset):
             self.min_bound,
             self.max_bound
         ) = LLFFDataset.load_scene(scene)
+
+        if img_ids is not None:
+            img_paths = img_paths[img_ids]
+            poses = poses[img_ids]
 
         # set ray bounds for NDC
         self.near = 0.0
