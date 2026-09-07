@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 # custom imports
-from utils import load_scene
+from utils.scene import load_scene
 
 logger = logging.getLogger(__name__)
 
