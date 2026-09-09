@@ -29,13 +29,21 @@ class NeRFModelTrainer:
     datasets typical in few-shot NeRF (a few tens of images).
     """
 
-    def __init__(self, settings: TrainingConfiguration, debug: bool = False):
+    def __init__(
+        self,
+        settings: TrainingConfiguration,
+        monitor_data: Optional[Dataset] = None,
+        debug: bool = False,
+    ):
         """
         Args:
             settings (TrainingConfiguration): full training configuration
+            monitor_data (Dataset | None): single-view dataset used to
+                monitor training progress
             debug (bool): if True, disables all wandb logging
         """
         self.best_val_psnr = float("-inf")
+        self.monitor_data = monitor_data
         self.configure(settings, debug)
 
     def configure(self, settings: TrainingConfiguration, debug: bool = False):
@@ -81,7 +89,6 @@ class NeRFModelTrainer:
         model: nn.Module,
         dataset: Dataset,
         evaluator: Optional[ModelEvaluatorBase] = None,
-        val_dataset: Optional[Dataset] = None,
         val_every: int = 500,
         out_dir: Optional[str] = None,
     ):
@@ -90,14 +97,17 @@ class NeRFModelTrainer:
 
         The dataset is expected to already be on the training device before fit()
         is called — use dataset.to(device) in train.py alongside val and test.
-        At each iteration:
-            1. Samples a batch of rays randomly via torch.randint.
+        Each dataset item holds the full set of rays for one image; at each
+        iteration a random image is drawn and a random batch of pixels is
+        sampled from it. At each iteration:
+            1. Samples a random image, then a random batch of rays from it.
             2. Renders the batch using the current model and occupancy estimator.
             3. Computes the total loss as a sum of active loss terms.
             4. Zeroes gradients, performs a backward pass, and steps the optimizer
                and learning rate scheduler.
             5. Updates the occupancy estimator.
-            6. Optionally evaluates on val_dataset every val_every iterations.
+            6. Optionally evaluates on monitor_data every val_every iterations,
+               if monitor_data was given at construction.
                 6.1. Optionally saves the model with highest validation PSNR.
 
         Logs train PSNR, learning rate, frequency regularization weight, and
@@ -108,8 +118,6 @@ class NeRFModelTrainer:
             dataset (Dataset): ray-based training dataset
             evaluator (ModelEvaluatorBase | None): evaluator instance to use for
                 validation. If None, validation is skipped.
-            val_dataset (Dataset | None): validation dataset. If None, validation
-                is skipped even if an evaluator is provided.
             val_every (int): number of iterations between validation steps
         """
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
@@ -122,21 +130,31 @@ class NeRFModelTrainer:
 
         # Dataset is expected to already be on the training device.
         # Call dataset.to(device) in train.py before fit() is called.
-        n_rays = len(dataset)
+        n_images = len(dataset)
+        n_pixels = dataset.hwf[0] * dataset.hwf[1]
 
         progress_bar = self.__setup_progress_bar(
             self.num_iterations, bar_description="[fit]"
         )
 
-        run_validation = evaluator is not None and val_dataset is not None
+        run_validation = evaluator is not None and self.monitor_data is not None
         self.best_val_psnr = float("-inf")
         for k in progress_bar:
             model.train()
             self.estimator.train()
 
-            # Sample a random batch of rays from a random image
-            index = torch.randint(0, n_rays, (1,), device=self.training_device).item()
-            (ray_origins, ray_dirs, rgb_gts) = dataset[index]
+            # Sample a random image, then a random batch of rays from it
+            image_idx = torch.randint(
+                0, n_images, (1,), device=self.training_device
+            ).item()
+            (ray_origins, ray_dirs, rgb_gts) = dataset[image_idx]
+
+            pixel_idxs = torch.randint(
+                0, n_pixels, (self.batch_size,), device=self.training_device
+            )
+            ray_origins = ray_origins[pixel_idxs]
+            ray_dirs = ray_dirs[pixel_idxs]
+            rgb_gts = rgb_gts[pixel_idxs]
 
             result = R.render_rays(
                 rays_o=ray_origins,
@@ -185,7 +203,7 @@ class NeRFModelTrainer:
                 model.eval()
                 self.estimator.eval()
                 val_psnr, val_ssim, val_lpips = evaluator.evaluate(
-                    model, self.estimator, val_dataset
+                    model, self.estimator, self.monitor_data
                 )
                 metrics.update(
                     {

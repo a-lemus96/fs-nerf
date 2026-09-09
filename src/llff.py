@@ -23,7 +23,6 @@ class LLFFDataset(Dataset):
     def __init__(
         self,
         scene: str,
-        batch_size: int = 1024,
         img_ids: list[int] = None,
     ) -> None:
         """
@@ -32,7 +31,6 @@ class LLFFDataset(Dataset):
         ------------------------------------------------------------------------
         Args:
             scene (str): scene folder name under ../datasets/llff/
-            batch_size (int): number of rays sampled per image in __getitem__
             img_ids (list[int]): if given, restricts the dataset to these
                 image indices (computed over the full, unfiltered scene) after
                 the full scene has been loaded and its poses normalized
@@ -53,7 +51,6 @@ class LLFFDataset(Dataset):
         # set ray bounds for NDC
         self.near = 0.0
         self.far = 1.0
-        self.batch_size = batch_size
 
         # build rays and get aabb
         images = torch.tensor(LLFFDataset.load_img_files(img_paths), dtype=torch.float32)
@@ -116,19 +113,14 @@ class LLFFDataset(Dataset):
         Args:
             idx (int): index of the image to sample from
         Returns:
-            ray_o (Tensor): [batch_size, 3]. Ray origins
-            ray_d (Tensor): [batch_size, 3]. Ray directions
-            rgb (Tensor): [batch_size, 3]. Pixel RGB colors
+            ray_o (Tensor): [HxW, 3]. Ray origins
+            ray_d (Tensor): [HxW, 3]. Ray directions
+            rgb (Tensor): [HxW, 3]. Pixel RGB colors
         """
-        n_pixels = self.rays_o.shape[1]
-        pixel_idxs = torch.randint(
-            0, n_pixels, (self.batch_size,), device=self.rays_o.device
-        )
-
         return (
-            self.rays_o[idx, pixel_idxs],
-            self.rays_d[idx, pixel_idxs],
-            self.rgb[idx, pixel_idxs],
+            self.rays_o[idx],
+            self.rays_d[idx],
+            self.rgb[idx],
         )
 
     def __len__(self) -> int:

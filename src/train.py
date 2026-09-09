@@ -15,7 +15,7 @@ from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, Linea
 from core.models import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
-from utils import create_split_file, load_train_split, load_eval_split
+from utils import create_split_file, load_split
 from playground.model_trainers.nerf_trainer import NeRFModelTrainer
 from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
 from playground.training_configuration import TrainingConfiguration
@@ -43,13 +43,14 @@ def main():
         create_split_file()
         logger.info("Split file created at ../configs/split.yaml")
 
-    train_ids = load_train_split(scene=args.scene, n_imgs=args.n_imgs)
-    train_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size, img_ids=train_ids)
-    eval_ids = load_eval_split(scene=args.scene)
-    eval_data = LLFFDataset(scene=args.scene, batch_size=args.batch_size, img_ids=eval_ids)
+    train_ids, eval_ids, monitor_id = load_split(scene=args.scene, n_imgs=args.n_imgs)
+    train_data = LLFFDataset(scene=args.scene, img_ids=train_ids)
+    eval_data = LLFFDataset(scene=args.scene, img_ids=eval_ids)
+    monitor_data = LLFFDataset(scene=args.scene, img_ids=monitor_id)
 
     train_data.to(device)
     eval_data.to(device)
+    monitor_data.to(device)
 
     # Resolve output directory: flat structure out_dir/<run_id>/
     if not args.debug:
@@ -82,7 +83,7 @@ def main():
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
         training_settings.occupancy_estimator_settings.aabb = train_data.aabb
 
-        model_trainer = NeRFModelTrainer(training_settings, args.debug)
+        model_trainer = NeRFModelTrainer(training_settings, monitor_data, args.debug)
 
         eval_settings = EvaluationConfiguration(device, train_data.hwf, args)
         model_evaluator = NeRFModelEvaluator(eval_settings, debug=args.debug)
@@ -91,6 +92,7 @@ def main():
         model_trainer.fit(
             model,
             train_data,
+            evaluator=model_evaluator,
             out_dir=out_dir if not args.debug else None,
         )
 
