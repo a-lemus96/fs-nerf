@@ -227,15 +227,15 @@ def create_split_file(
     with open(output_path, "w") as f:
         yaml.dump(split, f, Dumper=_FlowListDumper, default_flow_style=False, sort_keys=False)
 
-def load_train_split(
+def load_split(
     scene: str,
     n_imgs: int,
     split_path: str = "../configs/split.yaml",
-) -> list[int]:
+) -> tuple[list[int], list[int], int | None]:
     """
     Reads a split YAML file (as produced by `create_split_file`) and returns
-    the training image indices for the given scene and number of training
-    views.
+    the training image indices, evaluation image indices, and monitor image
+    index for the given scene and number of training views.
 
     Args:
         scene (str): name of the LLFF scene to look up.
@@ -244,7 +244,9 @@ def load_train_split(
         split_path (str): path to the split YAML file.
 
     Returns:
-        list[int]: training image indices.
+        tuple[list[int], list[int], int | None]: training image indices,
+            evaluation image indices, and monitor image index (None if the
+            split file has no leftover image for this setting).
     """
     assert os.path.isfile(
         split_path
@@ -255,38 +257,15 @@ def load_train_split(
 
     assert scene in split, f"Scene '{scene}' not found in split file {split_path}."
 
-    train_splits = split[scene]["train"]
     key = f"n_imgs_{n_imgs}"
+    train_splits = split[scene]["train"]
     assert key in train_splits, (
         f"n_imgs={n_imgs} not found for scene '{scene}' in split file "
         f"{split_path}."
     )
 
-    return train_splits[key]
+    train_ids = train_splits[key]
+    eval_ids = split[scene]["eval"]
+    monitor_id = split[scene]["monitor"][key]
 
-
-def load_eval_split(
-    scene: str,
-    split_path: str = "../configs/split.yaml",
-) -> list[int]:
-    """
-    Reads a split YAML file (as produced by `create_split_file`) and returns
-    the evaluation image indices for the given scene.
-
-    Args:
-        scene (str): name of the LLFF scene to look up.
-        split_path (str): path to the split YAML file.
-
-    Returns:
-        list[int]: evaluation image indices.
-    """
-    assert os.path.isfile(
-        split_path
-    ), f"Split file {os.path.abspath(split_path)} not found."
-
-    with open(split_path, "r") as f:
-        split = yaml.safe_load(f)
-
-    assert scene in split, f"Scene '{scene}' not found in split file {split_path}."
-
-    return split[scene]["eval"]
+    return train_ids, eval_ids, monitor_id
