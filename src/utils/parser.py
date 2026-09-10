@@ -101,13 +101,6 @@ def config_parser() -> argparse.Namespace:
         type=float,
         help="Ratio of val data to be used in between epochs",
     )
-    evaluation.add_argument(
-        "--lpips_chunk_size",
-        default=25,
-        type=int,
-        help="Number of images per chunk for LPIPS evaluation. Larger values use more GPU memory.",
-    )
-
     regularizers = parser.add_argument_group("Regularizers")
     regularizers.add_argument(
         "--alpha",

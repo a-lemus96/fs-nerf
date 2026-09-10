@@ -29,7 +29,6 @@ class EvaluationConfiguration:
     training_device: Device
     hwf: Tuple
     chunk_size: int
-    lpips_chunk_size: int
 
     def __init__(self, training_device: Device, hwf: Tuple, args: Namespace):
         """
@@ -39,7 +38,6 @@ class EvaluationConfiguration:
         self.training_device = training_device
         self.hwf = hwf
         self.chunk_size = args.val_batch_size_multiplier * args.batch_size
-        self.lpips_chunk_size = args.lpips_chunk_size
 
 
 class ModelEvaluator:
@@ -64,7 +62,7 @@ class ModelEvaluator:
             debug (bool): if True, disables all wandb logging
         """
         self._apply_evaluation_config(settings)
-        self._lpips_model = self._create_lpips_model().to(self.training_device)
+        self._lpips_model = self._create_lpips_model()
         self.debug_mode = debug
 
     def _apply_evaluation_config(self, settings: EvaluationConfiguration):
@@ -78,7 +76,6 @@ class ModelEvaluator:
         self.training_device = settings.training_device
         self.hwf = settings.hwf
         self.chunk_size = settings.chunk_size
-        self.lpips_chunk_size = settings.lpips_chunk_size
 
     def _create_lpips_model(self) -> LPIPS:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
@@ -143,17 +140,12 @@ class ModelEvaluator:
     def _compute_lpips_metric(self, rgbs_predicted: torch.Tensor,
                                rgbs_gt: torch.Tensor) -> float:
         """
-        Computes the LPIPS metric. Images are processed in chunks of
-        lpips_chunk_size to avoid OOM errors on large datasets.
+        Computes the LPIPS metric on CPU, so the LPIPS model never has to be
+        moved to the GPU.
         """
-        n = rgbs_predicted.shape[0]
-        lpips_scores = []
-        for start in range(0, n, self.lpips_chunk_size):
-            end = min(start + self.lpips_chunk_size, n)
-            pred_chunk = rgbs_predicted[start:end].to(self.training_device)
-            gt_chunk = rgbs_gt[start:end].to(self.training_device)
-            lpips_scores.append(self._lpips_model(pred_chunk, gt_chunk).mean())
-        return torch.stack(lpips_scores).mean().item()
+        rgbs_predicted = rgbs_predicted.cpu()
+        rgbs_gt = rgbs_gt.cpu()
+        return self._lpips_model(rgbs_predicted, rgbs_gt).mean().item()
 
     def _compute_ssim_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
