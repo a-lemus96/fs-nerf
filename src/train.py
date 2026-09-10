@@ -11,14 +11,18 @@ from torch import nn
 import wandb
 
 # local imports
-from core.freq_regularizer import FrequencyRegularizer, ConstantScheduler, LinearScheduler
-from core.models import Nerf, Sinerf
+from core import (
+    FrequencyRegularizer,
+    ConstantScheduler,
+    LinearScheduler,
+    Nerf,
+    Sinerf,
+    WeightSumSquaredRegularizer,
+)
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground.trainer import ModelTrainer, TrainingConfiguration
-from playground.evaluator import ModelEvaluator, EvaluationConfiguration
-from core.occlusion import WeightSumSquaredRegularizer
+from playground import ModelTrainer, TrainingConfiguration, ModelEvaluator, EvaluationConfiguration
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

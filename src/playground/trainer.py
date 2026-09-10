@@ -8,12 +8,10 @@ import torch.nn.functional as F
 from torch import device as Device
 from torch import nn
 from torch.utils.data import Dataset
+from nerfacc.estimators.occ_grid import OccGridEstimator
 
 import render.rendering as R
-from core.lr_scheduler import ExponentialDecay, Constant
-from core.freq_regularizer import FrequencyRegularizer
-from core.occlusion import OcclusionRegularizer
-from nerfacc.estimators.occ_grid import OccGridEstimator
+from core import ExponentialDecay, Constant, FrequencyRegularizer, OcclusionRegularizer
 from playground.evaluator import ModelEvaluator
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
 
