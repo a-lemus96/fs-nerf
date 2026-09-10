@@ -8,7 +8,7 @@ from torch import device as Device
 @dataclass
 class EvaluationConfiguration:
     """
-    Holds all hyperparameters required to configure a NeRFModelEvaluator.
+    Holds all hyperparameters required to configure a ModelEvaluator.
 
     Scalar hyperparameters are parsed from a command-line argparse.Namespace.
 

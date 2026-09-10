@@ -16,8 +16,8 @@ from core.models import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground.model_trainers.nerf_trainer import NeRFModelTrainer
-from playground.model_evaluators.nerf_evaluator import NeRFModelEvaluator
+from playground.trainer import ModelTrainer
+from playground.evaluator import ModelEvaluator
 from playground.training_configuration import TrainingConfiguration
 from playground.configuration.evaluation_configuration import EvaluationConfiguration
 from core.occlusion import WeightSumSquaredRegularizer
@@ -83,10 +83,10 @@ def main():
         # TODO: Temporary workaround but probably need to move OccGridConfig one level up
         training_settings.occupancy_estimator_settings.aabb = train_data.aabb
 
-        model_trainer = NeRFModelTrainer(training_settings, monitor_data, args.debug)
+        model_trainer = ModelTrainer(training_settings, monitor_data, args.debug)
 
         eval_settings = EvaluationConfiguration(device, train_data.hwf, args)
-        model_evaluator = NeRFModelEvaluator(eval_settings, debug=args.debug)
+        model_evaluator = ModelEvaluator(eval_settings, debug=args.debug)
 
         # trains model using the trainer's configuration
         model_trainer.fit(

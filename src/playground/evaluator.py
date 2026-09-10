@@ -7,12 +7,11 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from typing import Tuple
 
-from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
 from playground.configuration.evaluation_configuration import EvaluationConfiguration
 import render.rendering as R
 
 
-class NeRFModelEvaluator(ModelEvaluatorBase):
+class ModelEvaluator:
     """
     Evaluator for NeRF-like models. Uses an occupancy grid estimator to
     accelerate rendering during evaluation.

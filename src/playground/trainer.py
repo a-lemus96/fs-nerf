@@ -11,7 +11,7 @@ from core.lr_scheduler import ExponentialDecay, Constant
 from core.freq_regularizer import FrequencyRegularizer
 from core.occlusion import OcclusionRegularizer
 from nerfacc.estimators.occ_grid import OccGridEstimator
-from playground.model_evaluators.model_evaluator_base import ModelEvaluatorBase
+from playground.evaluator import ModelEvaluator
 from playground.training_configuration import TrainingConfiguration
 from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
 
@@ -19,7 +19,7 @@ import wandb
 from tqdm import tqdm
 
 
-class NeRFModelTrainer:
+class ModelTrainer:
     """
     Trainer for NeRF-like models using occupancy-grid-accelerated rendering.
 
@@ -88,7 +88,7 @@ class NeRFModelTrainer:
         self,
         model: nn.Module,
         dataset: Dataset,
-        evaluator: Optional[ModelEvaluatorBase] = None,
+        evaluator: Optional[ModelEvaluator] = None,
         val_every: int = 500,
         out_dir: Optional[str] = None,
     ):
@@ -116,7 +116,7 @@ class NeRFModelTrainer:
         Args:
             model (nn.Module): NeRF-like model to train
             dataset (Dataset): ray-based training dataset
-            evaluator (ModelEvaluatorBase | None): evaluator instance to use for
+            evaluator (ModelEvaluator | None): evaluator instance to use for
                 validation. If None, validation is skipped.
             val_every (int): number of iterations between validation steps
         """

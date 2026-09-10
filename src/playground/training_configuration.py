@@ -13,7 +13,7 @@ from core.occlusion import OcclusionRegularizer
 class TrainingConfiguration:
     """
     Holds all hyperparameters and components required to configure a
-    NeRFModelTrainer.
+    ModelTrainer.
 
     Scalar hyperparameters are parsed from a command-line argparse.Namespace.
     The occlusion regularizer is injected by the caller, keeping the trainer
