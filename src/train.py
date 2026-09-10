@@ -16,10 +16,8 @@ from core.models import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground.trainer import ModelTrainer
-from playground.evaluator import ModelEvaluator
-from playground.training_configuration import TrainingConfiguration
-from playground.configuration.evaluation_configuration import EvaluationConfiguration
+from playground.trainer import ModelTrainer, TrainingConfiguration
+from playground.evaluator import ModelEvaluator, EvaluationConfiguration
 from core.occlusion import WeightSumSquaredRegularizer
 
 logging.basicConfig(level=logging.INFO)

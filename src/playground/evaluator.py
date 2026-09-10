@@ -1,14 +1,45 @@
+from argparse import Namespace
+from dataclasses import dataclass
+
 from nerfacc.estimators.occ_grid import OccGridEstimator
 from lpips import LPIPS
 from skimage.metrics import structural_similarity as SSIM
 from torch import nn
+from torch import device as Device
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from typing import Tuple
 
-from playground.configuration.evaluation_configuration import EvaluationConfiguration
 import render.rendering as R
+
+
+@dataclass
+class EvaluationConfiguration:
+    """
+    Holds all hyperparameters required to configure a ModelEvaluator.
+
+    Scalar hyperparameters are parsed from a command-line argparse.Namespace.
+
+    Fields:
+        - training_device (torch.device):   device to run evaluation on
+        - hwf (Tuple):                      camera intrinsics (height, width, focal)
+        - chunk_size (int):                 number of rays per rendering chunk
+    """
+    training_device: Device
+    hwf: Tuple
+    chunk_size: int
+    lpips_chunk_size: int
+
+    def __init__(self, training_device: Device, hwf: Tuple, args: Namespace):
+        """
+        Builds an EvaluationConfiguration from a parsed argument namespace,
+        a torch.device instance, and camera intrinsics.
+        """
+        self.training_device = training_device
+        self.hwf = hwf
+        self.chunk_size = args.val_batch_size_multiplier * args.batch_size
+        self.lpips_chunk_size = args.lpips_chunk_size
 
 
 class ModelEvaluator:
