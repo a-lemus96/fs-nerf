@@ -48,7 +48,7 @@ def main():
     train_ids, eval_ids, monitor_id = load_split(scene=args.scene, n_imgs=args.n_imgs)
     train_data = LLFFDataset(scene=args.scene, img_ids=train_ids)
     eval_data = LLFFDataset(scene=args.scene, img_ids=eval_ids)
-    monitor_data = LLFFDataset(scene=args.scene, img_ids=monitor_id)
+    monitor_data = LLFFDataset(scene=args.scene, img_ids=[monitor_id])
 
     train_data.to(device)
     eval_data.to(device)

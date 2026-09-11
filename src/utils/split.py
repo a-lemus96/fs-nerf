@@ -231,7 +231,7 @@ def load_split(
     scene: str,
     n_imgs: int,
     split_path: str = "../configs/split.yaml",
-) -> tuple[list[int], list[int], int | None]:
+) -> tuple[list[int], list[int], int]:
     """
     Reads a split YAML file (as produced by `create_split_file`) and returns
     the training image indices, evaluation image indices, and monitor image
@@ -244,9 +244,11 @@ def load_split(
         split_path (str): path to the split YAML file.
 
     Returns:
-        tuple[list[int], list[int], int | None]: training image indices,
-            evaluation image indices, and monitor image index (None if the
-            split file has no leftover image for this setting).
+        tuple[list[int], list[int], int]: training image indices, evaluation
+            image indices, and monitor image index.
+    Raises:
+        AssertionError: if the split file has no leftover image to use as a
+            monitor for this (scene, n_imgs) setting.
     """
     assert os.path.isfile(
         split_path
@@ -267,5 +269,9 @@ def load_split(
     train_ids = train_splits[key]
     eval_ids = split[scene]["eval"]
     monitor_id = split[scene]["monitor"][key]
+    assert monitor_id is not None, (
+        f"No monitor image available for scene '{scene}' at n_imgs={n_imgs} "
+        f"in split file {split_path}: train and eval idxs cover every pose."
+    )
 
     return train_ids, eval_ids, monitor_id

@@ -137,18 +137,30 @@ class ModelEvaluator:
 
     def _compute_psnr_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
-        """Computes peak signal-to-noise ratio."""
-        return -10.0 * torch.log10(F.mse_loss(rgbs_predicted, rgbs_gt)).item()
+        """
+        Computes the mean of per-image PSNR values (not the PSNR of the
+        pooled MSE across images, which is a different, biased quantity).
+        """
+        per_image_mse = F.mse_loss(
+            rgbs_predicted, rgbs_gt, reduction="none"
+        ).mean(dim=(1, 2, 3))
+        per_image_psnr = -10.0 * torch.log10(per_image_mse)
+        return per_image_psnr.mean().item()
 
     def _compute_lpips_metric(self, rgbs_predicted: torch.Tensor,
                                rgbs_gt: torch.Tensor) -> float:
         """
         Computes the LPIPS metric on CPU, so the LPIPS model never has to be
         moved to the GPU.
+
+        Renders arrive in [0, 1]; `normalize=True` has the LPIPS model remap
+        them to the [-1, 1] range it expects.
         """
         rgbs_predicted = rgbs_predicted.cpu()
         rgbs_gt = rgbs_gt.cpu()
-        return self._lpips_model(rgbs_predicted, rgbs_gt).mean().item()
+        return self._lpips_model(
+            rgbs_predicted, rgbs_gt, normalize=True
+        ).mean().item()
 
     def _compute_ssim_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
