@@ -1,5 +1,6 @@
 from argparse import Namespace
 from dataclasses import dataclass
+import math
 
 from nerfacc.estimators.occ_grid import OccGridEstimator
 from lpips import LPIPS
@@ -82,9 +83,10 @@ class ModelEvaluator:
         return LPIPS(net="vgg")
 
     def evaluate(self, model: nn.Module, estimator: OccGridEstimator,
-                 dataset: Dataset) -> Tuple[float, float, float]:
+                 dataset: Dataset) -> Tuple[float, float, float, float]:
         """
-        Evaluates the model over the full dataset and returns PSNR, SSIM, and LPIPS.
+        Evaluates the model over the full dataset and returns PSNR, SSIM,
+        LPIPS, and their geometric-mean average.
 
         Iterates directly over dataset.imgs and dataset.poses tensors, avoiding
         DataLoader and worker process overhead. The dataset should already be on
@@ -95,7 +97,7 @@ class ModelEvaluator:
             estimator (OccGridEstimator): occupancy grid estimator
             dataset (Dataset): evaluation dataset (img_mode=True)
         Returns:
-            Tuple[float, float, float]: (psnr, ssim, lpips)
+            Tuple[float, float, float, float]: (psnr, ssim, lpips, average)
         """
         rgbs_gt = []
         rgbs_predicted = []
@@ -129,8 +131,9 @@ class ModelEvaluator:
         psnr = self._compute_psnr_metric(rgbs_predicted, rgbs_gt)
         lpips = self._compute_lpips_metric(rgbs_predicted, rgbs_gt)
         ssim = self._compute_ssim_metric(rgbs_predicted, rgbs_gt)
+        average = self._compute_average_metric(psnr, ssim, lpips)
 
-        return psnr, ssim, lpips
+        return psnr, ssim, lpips, average
 
     def _compute_psnr_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
@@ -157,3 +160,12 @@ class ModelEvaluator:
             for p, g in zip(pred_np, gt_np)
         ]
         return float(sum(scores) / len(scores))
+
+    def _compute_average_metric(self, psnr: float, ssim: float,
+                                 lpips: float) -> float:
+        """
+        Computes the geometric mean of sqrt(MSE), sqrt(1 - SSIM), and LPIPS,
+        as used by RegNeRF/FreeNeRF to summarize reconstruction quality.
+        """
+        mse = 10.0 ** (-psnr / 10.0)
+        return (math.sqrt(mse) * math.sqrt(1.0 - ssim) * lpips) ** (1.0 / 3.0)

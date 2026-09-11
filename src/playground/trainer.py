@@ -292,7 +292,7 @@ class ModelTrainer:
             if run_validation and (k + 1) % val_every == 0:
                 model.eval()
                 self.estimator.eval()
-                val_psnr, val_ssim, val_lpips = evaluator.evaluate(
+                val_psnr, val_ssim, val_lpips, val_average = evaluator.evaluate(
                     model, self.estimator, self.monitor_data
                 )
                 metrics.update(
@@ -300,6 +300,7 @@ class ModelTrainer:
                         "val_psnr": val_psnr,
                         "val_ssim": val_ssim,
                         "val_lpips": val_lpips,
+                        "val_average": val_average,
                     }
                 )
                 # save best model

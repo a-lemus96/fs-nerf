@@ -102,7 +102,7 @@ def main():
         estimator = model_trainer.estimator
         model.eval()
         estimator.eval()
-        final_psnr, final_ssim, final_lpips = model_evaluator.evaluate(
+        final_psnr, final_ssim, final_lpips, final_average = model_evaluator.evaluate(
             model, estimator, eval_data
         )
 
@@ -111,6 +111,7 @@ def main():
                 "final_psnr": final_psnr,
                 "final_ssim": final_ssim,
                 "final_lpips": final_lpips,
+                "final_average": final_average,
             }
             wandb.log(metrics)
 
