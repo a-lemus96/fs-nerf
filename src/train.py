@@ -87,7 +87,7 @@ def main():
 
         model_trainer = ModelTrainer(training_settings, monitor_data, args.debug)
 
-        eval_settings = EvaluationConfiguration(device, train_data.hwf, args)
+        eval_settings = EvaluationConfiguration(device, train_data.hwf)
         model_evaluator = ModelEvaluator(eval_settings, debug=args.debug)
 
         # trains model using the trainer's configuration

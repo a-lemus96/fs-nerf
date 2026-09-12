@@ -1,4 +1,3 @@
-from argparse import Namespace
 from dataclasses import dataclass
 import math
 
@@ -15,12 +14,13 @@ from typing import Tuple
 import render.rendering as R
 
 
+EVAL_CHUNK_SIZE = 1024  # rays per rendering chunk during validation/evaluation
+
+
 @dataclass
 class EvaluationConfiguration:
     """
     Holds all hyperparameters required to configure a ModelEvaluator.
-
-    Scalar hyperparameters are parsed from a command-line argparse.Namespace.
 
     Fields:
         - training_device (torch.device):   device to run evaluation on
@@ -31,14 +31,14 @@ class EvaluationConfiguration:
     hwf: Tuple
     chunk_size: int
 
-    def __init__(self, training_device: Device, hwf: Tuple, args: Namespace):
+    def __init__(self, training_device: Device, hwf: Tuple):
         """
-        Builds an EvaluationConfiguration from a parsed argument namespace,
-        a torch.device instance, and camera intrinsics.
+        Builds an EvaluationConfiguration from a torch.device instance and
+        camera intrinsics.
         """
         self.training_device = training_device
         self.hwf = hwf
-        self.chunk_size = args.val_batch_size_multiplier * args.batch_size
+        self.chunk_size = EVAL_CHUNK_SIZE
 
 
 class ModelEvaluator:

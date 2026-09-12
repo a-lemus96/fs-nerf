@@ -28,6 +28,4 @@ command:
   - llff
   - --out_dir
   - ../output/constant-reg-llff/
-  - --val_batch_size_multiplier
-  - 8
   - ${args}

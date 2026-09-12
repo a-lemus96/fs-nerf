@@ -31,6 +31,4 @@ command:
   - llff
   - --out_dir
   - ../output/scheduled-reg-llff-tight/
-  - --val_batch_size_multiplier
-  - 8
   - ${args}

@@ -89,13 +89,6 @@ def config_parser() -> argparse.Namespace:
         help="Number of iterations between validation steps",
     )
     evaluation.add_argument(
-        "--val_batch_size_multiplier",
-        default=4,
-        type=int,
-        help="Multiplier applied to batch_size for evaluation chunking. "
-        "Can be larger than training since no gradients are computed.",
-    )
-    evaluation.add_argument(
         "--val_ratio",
         default=0.25,
         type=float,

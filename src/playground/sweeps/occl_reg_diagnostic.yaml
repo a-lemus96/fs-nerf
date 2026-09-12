@@ -32,6 +32,4 @@ command:
   - 30000
   - --out_dir
   - ../output/occl-reg-room-diagnostic/
-  - --val_batch_size_multiplier
-  - 8
   - ${args}
