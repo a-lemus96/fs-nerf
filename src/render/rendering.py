@@ -57,6 +57,7 @@ def render_rays(
     model: nn.Module,
     train: bool = False,
     render_step_size: float = 5e-3,
+    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> RenderingResult:
     """
@@ -81,6 +82,7 @@ def render_rays(
         train (bool):              if True, enables stratified sampling and
                                    sets render_bkgd to require gradients
         render_step_size (float):  step size used during occupancy grid sampling
+        early_stop_eps (float):    transmittance threshold for ray early-stopping
         device (torch.device):     device to move rays to before rendering
     Returns:
         RenderingResult:
@@ -108,6 +110,7 @@ def render_rays(
         rays_d,
         sigma_fn=sigma_fn,
         render_step_size=render_step_size,
+        early_stop_eps=early_stop_eps,
         stratified=train,
         near_plane=0.0,
         far_plane=1e10,
@@ -170,6 +173,7 @@ def render_frame(
     train: bool = False,
     ndc: bool = False,
     render_step_size: float = 5e-3,
+    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -191,6 +195,7 @@ def render_frame(
         train (bool):                 passed through to render_rays
         ndc (bool):                   if True, converts rays to NDC before rendering
         render_step_size (float):     step size used during occupancy grid sampling
+        early_stop_eps (float):       transmittance threshold for ray early-stopping
         device (torch.device):        device to run rendering on
     Returns:
         img (Tensor):       (H, W, 3) rendered RGB image
@@ -216,6 +221,7 @@ def render_frame(
             model=model,
             train=train,
             render_step_size=render_step_size,
+            early_stop_eps=early_stop_eps,
             device=device,
         )
         img.append(out.rgb)
@@ -238,6 +244,7 @@ def render_path(
     ndc: bool = False,
     train: bool = False,
     render_step_size: float = 5e-3,
+    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -259,6 +266,7 @@ def render_path(
         ndc (bool):                   if True, converts rays to NDC before rendering
         train (bool):                 passed through to render_frame
         render_step_size (float):     step size used during occupancy grid sampling
+        early_stop_eps (float):       transmittance threshold for ray early-stopping
         device (torch.device):        device to run rendering ongi
     Returns:
         frames (ndarray):   (N, H, W, 3) rendered RGB frames in float [0, 1]
@@ -281,6 +289,7 @@ def render_path(
                 train=train,
                 ndc=ndc,
                 render_step_size=render_step_size,
+                early_stop_eps=early_stop_eps,
                 device=device,
             )
             rgb   = rgb.reshape([H, W, 3]).detach().cpu().numpy()

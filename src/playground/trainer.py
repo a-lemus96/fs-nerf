@@ -149,6 +149,11 @@ class ModelTrainer:
         self.__apply_training_config(settings)
         estimator_settings = settings.occupancy_estimator_settings
         self.render_step_size = estimator_settings.render_step_size
+        self.occ_thre = estimator_settings.occ_thre
+        self.ema_decay = estimator_settings.ema_decay
+        self.warmup_steps = estimator_settings.warmup_steps
+        self.update_period = estimator_settings.update_period
+        self.early_stop_eps = estimator_settings.early_stop_eps
         self.estimator = self.__create_occupancy_estimator(estimator_settings)
         self.debug_mode = debug
         self.occl_regularizer: Optional[OcclusionRegularizer] = (
@@ -253,6 +258,7 @@ class ModelTrainer:
                 model=model,
                 train=True,
                 render_step_size=self.render_step_size,
+                early_stop_eps=self.early_stop_eps,
                 device=self.training_device,
             )
 
@@ -352,7 +358,12 @@ class ModelTrainer:
 
         with torch.cuda.amp.autocast():
             self.estimator.update_every_n_steps(
-                step=current_iteration, occ_eval_fn=occ_eval_fn, occ_thre=1e-2
+                step=current_iteration,
+                occ_eval_fn=occ_eval_fn,
+                occ_thre=self.occ_thre,
+                ema_decay=self.ema_decay,
+                warmup_steps=self.warmup_steps,
+                n=self.update_period,
             )
 
     def __create_occupancy_estimator(
