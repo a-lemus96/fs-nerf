@@ -99,7 +99,6 @@ def main():
             model,
             train_data,
             evaluator=model_evaluator,
-            out_dir=out_dir if not args.debug else None,
         )
 
         # final evaluation on test set
@@ -119,7 +118,7 @@ def main():
             }
             wandb.log(metrics)
 
-            # Save metrics as JSON (model is saved during training via trainer)
+            # Save metrics as JSON
             with open(os.path.join(out_dir, "metrics.json"), "w") as f:
                 json.dump(metrics, f, indent=2)
 
@@ -127,8 +126,13 @@ def main():
             with open(os.path.join(out_dir, "config.json"), "w") as f:
                 json.dump(vars(args), f, indent=2)
 
-            # Log best model checkpoint to wandb
-            wandb.log_model(os.path.join(out_dir, "best_model.pt"))
+            # Save and log the final-iteration checkpoint (model + occupancy grid)
+            checkpoint_path = os.path.join(out_dir, "checkpoint_final.pt")
+            torch.save(
+                {"model": model.state_dict(), "estimator": estimator.state_dict()},
+                checkpoint_path,
+            )
+            wandb.log_model(checkpoint_path)
 
 
 def get_computing_device() -> torch.device:

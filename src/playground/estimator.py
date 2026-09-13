@@ -122,6 +122,10 @@ class OccupancyEstimator:
         """Switches the underlying estimator to evaluation mode."""
         self.__estimator.eval()
 
+    def state_dict(self) -> dict:
+        """Returns the underlying occupancy grid estimator's state dict."""
+        return self.__estimator.state_dict()
+
     def step(self, step: int, model: Module) -> None:
         """
         Updates the occupancy grid using the current model's density

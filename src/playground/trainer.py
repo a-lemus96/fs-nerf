@@ -140,7 +140,6 @@ class ModelTrainer:
                 monitor training progress
             debug (bool): if True, disables all wandb logging
         """
-        self.best_val_psnr = float("-inf")
         self.monitor_data = monitor_data
         self.configure(settings, debug)
 
@@ -188,7 +187,6 @@ class ModelTrainer:
         dataset: Dataset,
         evaluator: Optional[ModelEvaluator] = None,
         val_every: int = 500,
-        out_dir: Optional[str] = None,
     ):
         """
         Runs the training loop for a given model and dataset.
@@ -205,8 +203,9 @@ class ModelTrainer:
                and learning rate scheduler.
             5. Updates the occupancy estimator.
             6. Optionally evaluates on monitor_data every val_every iterations,
-               if monitor_data was given at construction.
-                6.1. Optionally saves the model with highest validation PSNR.
+               if monitor_data was given at construction. Validation is
+               diagnostic only — it never affects checkpoint selection; the
+               model at the final iteration is what gets saved and evaluated.
 
         Logs train PSNR, learning rate, frequency regularization weight, and
         occlusion loss to wandb at every iteration unless debug mode is active.
@@ -236,7 +235,6 @@ class ModelTrainer:
         )
 
         run_validation = evaluator is not None and self.monitor_data is not None
-        self.best_val_psnr = float("-inf")
         for k in progress_bar:
             model.train()
             self.estimator.train()
@@ -312,12 +310,6 @@ class ModelTrainer:
                         "val_average": val_average,
                     }
                 )
-                # save best model
-                if out_dir is not None and val_psnr > self.best_val_psnr:
-                    self.best_val_psnr = val_psnr
-                    torch.save(
-                        model.state_dict(), os.path.join(out_dir, "best_model.pt")
-                    )
                 model.train()
                 self.estimator.train()
 
