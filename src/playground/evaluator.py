@@ -130,7 +130,8 @@ class ModelEvaluator:
                     model,
                     train=False,
                     ndc=dataset.ndc,
-                    render_step_size=5e-3,
+                    render_step_size=estimator.render_step_size,
+                    early_stop_eps=estimator.early_stop_eps,
                     device=self.training_device,
                 )
                 rgbs_predicted.append(rgb_predicted)
