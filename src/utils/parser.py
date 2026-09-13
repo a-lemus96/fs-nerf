@@ -27,11 +27,6 @@ def config_parser() -> argparse.Namespace:
         help="Number of training views (FreeNeRF few-shot LLFF settings)",
     )
     data.add_argument(
-        "--img_mode",
-        action="store_true",
-        help="If set, iterate over images instead of rays for training",
-    )
-    data.add_argument(
         "--factor", default=4, type=int, help="LLFF dataset downsample factor"
     )
     data.add_argument(
