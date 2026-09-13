@@ -1,3 +1,5 @@
+# TEMPORARILY DISABLED: sweeps over --alpha/--reg, which were removed from
+# parser.py after regularizer wiring was pulled from the trainer.
 program: train.py
 project: fs-nerf
 method: grid

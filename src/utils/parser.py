@@ -72,44 +72,6 @@ def config_parser() -> argparse.Namespace:
         type=int,
         help="Number of iterations between validation steps",
     )
-    regularizers = parser.add_argument_group("Regularizers")
-    regularizers.add_argument(
-        "--alpha",
-        default=None,
-        type=float,
-        help="Initial alpha value for regularizing model parameter weights",
-    )
-    regularizers.add_argument(
-        "--freq_scheduler",
-        choices=["constant", "linear"],
-        default="constant",
-        help="Frequency regularizer scheduler type",
-    )
-    regularizers.add_argument(
-        "--reg_ratio",
-        default=0.5,
-        type=float,
-        help="Ratio of iterations for alpha regularizer scheduler",
-    )
-    regularizers.add_argument(
-        "--reg",
-        choices=["l1", "l2"],
-        default="l1",
-        help="Norm for penalizing model parameters",
-    )
-    regularizers.add_argument(
-        "--beta",
-        default=None,
-        type=float,
-        help="Occlusion regularization importance parameter",
-    )
-    regularizers.add_argument(
-        "--depth_thres",
-        default=0.2,
-        type=float,
-        help="Depth threshold to penalize sigma values",
-    )
-
     logging = parser.add_argument_group("Logging")
     logging.add_argument(
         "--out_dir",
