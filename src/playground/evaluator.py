@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import math
 
-from nerfacc.estimators.occ_grid import OccGridEstimator
 from lpips import LPIPS
 from skimage.metrics import structural_similarity as SSIM
 from torch import nn
@@ -12,13 +11,19 @@ from torch.utils.data import Dataset
 from typing import Tuple
 
 import render.rendering as R
+from playground.estimator import OccupancyEstimator
+from utils import load_or_create_config
 
 
-EVAL_CHUNK_SIZE = 1024  # rays per rendering chunk during validation/evaluation
+DEFAULT_EVALUATION_CONFIG_PATH = "../configs/evaluation.yaml"
+
+_DEFAULTS = {
+    "chunk_size": 1024,  # rays per rendering chunk during validation/evaluation
+}
 
 
 @dataclass
-class EvaluationConfiguration:
+class EvaluationConfig:
     """
     Holds all hyperparameters required to configure a ModelEvaluator.
 
@@ -31,14 +36,21 @@ class EvaluationConfiguration:
     hwf: Tuple
     chunk_size: int
 
-    def __init__(self, training_device: Device, hwf: Tuple):
+    def __init__(
+        self,
+        training_device: Device,
+        hwf: Tuple,
+        config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
+    ):
         """
-        Builds an EvaluationConfiguration from a torch.device instance and
-        camera intrinsics.
+        Builds an EvaluationConfig from a torch.device instance, camera
+        intrinsics, and the evaluation YAML config file (created with
+        default values if it doesn't exist).
         """
+        cfg = load_or_create_config(config_path, _DEFAULTS)
         self.training_device = training_device
         self.hwf = hwf
-        self.chunk_size = EVAL_CHUNK_SIZE
+        self.chunk_size = cfg["chunk_size"]
 
 
 class ModelEvaluator:
@@ -50,29 +62,29 @@ class ModelEvaluator:
     Iterates directly over dataset tensors — no DataLoader or worker processes.
     """
 
-    def __init__(self, settings: EvaluationConfiguration, debug: bool = False):
+    def __init__(self, settings: EvaluationConfig, debug: bool = False):
         self.configure(settings, debug)
 
-    def configure(self, settings: EvaluationConfiguration, debug: bool = False):
+    def configure(self, settings: EvaluationConfig, debug: bool = False):
         """
-        Applies an EvaluationConfiguration to the evaluator.
+        Applies an EvaluationConfig to the evaluator.
         Called at construction and can be called again to reconfigure.
 
         Args:
-            settings (EvaluationConfiguration): full evaluation configuration
+            settings (EvaluationConfig): full evaluation configuration
             debug (bool): if True, disables all wandb logging
         """
         self._apply_evaluation_config(settings)
         self._lpips_model = self._create_lpips_model()
         self.debug_mode = debug
 
-    def _apply_evaluation_config(self, settings: EvaluationConfiguration):
+    def _apply_evaluation_config(self, settings: EvaluationConfig):
         """
-        Unpacks scalar hyperparameters from an EvaluationConfiguration onto
+        Unpacks scalar hyperparameters from an EvaluationConfig onto
         the evaluator instance.
 
         Args:
-            settings (EvaluationConfiguration): full evaluation configuration
+            settings (EvaluationConfig): full evaluation configuration
         """
         self.training_device = settings.training_device
         self.hwf = settings.hwf
@@ -82,7 +94,7 @@ class ModelEvaluator:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
         return LPIPS(net="vgg")
 
-    def evaluate(self, model: nn.Module, estimator: OccGridEstimator,
+    def evaluate(self, model: nn.Module, estimator: OccupancyEstimator,
                  dataset: Dataset) -> Tuple[float, float, float, float]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM,
@@ -94,7 +106,7 @@ class ModelEvaluator:
 
         Args:
             model (nn.Module): trained NeRF-like model
-            estimator (OccGridEstimator): occupancy grid estimator
+            estimator (OccupancyEstimator): occupancy grid estimator
             dataset (Dataset): evaluation dataset (img_mode=True)
         Returns:
             Tuple[float, float, float, float]: (psnr, ssim, lpips, average)

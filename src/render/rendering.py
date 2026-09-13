@@ -4,7 +4,6 @@ from typing import Optional, Tuple
 
 # third-party modules
 from nerfacc.volrend import rendering, render_weight_from_density
-from nerfacc.estimators.occ_grid import OccGridEstimator
 import matplotlib
 import matplotlib.cm as cm
 import numpy as np
@@ -15,6 +14,7 @@ from tqdm import tqdm
 
 # custom modules
 import utils.utilities as U
+from playground.estimator import OccupancyEstimator
 
 
 # Function to map float values to [0, 255] integer range
@@ -53,7 +53,7 @@ class RenderingResult:
 def render_rays(
     rays_o: Tensor,
     rays_d: Tensor,
-    estimator: OccGridEstimator,
+    estimator: OccupancyEstimator,
     model: nn.Module,
     train: bool = False,
     render_step_size: float = 5e-3,
@@ -77,7 +77,7 @@ def render_rays(
     Args:
         rays_o (Tensor):           (n_rays, 3) ray origins in world/NDC space
         rays_d (Tensor):           (n_rays, 3) ray directions in world/NDC space
-        estimator (OccGridEstimator): occupancy grid estimator for fast sampling
+        estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
         model (nn.Module):         NeRF-like model returning (rgb, sigma) or sigma
         train (bool):              if True, enables stratified sampling and
                                    sets render_bkgd to require gradients
@@ -105,7 +105,7 @@ def render_rays(
         sigmas = model(x)
         return sigmas.squeeze(-1)
 
-    ray_indices, t_starts, t_ends = estimator.sampling(
+    ray_indices, t_starts, t_ends = estimator.sample(
         rays_o,
         rays_d,
         sigma_fn=sigma_fn,
@@ -168,7 +168,7 @@ def render_frame(
     far: float,
     pose: torch.Tensor,
     chunksize: int,
-    estimator: OccGridEstimator,
+    estimator: OccupancyEstimator,
     model: nn.Module,
     train: bool = False,
     ndc: bool = False,
@@ -190,7 +190,7 @@ def render_frame(
         far (float):                  far depth bound for depth clamping
         pose (Tensor):                (4, 4) camera-to-world pose matrix
         chunksize (int):              number of rays rendered per chunk
-        estimator (OccGridEstimator): occupancy grid estimator for fast sampling
+        estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
         model (nn.Module):            NeRF-like model
         train (bool):                 passed through to render_rays
         ndc (bool):                   if True, converts rays to NDC before rendering
@@ -240,7 +240,7 @@ def render_path(
     far: float,
     chunksize: int,
     model: nn.Module,
-    estimator: OccGridEstimator,
+    estimator: OccupancyEstimator,
     ndc: bool = False,
     train: bool = False,
     render_step_size: float = 5e-3,
@@ -262,7 +262,7 @@ def render_path(
         far (float):                  far depth bound for depth clamping
         chunksize (int):              number of rays rendered per chunk
         model (nn.Module):            NeRF-like model
-        estimator (OccGridEstimator): occupancy grid estimator for fast sampling
+        estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
         ndc (bool):                   if True, converts rays to NDC before rendering
         train (bool):                 passed through to render_frame
         render_step_size (float):     step size used during occupancy grid sampling

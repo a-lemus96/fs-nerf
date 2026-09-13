@@ -1,26 +1,25 @@
 import os
 from argparse import Namespace
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
 from torch import device as Device
 from torch import nn
 from torch.utils.data import Dataset
-from nerfacc.estimators.occ_grid import OccGridEstimator
 
 import render.rendering as R
 from core import ExponentialDecay, Constant, FrequencyRegularizer, OcclusionRegularizer
 from playground.evaluator import ModelEvaluator
-from playground.occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from playground.estimator import OccupancyEstimator
 
 import wandb
 from tqdm import tqdm
 
 
 @dataclass
-class TrainingConfiguration:
+class TrainingConfig:
     """
     Holds all hyperparameters and components required to configure a
     ModelTrainer.
@@ -36,7 +35,8 @@ class TrainingConfiguration:
         - learning_rate (float):            initial learning rate
         - lr_scheduler_type (str):          one of 'const' or 'exp'
         - lr_scheduler_kwargs (dict):       additional kwargs for the scheduler
-        - occupancy_estimator_settings:     config for the occupancy grid estimator
+        - aabb (List[float]):               axis-aligned bounding box, passed
+                                            through to the occupancy estimator
         - occl_beta (float | None):         importance weight for occlusion regularizer
         - freq_regularizer:                 FrequencyRegularizer with concrete FrequencyScheduler
         - occl_regularizer:                 concrete OcclusionRegularizer, or None
@@ -48,7 +48,7 @@ class TrainingConfiguration:
     learning_rate: float
     lr_scheduler_type: str
     lr_scheduler_kwargs: Dict[str, Any]
-    occupancy_estimator_settings: OccupancyGridEstimatorConfiguration
+    aabb: List[float]
     occl_beta: Optional[float]
     freq_regularizer: Optional[FrequencyRegularizer]
     occl_regularizer: Optional[OcclusionRegularizer]
@@ -57,18 +57,25 @@ class TrainingConfiguration:
         self,
         training_device: Device,
         args: Namespace,
+        aabb: List[float],
+        freq_regularizer: Optional[FrequencyRegularizer] = None,
         occl_regularizer: Optional[OcclusionRegularizer] = None,
     ):
         """
-        Builds a TrainingConfiguration from a parsed argument namespace and an
-        optional occlusion regularizer instance.
+        Builds a TrainingConfig from a parsed argument namespace, the
+        dataset's bounding box, and optional regularizer instances.
 
-        The caller is responsible for constructing the concrete regularizer and
-        passing it here. Passing None disables occlusion regularization entirely.
+        The caller is responsible for constructing the concrete regularizers
+        and passing them here. Passing None disables the corresponding
+        regularizer entirely.
 
         Args:
             training_device (Device):               device to run training on
             args (Namespace):                       parsed command-line arguments
+            aabb (List[float]):                     dataset axis-aligned bounding box
+            freq_regularizer (FrequencyRegularizer | None):
+                                                    concrete regularizer instance,
+                                                    or None to disable
             occl_regularizer (OcclusionRegularizer | None):
                                                     concrete regularizer instance,
                                                     or None to disable
@@ -89,8 +96,9 @@ class TrainingConfiguration:
                 f"args obj:\n{args}\n\nCheck parser arguments. {e}"
             )
 
+        self.aabb = aabb
+        self.freq_regularizer = freq_regularizer
         self.occl_regularizer = occl_regularizer
-        self.occupancy_estimator_settings = OccupancyGridEstimatorConfiguration()
 
     def __get_scheduler_kwargs(self, args: Namespace) -> Dict[str, Any]:
         """
@@ -121,13 +129,13 @@ class ModelTrainer:
 
     def __init__(
         self,
-        settings: TrainingConfiguration,
+        settings: TrainingConfig,
         monitor_data: Optional[Dataset] = None,
         debug: bool = False,
     ):
         """
         Args:
-            settings (TrainingConfiguration): full training configuration
+            settings (TrainingConfig): full training configuration
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
             debug (bool): if True, disables all wandb logging
@@ -136,38 +144,33 @@ class ModelTrainer:
         self.monitor_data = monitor_data
         self.configure(settings, debug)
 
-    def configure(self, settings: TrainingConfiguration, debug: bool = False):
+    def configure(self, settings: TrainingConfig, debug: bool = False):
         """
-        Applies a TrainingConfiguration to the trainer, setting up the
+        Applies a TrainingConfig to the trainer, setting up the
         occupancy grid estimator and storing all training hyperparameters.
         Called at construction and can be called again to reconfigure.
 
         Args:
-            settings (TrainingConfiguration): full training configuration
+            settings (TrainingConfig): full training configuration
             debug (bool): if True, disables all wandb logging
         """
         self.__apply_training_config(settings)
-        estimator_settings = settings.occupancy_estimator_settings
-        self.render_step_size = estimator_settings.render_step_size
-        self.occ_thre = estimator_settings.occ_thre
-        self.ema_decay = estimator_settings.ema_decay
-        self.warmup_steps = estimator_settings.warmup_steps
-        self.update_period = estimator_settings.update_period
-        self.early_stop_eps = estimator_settings.early_stop_eps
-        self.estimator = self.__create_occupancy_estimator(estimator_settings)
+        self.estimator = OccupancyEstimator(settings.aabb)
+        self.render_step_size = self.estimator.render_step_size
+        self.early_stop_eps = self.estimator.early_stop_eps
         self.debug_mode = debug
         self.occl_regularizer: Optional[OcclusionRegularizer] = (
             settings.occl_regularizer
         )
         self.occl_beta: Optional[float] = settings.occl_beta
 
-    def __apply_training_config(self, settings: TrainingConfiguration):
+    def __apply_training_config(self, settings: TrainingConfig):
         """
-        Unpacks scalar hyperparameters from a TrainingConfiguration onto the
+        Unpacks scalar hyperparameters from a TrainingConfig onto the
         trainer instance.
 
         Args:
-            settings (TrainingConfiguration): full training configuration
+            settings (TrainingConfig): full training configuration
         """
         self.training_device = settings.training_device
         self.learning_rate = settings.learning_rate
@@ -341,49 +344,7 @@ class ModelTrainer:
         loss.backward()
         self.optimizer.step()
         self.lr_scheduler.step()
-        self.__update_occupancy_estimator(current_iteration, model)
-
-    def __update_occupancy_estimator(self, current_iteration: int, model: nn.Module):
-        """
-        Steps the occupancy grid estimator using the current model's density
-        predictions. Called at every training iteration.
-        ------------------------------------------------------------------------
-        Args:
-            current_iteration (int): current training iteration index
-            model (nn.Module): model used to evaluate occupancy
-        """
-
-        def occ_eval_fn(x):
-            return model(x) * self.render_step_size
-
-        with torch.cuda.amp.autocast():
-            self.estimator.update_every_n_steps(
-                step=current_iteration,
-                occ_eval_fn=occ_eval_fn,
-                occ_thre=self.occ_thre,
-                ema_decay=self.ema_decay,
-                warmup_steps=self.warmup_steps,
-                n=self.update_period,
-            )
-
-    def __create_occupancy_estimator(
-        self, settings: OccupancyGridEstimatorConfiguration
-    ) -> OccGridEstimator:
-        """
-        Instantiates an OccGridEstimator from a configuration object.
-
-        Args:
-            settings (OccupancyGridEstimatorConfiguration): estimator config
-        Returns:
-            OccGridEstimator: initialised occupancy grid estimator
-        """
-        aabb = settings.aabb
-        grid_resolution = settings.grid_resolution
-        grid_number_of_levels = settings.grid_num_levels
-        estimator = OccGridEstimator(
-            roi_aabb=aabb, resolution=grid_resolution, levels=grid_number_of_levels
-        )
-        return estimator
+        self.estimator.step(current_iteration, model)
 
     def __setup_progress_bar(self, num_iterations: int, bar_description: str):
         """

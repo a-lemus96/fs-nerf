@@ -1,0 +1,183 @@
+# stdlib modules
+from dataclasses import dataclass
+from typing import Callable, List, Tuple
+
+# third-party modules
+import torch
+from torch import Tensor
+from torch.nn import Module
+from nerfacc.estimators.occ_grid import OccGridEstimator
+
+# custom modules
+from utils import load_or_create_config
+
+DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/estimator.yaml"
+
+_DEFAULTS = {
+    "grid_resolution": 128,
+    # TODO: This works for LLFF only, for Blender dataset set to 1
+    "grid_num_levels": 4,
+    "render_step_size": 5e-3,
+    "occ_thre": 1e-2,
+    "ema_decay": 0.95,
+    "warmup_steps": 256,
+    "update_period": 16,
+    "early_stop_eps": 1e-4,
+}
+
+
+@dataclass
+class EstimatorConfig:
+    aabb: List[float]  # axis-aligned bounding box
+    grid_resolution: int
+    grid_num_levels: int
+    render_step_size: float
+    occ_thre: float          # occupancy threshold for the binary grid
+    ema_decay: float         # EMA decay applied to occupancy values
+    warmup_steps: int        # steps before grid updates start thresholding
+    update_period: int       # grid is refreshed every this many steps
+    early_stop_eps: float    # transmittance threshold for ray early-stopping
+
+    def __init__(
+        self, aabb: List[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
+    ):
+        """
+        Args:
+            aabb (List[float]): axis-aligned bounding box; dataset-dependent,
+                so it isn't part of the YAML config file
+            config_path (str): path to the estimator YAML config file,
+                created with default values if it doesn't exist
+        """
+        cfg = load_or_create_config(config_path, _DEFAULTS)
+        self.aabb = aabb
+        self.grid_resolution = cfg["grid_resolution"]
+        self.grid_num_levels = cfg["grid_num_levels"]
+        self.render_step_size = cfg["render_step_size"]
+        self.occ_thre = cfg["occ_thre"]
+        self.ema_decay = cfg["ema_decay"]
+        self.warmup_steps = cfg["warmup_steps"]
+        self.update_period = cfg["update_period"]
+        self.early_stop_eps = cfg["early_stop_eps"]
+
+
+class OccupancyEstimator:
+    """
+    Wrapper around nerfacc's OccGridEstimator.
+
+    Owns the grid's configuration (aabb, resolution, levels, and the update
+    knobs in EstimatorConfig) so callers deal with a single, project-level
+    interface instead of nerfacc's estimator directly. EstimatorConfig is
+    constructed here, from the YAML config file, and never exposed to callers.
+    """
+
+    def __init__(
+        self, aabb: List[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
+    ) -> None:
+        """
+        Args:
+            aabb (List[float]): axis-aligned bounding box for the grid
+            config_path (str): path to the estimator YAML config file,
+                created with default values if it doesn't exist
+        """
+        settings = EstimatorConfig(aabb, config_path)
+        self.render_step_size = settings.render_step_size
+        self.early_stop_eps = settings.early_stop_eps
+        self.occ_thre = settings.occ_thre
+        self.ema_decay = settings.ema_decay
+        self.warmup_steps = settings.warmup_steps
+        self.update_period = settings.update_period
+        self.__estimator = self.__create_occupancy_estimator(settings)
+
+    def __create_occupancy_estimator(
+        self, settings: EstimatorConfig
+    ) -> OccGridEstimator:
+        """
+        Instantiates an OccGridEstimator from a configuration object.
+
+        Args:
+            settings (EstimatorConfig): estimator config
+        Returns:
+            OccGridEstimator: initialised occupancy grid estimator
+        """
+        return OccGridEstimator(
+            roi_aabb=settings.aabb,
+            resolution=settings.grid_resolution,
+            levels=settings.grid_num_levels,
+        )
+
+    def to(self, device: torch.device) -> None:
+        """
+        Moves the underlying estimator to the given device.
+
+        Args:
+            device (torch.device): target device
+        """
+        self.__estimator.to(device)
+
+    def train(self) -> None:
+        """Switches the underlying estimator to training mode."""
+        self.__estimator.train()
+
+    def eval(self) -> None:
+        """Switches the underlying estimator to evaluation mode."""
+        self.__estimator.eval()
+
+    def step(self, step: int, model: Module) -> None:
+        """
+        Updates the occupancy grid using the current model's density
+        predictions. Called at every training iteration.
+
+        Args:
+            step (int): current training iteration index
+            model (Module): model used to evaluate occupancy
+        """
+
+        def occ_eval_fn(x):
+            return model(x) * self.render_step_size
+
+        with torch.cuda.amp.autocast():
+            self.__estimator.update_every_n_steps(
+                step=step,
+                occ_eval_fn=occ_eval_fn,
+                occ_thre=self.occ_thre,
+                ema_decay=self.ema_decay,
+                warmup_steps=self.warmup_steps,
+                n=self.update_period,
+            )
+
+    def sample(
+        self,
+        rays_o: Tensor,
+        rays_d: Tensor,
+        sigma_fn: Callable,
+        render_step_size: float,
+        early_stop_eps: float,
+        stratified: bool = False,
+        near_plane: float = 0.0,
+        far_plane: float = 1e10,
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Samples points along rays using the occupancy grid.
+
+        Args:
+            rays_o (Tensor):        (n_rays, 3) ray origins
+            rays_d (Tensor):        (n_rays, 3) ray directions
+            sigma_fn (Callable):    density query function
+            render_step_size (float): step size used during grid sampling
+            early_stop_eps (float): transmittance threshold for early-stopping
+            stratified (bool):      if True, enables stratified sampling
+            near_plane (float):     near plane distance
+            far_plane (float):      far plane distance
+        Returns:
+            ray_indices, t_starts, t_ends: packed per-sample outputs
+        """
+        return self.__estimator.sampling(
+            rays_o,
+            rays_d,
+            sigma_fn=sigma_fn,
+            render_step_size=render_step_size,
+            early_stop_eps=early_stop_eps,
+            stratified=stratified,
+            near_plane=near_plane,
+            far_plane=far_plane,
+        )

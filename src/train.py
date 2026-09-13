@@ -22,7 +22,7 @@ from core import (
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground import ModelTrainer, TrainingConfiguration, ModelEvaluator, EvaluationConfiguration
+from playground import ModelTrainer, TrainingConfig, ModelEvaluator, EvaluationConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,8 +62,6 @@ def main():
     if not args.render_only:
         model = init_model()
 
-        # build training settings
-        training_settings = TrainingConfiguration(device, args)
         # build frequency regularizer
         if args.alpha is not None:
             match args.freq_scheduler:
@@ -78,16 +76,21 @@ def main():
                 reg=args.reg,
             )
         else:
-            freq_regularizer = None     
+            freq_regularizer = None
         occl_regularizer = WeightSumSquaredRegularizer() if args.beta is not None else None
-        training_settings.occl_regularizer = occl_regularizer
-        training_settings.freq_regularizer = freq_regularizer
-        # TODO: Temporary workaround but probably need to move OccGridConfig one level up
-        training_settings.occupancy_estimator_settings.aabb = train_data.aabb
+
+        # build training settings, fully applied at construction time
+        training_settings = TrainingConfig(
+            device,
+            args,
+            aabb=train_data.aabb,
+            freq_regularizer=freq_regularizer,
+            occl_regularizer=occl_regularizer,
+        )
 
         model_trainer = ModelTrainer(training_settings, monitor_data, args.debug)
 
-        eval_settings = EvaluationConfiguration(device, train_data.hwf)
+        eval_settings = EvaluationConfig(device, train_data.hwf)
         model_evaluator = ModelEvaluator(eval_settings, debug=args.debug)
 
         # trains model using the trainer's configuration

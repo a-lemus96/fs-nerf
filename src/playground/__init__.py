@@ -1,3 +1,2 @@
-from .trainer import ModelTrainer, TrainingConfiguration
-from .evaluator import ModelEvaluator, EvaluationConfiguration
-from .occ_estimator_configuration import OccupancyGridEstimatorConfiguration
+from .trainer import ModelTrainer, TrainingConfig
+from .evaluator import ModelEvaluator, EvaluationConfig
