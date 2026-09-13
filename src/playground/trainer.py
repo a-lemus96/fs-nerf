@@ -27,7 +27,6 @@ class TrainingConfig:
     Scalar hyperparameters are parsed from a command-line argparse.Namespace.
 
     Fields:
-        - training_device (torch.device):   device to run training on
         - num_iterations (int):             total number of training iterations
         - batch_size (int):                 number of rays per gradient step
         - learning_rate (float):            initial learning rate
@@ -37,7 +36,6 @@ class TrainingConfig:
                                             through to the occupancy estimator
     """
 
-    training_device: torch.device
     num_iterations: int
     batch_size: int
     learning_rate: float
@@ -47,7 +45,6 @@ class TrainingConfig:
 
     def __init__(
         self,
-        training_device: Device,
         args: Namespace,
         aabb: List[float],
     ):
@@ -56,14 +53,12 @@ class TrainingConfig:
         dataset's bounding box.
 
         Args:
-            training_device (Device):               device to run training on
             args (Namespace):                       parsed command-line arguments
             aabb (List[float]):                     dataset axis-aligned bounding box
         Raises:
             KeyError: if a required argument key is missing from args
         """
         try:
-            self.training_device = training_device
             self.num_iterations = args.n_iters
             self.batch_size = args.batch_size
             self.learning_rate = args.lro
@@ -106,17 +101,20 @@ class ModelTrainer:
 
     def __init__(
         self,
+        training_device: Device,
         settings: TrainingConfig,
         monitor_data: Optional[Dataset] = None,
         debug: bool = False,
     ):
         """
         Args:
+            training_device (Device): device to run training on
             settings (TrainingConfig): full training configuration
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
             debug (bool): if True, disables all wandb logging
         """
+        self.training_device = training_device
         self.monitor_data = monitor_data
         self.configure(settings, debug)
 
@@ -144,7 +142,6 @@ class ModelTrainer:
         Args:
             settings (TrainingConfig): full training configuration
         """
-        self.training_device = settings.training_device
         self.learning_rate = settings.learning_rate
         self.lr_scheduler_type = settings.lr_scheduler_type
         self.lr_scheduler_kwargs = settings.lr_scheduler_kwargs

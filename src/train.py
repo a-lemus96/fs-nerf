@@ -58,12 +58,11 @@ def main():
 
         # build training settings, fully applied at construction time
         training_settings = TrainingConfig(
-            device,
             args,
             aabb=train_data.aabb,
         )
 
-        model_trainer = ModelTrainer(training_settings, monitor_data, args.debug)
+        model_trainer = ModelTrainer(device, training_settings, monitor_data, args.debug)
 
         eval_settings = EvaluationConfig(device, train_data.hwf)
         model_evaluator = ModelEvaluator(eval_settings, debug=args.debug)
