@@ -15,7 +15,7 @@ DEFAULT_DATASET_CONFIG_PATH = "../configs/dataset.yaml"
 
 _DEFAULTS = {
     "bd_factor": 0.75,
-    "recenter": False,
+    "recenter": True,
     "downsample_factor": 8,
 }
 
