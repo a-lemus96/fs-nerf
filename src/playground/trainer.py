@@ -10,7 +10,7 @@ from torch import nn
 from torch.utils.data import Dataset
 
 import render.rendering as R
-from core import ExponentialDecay, Constant, FrequencyRegularizer, OcclusionRegularizer
+from core import ExponentialDecay, Constant
 from playground.evaluator import ModelEvaluator
 from playground.estimator import OccupancyEstimator
 
@@ -25,8 +25,6 @@ class TrainingConfig:
     ModelTrainer.
 
     Scalar hyperparameters are parsed from a command-line argparse.Namespace.
-    The occlusion regularizer is injected by the caller, keeping the trainer
-    decoupled from any specific regularizer implementation.
 
     Fields:
         - training_device (torch.device):   device to run training on
@@ -37,9 +35,6 @@ class TrainingConfig:
         - lr_scheduler_kwargs (dict):       additional kwargs for the scheduler
         - aabb (List[float]):               axis-aligned bounding box, passed
                                             through to the occupancy estimator
-        - occl_beta (float | None):         importance weight for occlusion regularizer
-        - freq_regularizer:                 FrequencyRegularizer with concrete FrequencyScheduler
-        - occl_regularizer:                 concrete OcclusionRegularizer, or None
     """
 
     training_device: torch.device
@@ -49,36 +44,21 @@ class TrainingConfig:
     lr_scheduler_type: str
     lr_scheduler_kwargs: Dict[str, Any]
     aabb: List[float]
-    occl_beta: Optional[float]
-    freq_regularizer: Optional[FrequencyRegularizer]
-    occl_regularizer: Optional[OcclusionRegularizer]
 
     def __init__(
         self,
         training_device: Device,
         args: Namespace,
         aabb: List[float],
-        freq_regularizer: Optional[FrequencyRegularizer] = None,
-        occl_regularizer: Optional[OcclusionRegularizer] = None,
     ):
         """
-        Builds a TrainingConfig from a parsed argument namespace, the
-        dataset's bounding box, and optional regularizer instances.
-
-        The caller is responsible for constructing the concrete regularizers
-        and passing them here. Passing None disables the corresponding
-        regularizer entirely.
+        Builds a TrainingConfig from a parsed argument namespace and the
+        dataset's bounding box.
 
         Args:
             training_device (Device):               device to run training on
             args (Namespace):                       parsed command-line arguments
             aabb (List[float]):                     dataset axis-aligned bounding box
-            freq_regularizer (FrequencyRegularizer | None):
-                                                    concrete regularizer instance,
-                                                    or None to disable
-            occl_regularizer (OcclusionRegularizer | None):
-                                                    concrete regularizer instance,
-                                                    or None to disable
         Raises:
             KeyError: if a required argument key is missing from args
         """
@@ -89,7 +69,6 @@ class TrainingConfig:
             self.learning_rate = args.lro
             self.lr_scheduler_type = args.scheduler
             self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
-            self.occl_beta = args.beta
         except KeyError as e:
             raise KeyError(
                 f"One or more training parameter keys were not found in input "
@@ -97,8 +76,6 @@ class TrainingConfig:
             )
 
         self.aabb = aabb
-        self.freq_regularizer = freq_regularizer
-        self.occl_regularizer = occl_regularizer
 
     def __get_scheduler_kwargs(self, args: Namespace) -> Dict[str, Any]:
         """
@@ -158,10 +135,6 @@ class ModelTrainer:
         self.render_step_size = self.estimator.render_step_size
         self.early_stop_eps = self.estimator.early_stop_eps
         self.debug_mode = debug
-        self.occl_regularizer: Optional[OcclusionRegularizer] = (
-            settings.occl_regularizer
-        )
-        self.occl_beta: Optional[float] = settings.occl_beta
 
     def __apply_training_config(self, settings: TrainingConfig):
         """
@@ -177,9 +150,6 @@ class ModelTrainer:
         self.lr_scheduler_kwargs = settings.lr_scheduler_kwargs
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
-        self.freq_regularizer: Optional[FrequencyRegularizer] = (
-            settings.freq_regularizer
-        )
 
     def fit(
         self,
@@ -207,8 +177,8 @@ class ModelTrainer:
                diagnostic only — it never affects checkpoint selection; the
                model at the final iteration is what gets saved and evaluated.
 
-        Logs train PSNR, learning rate, frequency regularization weight, and
-        occlusion loss to wandb at every iteration unless debug mode is active.
+        Logs train PSNR and learning rate to wandb at every iteration unless
+        debug mode is active.
 
         Args:
             model (nn.Module): NeRF-like model to train
@@ -268,30 +238,11 @@ class ModelTrainer:
             with torch.no_grad():
                 psnr = -10.0 * torch.log10(loss).item()
 
-            # frequency regularization
-            if self.freq_regularizer is not None:
-                loss += self.freq_regularizer()
-
-            # occlusion regularization
             metrics = {
                 "train_psnr": psnr,
                 "photo_loss": loss.item(),
                 "lr": self.lr_scheduler.lr,
-                "alpha": (
-                    self.freq_regularizer.freq_scheduler.alpha
-                    if self.freq_regularizer is not None
-                    else None
-                ),
             }
-            if (
-                self.occl_regularizer is not None
-                and result.weights is not None
-                and result.weights.numel() > 0
-            ):
-                occl_loss = self.occl_regularizer(result)
-                loss += self.occl_beta * occl_loss
-                if not self.debug_mode:
-                    metrics["occl_loss"] = occl_loss.item()
 
             self.__training_step(k, model, loss)
 
@@ -330,8 +281,6 @@ class ModelTrainer:
             model (nn.Module): model being trained
             loss (torch.Tensor): scalar total loss for this iteration
         """
-        if self.freq_regularizer is not None:
-            self.freq_regularizer.step()
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

@@ -11,14 +11,7 @@ from torch import nn
 import wandb
 
 # local imports
-from core import (
-    FrequencyRegularizer,
-    ConstantScheduler,
-    LinearScheduler,
-    Nerf,
-    Sinerf,
-    WeightSumSquaredRegularizer,
-)
+from core import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
@@ -63,30 +56,11 @@ def main():
     if not args.render_only:
         model = init_model()
 
-        # build frequency regularizer
-        if args.alpha is not None:
-            match args.freq_scheduler:
-                case "constant":
-                    scheduler = ConstantScheduler(alpha=args.alpha)
-                case "linear":
-                    T = int(args.reg_ratio * args.n_iters)
-                    scheduler = LinearScheduler(alpha_0=args.alpha, alpha_T=0.0, T=T)
-            freq_regularizer = FrequencyRegularizer(
-                model.named_parameters(),
-                scheduler,
-                reg=args.reg,
-            )
-        else:
-            freq_regularizer = None
-        occl_regularizer = WeightSumSquaredRegularizer() if args.beta is not None else None
-
         # build training settings, fully applied at construction time
         training_settings = TrainingConfig(
             device,
             args,
             aabb=train_data.aabb,
-            freq_regularizer=freq_regularizer,
-            occl_regularizer=occl_regularizer,
         )
 
         model_trainer = ModelTrainer(training_settings, monitor_data, args.debug)
