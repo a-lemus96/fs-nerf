@@ -8,4 +8,5 @@ from .scene import (
     postprocess_poses,
     load_scene,
     build_path,
+    LLFFConfig,
 )

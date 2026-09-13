@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 # custom imports
-from utils.scene import load_scene
+from utils.scene import load_scene, LLFFConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ _FlowListDumper.add_representer(
 )
 
 LLFF_BASE_PATH = os.path.normpath("../datasets/llff")
-IMAGES_FOLDER = "images_8"
 POSES_FILE = "poses_bounds.npy"
 LLFF_HOLD = 8  # standard NeRF LLFF split: every 8th image is held out for eval
 N_IMGS_CHOICES = (3, 6, 9)  # few-shot LLFF settings
@@ -140,7 +139,7 @@ def _get_monitoring_id(
 def create_split_file(
     output_path: str = "../configs/split.yaml",
     dataset_path: str = LLFF_BASE_PATH,
-    images_folder: str = IMAGES_FOLDER,
+    images_folder: str | None = None,
     n_imgs_choices: tuple = N_IMGS_CHOICES,
     llffhold: int = LLFF_HOLD,
 ) -> None:
@@ -166,6 +165,8 @@ def create_split_file(
         dataset_path (str): path to the LLFF dataset root, containing one
             folder per scene.
         images_folder (str): name of the per-scene folder containing images.
+            Defaults to `images_{downsample_factor}`, with `downsample_factor`
+            read from the LLFF dataset YAML config (see `LLFFConfig`).
         n_imgs_choices (tuple): numbers of training views to build a split
             for.
         llffhold (int): holdout rate used to build the evaluation split.
@@ -178,6 +179,9 @@ def create_split_file(
           monitor:
             n_imgs_<n_imgs>: idxC | null
     """
+    if images_folder is None:
+        images_folder = f"images_{LLFFConfig().downsample_factor}"
+
     assert os.path.isdir(
         dataset_path
     ), f"LLFF dataset folder {os.path.abspath(dataset_path)} not found."

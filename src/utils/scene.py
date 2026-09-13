@@ -1,4 +1,5 @@
 # standard library modules
+from dataclasses import dataclass
 import os
 
 # third-party modules
@@ -6,6 +7,35 @@ import imageio as iio
 import numpy as np
 from numpy import ndarray
 from torch import Tensor
+
+# custom modules
+from utils.config import load_or_create_config
+
+DEFAULT_DATASET_CONFIG_PATH = "../configs/dataset.yaml"
+
+_DEFAULTS = {
+    "bd_factor": 0.75,
+    "recenter": False,
+    "downsample_factor": 8,
+}
+
+
+@dataclass
+class LLFFConfig:
+    bd_factor: float  # shrinks the scene so the nearest bound sits at 1 / bd_factor
+    recenter: bool    # if True, expresses poses relative to the average pose
+    downsample_factor: int  # LLFF images_{downsample_factor}/ folder to load
+
+    def __init__(self, config_path: str = DEFAULT_DATASET_CONFIG_PATH):
+        """
+        Args:
+            config_path (str): path to the LLFF dataset YAML config file,
+                created with default values if it doesn't exist
+        """
+        cfg = load_or_create_config(config_path, _DEFAULTS)
+        self.bd_factor = cfg["bd_factor"]
+        self.recenter = cfg["recenter"]
+        self.downsample_factor = cfg["downsample_factor"]
 
 
 def normalize(v: np.ndarray) -> np.ndarray:
@@ -122,21 +152,19 @@ def postprocess_poses(
 
 def load_scene(
     scene: str,
-    bd_factor: float = 0.75,
-    recenter: bool = True,
+    config_path: str = DEFAULT_DATASET_CONFIG_PATH,
 ) -> tuple[ndarray, ndarray, tuple[int, int, float], float, float]:
     """
     Loads image paths, camera poses, bounds and intrinsics from an llff
     dataset folder.
     ----------------------------------------------------------------------------
     Expected scene folder structure:
-        images_8/          -> contains image files
-        poses_bounds.npy   -> poses file
+        images_{downsample_factor}/  -> contains image files
+        poses_bounds.npy             -> poses file
     Args:
         scene (str): scene folder name under ../datasets/llff/
-        bd_factor (float): shrinks the scene so the nearest bound sits at
-                           1 / bd_factor. None leaves the scale untouched
-        recenter (bool): if True, expresses poses relative to the average pose
+        config_path (str): path to the LLFF dataset YAML config file,
+            created with default values if it doesn't exist
     Returns:
         img_paths (ndarray): [N,]. Absolute paths to the scene images
         poses (ndarray): [N, 3, 4]. Camera poses
@@ -144,6 +172,8 @@ def load_scene(
         min_bound (float): minimum value across the poses
         max_bound (float): maximum value across the poses
     """
+    settings = LLFFConfig(config_path)
+
     base_folder_path = os.path.normpath("../datasets/llff/")
     assert os.path.isdir(
         base_folder_path
@@ -161,7 +191,7 @@ def load_scene(
 
     # load the downsampled images
     imgs_folder_path = os.path.normpath(
-        os.path.join(base_folder_path, scene, "images_8/")
+        os.path.join(base_folder_path, scene, f"images_{settings.downsample_factor}/")
     )
     assert os.path.isdir(
         imgs_folder_path
@@ -179,7 +209,7 @@ def load_scene(
     # modify camera poses
     H, W, _ = iio.imread(img_paths[0]).shape
     poses[:2, 4, :] = np.array([H, W]).reshape([2, 1])
-    poses[2, 4, :] = poses[2, 4, :] * 1.0 / 8.0
+    poses[2, 4, :] = poses[2, 4, :] * 1.0 / settings.downsample_factor
     # correct poses ordering
     poses = np.concatenate(
         [poses[:, 1:2, :], -poses[:, 0:1, :], poses[:, 2:, :]], axis=1
@@ -189,7 +219,7 @@ def load_scene(
     bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
 
     (poses, hwf, min_bound, max_bound) = postprocess_poses(
-        poses, bounds, bd_factor, recenter
+        poses, bounds, settings.bd_factor, settings.recenter
     )
 
     return img_paths, poses, hwf, min_bound, max_bound
