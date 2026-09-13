@@ -22,7 +22,8 @@ from core import (
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground import ModelTrainer, TrainingConfig, ModelEvaluator, EvaluationConfig
+from playground.trainer import ModelTrainer, TrainingConfig
+from playground.evaluator import ModelEvaluator, EvaluationConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
