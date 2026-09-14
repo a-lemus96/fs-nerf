@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import wandb
 from tqdm import tqdm
@@ -51,9 +50,9 @@ class TrainingConfig:
                                             descriptive — the implementation is
                                             hardcoded to torch.optim.Adam in
                                             ModelTrainer.__create_optimizer
-        - betas (Tuple[float, float]):      Adam optimizer beta coefficients
+        - betas (tuple[float, float]):      Adam optimizer beta coefficients
         - eps (float):                      Adam optimizer epsilon
-        - aabb (List[float]):               axis-aligned bounding box, passed
+        - aabb (list[float]):               axis-aligned bounding box, passed
                                             through to the occupancy estimator
     """
 
@@ -62,15 +61,15 @@ class TrainingConfig:
     learning_rate: float
     decay_rate: float
     optimizer: str
-    betas: Tuple[float, float]
+    betas: tuple[float, float]
     eps: float
-    aabb: List[float]
+    aabb: list[float]
 
     def __init__(
         self,
-        n_iters: Optional[int],
-        lr: Optional[float],
-        aabb: List[float],
+        n_iters: int | None,
+        lr: float | None,
+        aabb: list[float],
         config_path: str = DEFAULT_TRAINING_CONFIG_PATH,
     ):
         """
@@ -82,7 +81,7 @@ class TrainingConfig:
                 CLI-driven, falls back to the YAML config file if None
             lr (float | None): initial learning rate; CLI-driven, falls
                 back to the YAML config file if None
-            aabb (List[float]): dataset axis-aligned bounding box; dataset-dependent,
+            aabb (list[float]): dataset axis-aligned bounding box; dataset-dependent,
                 so it isn't part of the YAML config file
             config_path (str): path to the training YAML config file,
                 created with default values if it doesn't exist
@@ -114,7 +113,7 @@ class ModelTrainer:
         self,
         training_device: Device,
         settings: TrainingConfig,
-        monitor_data: Optional[Dataset] = None,
+        monitor_data: Dataset | None = None,
         debug: bool = False,
     ):
         """
@@ -164,7 +163,7 @@ class ModelTrainer:
         self,
         model: nn.Module,
         dataset: Dataset,
-        evaluator: Optional[ModelEvaluator] = None,
+        evaluator: ModelEvaluator | None = None,
         val_every: int = 500,
     ):
         """

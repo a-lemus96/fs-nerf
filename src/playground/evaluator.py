@@ -8,7 +8,6 @@ from torch import device as Device
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
-from typing import Tuple
 
 import render.rendering as R
 from playground.estimator import OccupancyEstimator
@@ -29,17 +28,17 @@ class EvaluationConfig:
 
     Fields:
         - training_device (torch.device):   device to run evaluation on
-        - hwf (Tuple):                      camera intrinsics (height, width, focal)
+        - hwf (tuple):                      camera intrinsics (height, width, focal)
         - chunk_size (int):                 number of rays per rendering chunk
     """
     training_device: Device
-    hwf: Tuple
+    hwf: tuple
     chunk_size: int
 
     def __init__(
         self,
         training_device: Device,
-        hwf: Tuple,
+        hwf: tuple,
         config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
     ):
         """
@@ -95,7 +94,7 @@ class ModelEvaluator:
         return LPIPS(net="vgg")
 
     def evaluate(self, model: nn.Module, estimator: OccupancyEstimator,
-                 dataset: Dataset) -> Tuple[float, float, float, float]:
+                 dataset: Dataset) -> tuple[float, float, float, float]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM,
         LPIPS, and their geometric-mean average.
@@ -109,7 +108,7 @@ class ModelEvaluator:
             estimator (OccupancyEstimator): occupancy grid estimator
             dataset (Dataset): evaluation dataset (img_mode=True)
         Returns:
-            Tuple[float, float, float, float]: (psnr, ssim, lpips, average)
+            tuple[float, float, float, float]: (psnr, ssim, lpips, average)
         """
         rgbs_gt = []
         rgbs_predicted = []

@@ -1,6 +1,6 @@
 # stdlib modules
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
+from collections.abc import Callable
 
 # third-party modules
 import torch
@@ -28,7 +28,7 @@ _DEFAULTS = {
 
 @dataclass
 class EstimatorConfig:
-    aabb: List[float]  # axis-aligned bounding box
+    aabb: list[float]  # axis-aligned bounding box
     grid_resolution: int
     grid_num_levels: int
     render_step_size: float
@@ -39,11 +39,11 @@ class EstimatorConfig:
     early_stop_eps: float    # transmittance threshold for ray early-stopping
 
     def __init__(
-        self, aabb: List[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
+        self, aabb: list[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
     ):
         """
         Args:
-            aabb (List[float]): axis-aligned bounding box; dataset-dependent,
+            aabb (list[float]): axis-aligned bounding box; dataset-dependent,
                 so it isn't part of the YAML config file
             config_path (str): path to the estimator YAML config file,
                 created with default values if it doesn't exist
@@ -71,11 +71,11 @@ class OccupancyEstimator:
     """
 
     def __init__(
-        self, aabb: List[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
+        self, aabb: list[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
     ) -> None:
         """
         Args:
-            aabb (List[float]): axis-aligned bounding box for the grid
+            aabb (list[float]): axis-aligned bounding box for the grid
             config_path (str): path to the estimator YAML config file,
                 created with default values if it doesn't exist
         """
@@ -159,7 +159,7 @@ class OccupancyEstimator:
         stratified: bool = False,
         near_plane: float = 0.0,
         far_plane: float = 1e10,
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """
         Samples points along rays using the occupancy grid.
 
