@@ -41,25 +41,10 @@ def config_parser() -> argparse.Namespace:
         "--lro", default=5e-4, type=float, help="Initial learning rate for optimizer"
     )
     train.add_argument(
-        "--lrf", default=0.0, type=float, help="Final learning rate for optimizer"
-    )
-    train.add_argument(
         "--decay_rate",
         default=0.1,
         type=float,
         help="Decay rate for exponential learning rate scheduler",
-    )
-    train.add_argument(
-        "--Td",
-        default=250000,
-        type=int,
-        help="Number of iterations for learning rate decay",
-    )
-    train.add_argument(
-        "--scheduler",
-        choices=["const", "exp"],
-        default="exp",
-        help="Learning rate scheduler",
     )
 
     evaluation = parser.add_argument_group("Evaluation")

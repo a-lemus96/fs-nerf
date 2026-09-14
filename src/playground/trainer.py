@@ -1,7 +1,7 @@
 import os
 from argparse import Namespace
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -10,7 +10,7 @@ from torch import nn
 from torch.utils.data import Dataset
 
 import render.rendering as R
-from core import ExponentialDecay, Constant
+from core import LrScheduler
 from playground.evaluator import ModelEvaluator
 from playground.estimator import OccupancyEstimator
 
@@ -30,8 +30,8 @@ class TrainingConfig:
         - num_iterations (int):             total number of training iterations
         - batch_size (int):                 number of rays per gradient step
         - learning_rate (float):            initial learning rate
-        - lr_scheduler_type (str):          one of 'const' or 'exp'
-        - lr_scheduler_kwargs (dict):       additional kwargs for the scheduler
+        - decay_rate (float):               exponential decay rate for the
+                                            learning rate scheduler
         - aabb (List[float]):               axis-aligned bounding box, passed
                                             through to the occupancy estimator
     """
@@ -39,8 +39,7 @@ class TrainingConfig:
     num_iterations: int
     batch_size: int
     learning_rate: float
-    lr_scheduler_type: str
-    lr_scheduler_kwargs: Dict[str, Any]
+    decay_rate: float
     aabb: List[float]
 
     def __init__(
@@ -55,38 +54,12 @@ class TrainingConfig:
         Args:
             args (Namespace):                       parsed command-line arguments
             aabb (List[float]):                     dataset axis-aligned bounding box
-        Raises:
-            KeyError: if a required argument key is missing from args
         """
-        try:
-            self.num_iterations = args.n_iters
-            self.batch_size = args.batch_size
-            self.learning_rate = args.lro
-            self.lr_scheduler_type = args.scheduler
-            self.lr_scheduler_kwargs = self.__get_scheduler_kwargs(args)
-        except KeyError as e:
-            raise KeyError(
-                f"One or more training parameter keys were not found in input "
-                f"args obj:\n{args}\n\nCheck parser arguments. {e}"
-            )
-
+        self.num_iterations = args.n_iters
+        self.batch_size = args.batch_size
+        self.learning_rate = args.lro
+        self.decay_rate = args.decay_rate
         self.aabb = aabb
-
-    def __get_scheduler_kwargs(self, args: Namespace) -> Dict[str, Any]:
-        """
-        Extracts the keyword arguments required by the chosen learning rate
-        scheduler from the argument namespace.
-        ------------------------------------------------------------------------
-        Args:
-            args (Namespace): parsed command-line arguments
-        Returns:
-            Dict[str, Any]: keyword arguments for the scheduler constructor
-        """
-        kwargs_dict = {
-            "const": {},
-            "exp": {"r": args.decay_rate},
-        }
-        return kwargs_dict[args.scheduler]
 
 
 class ModelTrainer:
@@ -143,8 +116,7 @@ class ModelTrainer:
             settings (TrainingConfig): full training configuration
         """
         self.learning_rate = settings.learning_rate
-        self.lr_scheduler_type = settings.lr_scheduler_type
-        self.lr_scheduler_kwargs = settings.lr_scheduler_kwargs
+        self.decay_rate = settings.decay_rate
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
 
@@ -185,9 +157,7 @@ class ModelTrainer:
             val_every (int): number of iterations between validation steps
         """
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
-        self.lr_scheduler = self.__create_lr_scheduler(
-            self.lr_scheduler_type, **self.lr_scheduler_kwargs
-        )
+        self.lr_scheduler = self.__create_lr_scheduler()
 
         model.to(self.training_device)
         self.estimator.to(self.training_device)
@@ -312,30 +282,13 @@ class ModelTrainer:
         optimizer = torch.optim.Adam(params, lr=learning_rate)
         return optimizer
 
-    def __create_lr_scheduler(self, lr_scheduler_type: str, **kwargs: Dict[str, Any]):
+    def __create_lr_scheduler(self) -> LrScheduler:
         """
-        Instantiates a learning rate scheduler based on the specified type.
+        Instantiates the exponential-decay learning rate scheduler.
 
-        Args:
-            lr_scheduler_type (str): one of 'const' or 'exp'
-            **kwargs: additional keyword arguments forwarded to the scheduler
         Returns:
-            Scheduler: configured learning rate scheduler
-        Raises:
-            ValueError: if lr_scheduler_type is not a supported scheduler type
+            LrScheduler: configured learning rate scheduler
         """
-        match (lr_scheduler_type):
-            case "const":
-                scheduler = Constant(
-                    self.optimizer, self.num_iterations, self.learning_rate, **kwargs
-                )
-            case "exp":
-                scheduler = ExponentialDecay(
-                    self.optimizer, self.num_iterations, self.learning_rate, **kwargs
-                )
-            case _:
-                raise ValueError(
-                    f"'{lr_scheduler_type}' is not a supported lr scheduler type."
-                )
-
-        return scheduler
+        return LrScheduler(
+            self.optimizer, self.num_iterations, self.learning_rate, self.decay_rate
+        )
