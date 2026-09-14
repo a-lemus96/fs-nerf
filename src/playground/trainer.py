@@ -1,22 +1,35 @@
 import os
-from argparse import Namespace
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import wandb
+from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from torch import device as Device
 from torch import nn
 from torch.utils.data import Dataset
 
+# custom modules
 import render.rendering as R
 from core import LrScheduler
 from playground.evaluator import ModelEvaluator
 from playground.estimator import OccupancyEstimator
+from utils import load_or_create_config
 
-import wandb
-from tqdm import tqdm
+DEFAULT_TRAINING_CONFIG_PATH = "../configs/training.yaml"
 
+_DEFAULTS = {
+    "n_iters": 50000,
+    "warmup_iters": 512,
+    "warmup_mult": 0.01,
+    "batch_size": 1024,
+    "lr": 5e-4,
+    "decay_rate": 0.1,
+    "optimizer": "adam",
+    "betas": [0.9, 0.999],
+    "eps": 1e-8,
+}
 
 @dataclass
 class TrainingConfig:
@@ -24,7 +37,9 @@ class TrainingConfig:
     Holds all hyperparameters and components required to configure a
     ModelTrainer.
 
-    Scalar hyperparameters are parsed from a command-line argparse.Namespace.
+    num_iterations and learning_rate may be overridden from the CLI; when
+    not given (None), they fall back to the training YAML config file, as
+    do the remaining fields.
 
     Fields:
         - num_iterations (int):             total number of training iterations
@@ -32,6 +47,12 @@ class TrainingConfig:
         - learning_rate (float):            initial learning rate
         - decay_rate (float):               exponential decay rate for the
                                             learning rate scheduler
+        - optimizer (str):                  name of the optimizer in use, purely
+                                            descriptive — the implementation is
+                                            hardcoded to torch.optim.Adam in
+                                            ModelTrainer.__create_optimizer
+        - betas (Tuple[float, float]):      Adam optimizer beta coefficients
+        - eps (float):                      Adam optimizer epsilon
         - aabb (List[float]):               axis-aligned bounding box, passed
                                             through to the occupancy estimator
     """
@@ -40,25 +61,42 @@ class TrainingConfig:
     batch_size: int
     learning_rate: float
     decay_rate: float
+    optimizer: str
+    betas: Tuple[float, float]
+    eps: float
     aabb: List[float]
 
     def __init__(
         self,
-        args: Namespace,
+        n_iters: Optional[int],
+        lr: Optional[float],
         aabb: List[float],
+        config_path: str = DEFAULT_TRAINING_CONFIG_PATH,
     ):
         """
-        Builds a TrainingConfig from a parsed argument namespace and the
-        dataset's bounding box.
+        Builds a TrainingConfig from CLI-provided hyperparameters, the
+        dataset's bounding box, and the training YAML config file.
 
         Args:
-            args (Namespace):                       parsed command-line arguments
-            aabb (List[float]):                     dataset axis-aligned bounding box
+            n_iters (int | None): total number of training iterations;
+                CLI-driven, falls back to the YAML config file if None
+            lr (float | None): initial learning rate; CLI-driven, falls
+                back to the YAML config file if None
+            aabb (List[float]): dataset axis-aligned bounding box; dataset-dependent,
+                so it isn't part of the YAML config file
+            config_path (str): path to the training YAML config file,
+                created with default values if it doesn't exist
         """
-        self.num_iterations = args.n_iters
-        self.batch_size = args.batch_size
-        self.learning_rate = args.lro
-        self.decay_rate = args.decay_rate
+        cfg = load_or_create_config(config_path, _DEFAULTS)
+        self.num_iterations = n_iters if n_iters is not None else cfg["n_iters"]
+        self.warmup_iters = cfg["warmup_iters"]
+        self.warmup_mult = cfg["warmup_mult"]
+        self.batch_size = cfg["batch_size"]
+        self.learning_rate = lr if lr is not None else cfg["lr"]
+        self.decay_rate = cfg["decay_rate"]
+        self.optimizer = cfg["optimizer"]
+        self.betas = tuple(cfg["betas"])
+        self.eps = cfg["eps"]
         self.aabb = aabb
 
 
@@ -117,6 +155,8 @@ class ModelTrainer:
         """
         self.learning_rate = settings.learning_rate
         self.decay_rate = settings.decay_rate
+        self.betas = settings.betas
+        self.eps = settings.eps
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
 
@@ -279,7 +319,9 @@ class ModelTrainer:
             torch.optim.Adam: configured optimizer
         """
         params = list(model.parameters())
-        optimizer = torch.optim.Adam(params, lr=learning_rate)
+        optimizer = torch.optim.Adam(
+            params, lr=learning_rate, betas=self.betas, eps=self.eps
+        )
         return optimizer
 
     def __create_lr_scheduler(self) -> LrScheduler:

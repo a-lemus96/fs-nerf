@@ -29,22 +29,16 @@ def config_parser() -> argparse.Namespace:
 
     train = parser.add_argument_group("Training")
     train.add_argument(
-        "--n_iters", default=20**3, type=int, help="Number of training iterations"
-    )
-    train.add_argument(
-        "--batch_size",
-        default=1024,
+        "--n_iters",
+        default=None,
         type=int,
-        help="Number of rays per optimization step",
+        help="Number of training iterations; falls back to training.yaml if not set",
     )
     train.add_argument(
-        "--lro", default=5e-4, type=float, help="Initial learning rate for optimizer"
-    )
-    train.add_argument(
-        "--decay_rate",
-        default=0.1,
+        "--lr",
+        default=None,
         type=float,
-        help="Decay rate for exponential learning rate scheduler",
+        help="Initial learning rate for optimizer; falls back to training.yaml if not set",
     )
 
     evaluation = parser.add_argument_group("Evaluation")

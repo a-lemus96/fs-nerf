@@ -58,7 +58,8 @@ def main():
 
         # build training settings, fully applied at construction time
         training_settings = TrainingConfig(
-            args,
+            args.n_iters,
+            args.lr,
             aabb=train_data.aabb,
         )
 
