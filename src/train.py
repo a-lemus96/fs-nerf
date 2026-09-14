@@ -16,7 +16,7 @@ from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
 from playground.trainer import ModelTrainer, TrainingConfig
-from playground.evaluator import ModelEvaluator, EvaluationConfig
+from playground.evaluator import ModelEvaluator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -65,8 +65,7 @@ def main():
 
         model_trainer = ModelTrainer(device, training_settings, monitor_data, args.debug)
 
-        eval_settings = EvaluationConfig(device, train_data.hwf)
-        model_evaluator = ModelEvaluator(eval_settings, debug=args.debug)
+        model_evaluator = ModelEvaluator(device, debug=args.debug)
 
         # trains model using the trainer's configuration
         model_trainer.fit(

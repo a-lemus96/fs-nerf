@@ -28,27 +28,23 @@ class EvaluationConfig:
 
     Fields:
         - training_device (torch.device):   device to run evaluation on
-        - hwf (tuple):                      camera intrinsics (height, width, focal)
         - chunk_size (int):                 number of rays per rendering chunk
     """
     training_device: Device
-    hwf: tuple
     chunk_size: int
 
     def __init__(
         self,
         training_device: Device,
-        hwf: tuple,
         config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
     ):
         """
-        Builds an EvaluationConfig from a torch.device instance, camera
-        intrinsics, and the evaluation YAML config file (created with
-        default values if it doesn't exist).
+        Builds an EvaluationConfig from a torch.device instance and the
+        evaluation YAML config file (created with default values if it
+        doesn't exist).
         """
         cfg = load_or_create_config(config_path, _DEFAULTS)
         self.training_device = training_device
-        self.hwf = hwf
         self.chunk_size = cfg["chunk_size"]
 
 
@@ -59,9 +55,28 @@ class ModelEvaluator:
 
     Computes PSNR, SSIM, and LPIPS metrics over a full evaluation dataset.
     Iterates directly over dataset tensors — no DataLoader or worker processes.
+
+    Owns its EvaluationConfig (built here, from the YAML config file, and
+    never exposed to callers). Camera intrinsics (hwf) are dataset-dependent
+    and aren't known at construction time — the caller (ModelTrainer.fit())
+    provides them afterward via set_hwf().
     """
 
-    def __init__(self, settings: EvaluationConfig, debug: bool = False):
+    def __init__(
+        self,
+        training_device: Device,
+        debug: bool = False,
+        config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
+    ):
+        """
+        Args:
+            training_device (Device): device to run evaluation on
+            debug (bool): if True, disables all wandb logging
+            config_path (str): path to the evaluation YAML config file,
+                created with default values if it doesn't exist
+        """
+        settings = EvaluationConfig(training_device, config_path)
+        self.hwf = None
         self.configure(settings, debug)
 
     def configure(self, settings: EvaluationConfig, debug: bool = False):
@@ -86,8 +101,16 @@ class ModelEvaluator:
             settings (EvaluationConfig): full evaluation configuration
         """
         self.training_device = settings.training_device
-        self.hwf = settings.hwf
         self.chunk_size = settings.chunk_size
+
+    def set_hwf(self, hwf: tuple) -> None:
+        """
+        Sets the camera intrinsics used for rendering during evaluation.
+
+        Args:
+            hwf (tuple): image height, width, and focal length
+        """
+        self.hwf = hwf
 
     def _create_lpips_model(self) -> LPIPS:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""

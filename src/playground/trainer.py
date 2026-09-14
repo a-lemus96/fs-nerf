@@ -195,6 +195,9 @@ class ModelTrainer:
                 validation. If None, validation is skipped.
             val_every (int): number of iterations between validation steps
         """
+        if evaluator is not None:
+            evaluator.set_hwf(dataset.hwf)
+
         self.optimizer = self.__create_optimizer(model, self.learning_rate)
         self.lr_scheduler = self.__create_lr_scheduler()
 
