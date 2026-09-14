@@ -1,6 +1,5 @@
 # stdlib modules
 import os
-from typing import Optional, Tuple, List, Union, Callable
 
 # third-party modules
 from nerfacc.volrend import rendering
@@ -35,9 +34,9 @@ def save_origins_and_dirs(poses):
 
 def get_rays(
         pose: Tensor,
-        hwf: Tuple[int, int, float],
+        hwf: tuple[int, int, float],
         device: torch.device = torch.device('cpu'),
-) -> Tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """
     Computes ray origins and directions in world coordinates for a given camera 
     pose.
@@ -84,9 +83,9 @@ def get_rays(
 def to_ndc(
         rays_o: Tensor,
         rays_d: Tensor,
-        hwf: Tuple[int, int, float],
+        hwf: tuple[int, int, float],
         near: float
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
     """
     Convert rays from world coordinates to normalized device coordinates.
     ----------------------------------------------------------------------------
@@ -119,7 +118,7 @@ def to_ndc(
 
     return ndc_o, ndc_d
 
-def get_chunks(inputs: Tensor, chunksize: int) -> List[Tensor]:
+def get_chunks(inputs: Tensor, chunksize: int) -> list[Tensor]:
     """
     Split inputs into chunks of size chunksize.
     ----------------------------------------------------------------------------

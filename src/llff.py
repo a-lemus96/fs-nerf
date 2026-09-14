@@ -1,6 +1,3 @@
-# standard library modules
-from typing import Tuple
-
 # third-party modules
 import imageio as iio
 import numpy as np
@@ -107,7 +104,7 @@ class LLFFDataset(Dataset):
         
         return self
 
-    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         """Samples a batch of rays from the idx-th image.
         ------------------------------------------------------------------------
         Args:

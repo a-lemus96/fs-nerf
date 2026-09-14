@@ -1,6 +1,5 @@
 # stdlib modules
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 # third-party modules
 from nerfacc.volrend import rendering, render_weight_from_density
@@ -45,9 +44,9 @@ class RenderingResult:
     depth:       Tensor
     opacity:     Tensor
     n_rays:      int
-    weights:     Optional[Tensor] = None
-    t_vals:      Optional[Tensor] = None
-    ray_indices: Optional[Tensor] = None
+    weights:     Tensor | None = None
+    t_vals:      Tensor | None = None
+    ray_indices: Tensor | None = None
 
 
 def render_rays(
@@ -163,7 +162,7 @@ def render_rays(
 
 
 def render_frame(
-    hwf: Tuple[int, int, float],
+    hwf: tuple[int, int, float],
     near: float,
     far: float,
     pose: torch.Tensor,
@@ -175,7 +174,7 @@ def render_frame(
     render_step_size: float = 5e-3,
     early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Renders a single image from a given camera pose by chunkifying rays to
     avoid memory issues.
@@ -185,7 +184,7 @@ def render_frame(
     RGB and depth chunks are concatenated and reshaped into image dimensions.
     ----------------------------------------------------------------------------
     Args:
-        hwf (Tuple[int, int, float]): camera intrinsics (height, width, focal)
+        hwf (tuple[int, int, float]): camera intrinsics (height, width, focal)
         near (float):                 near depth bound for depth clamping
         far (float):                  far depth bound for depth clamping
         pose (Tensor):                (4, 4) camera-to-world pose matrix
@@ -235,7 +234,7 @@ def render_frame(
 
 def render_path(
     render_poses: torch.Tensor,
-    hwf: Tuple[int, int, float],
+    hwf: tuple[int, int, float],
     near: float,
     far: float,
     chunksize: int,
@@ -246,7 +245,7 @@ def render_path(
     render_step_size: float = 5e-3,
     early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Renders a sequence of frames from a trajectory of camera poses, returning
     RGB and depth frame stacks suitable for video export.
@@ -257,7 +256,7 @@ def render_path(
     ----------------------------------------------------------------------------
     Args:
         render_poses (Tensor):        (N, 4, 4) trajectory of camera poses
-        hwf (Tuple[int, int, float]): camera intrinsics (height, width, focal)
+        hwf (tuple[int, int, float]): camera intrinsics (height, width, focal)
         near (float):                 near depth bound for depth clamping
         far (float):                  far depth bound for depth clamping
         chunksize (int):              number of rays rendered per chunk
@@ -308,7 +307,7 @@ def render_video(
     frames: np.ndarray,
     d_frames: np.ndarray,
     cmap: str = "plasma",
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Converts float RGB and depth frame stacks into uint8 arrays ready for
     video export, applying a colormap to the depth frames.

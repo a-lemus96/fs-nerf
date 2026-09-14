@@ -1,6 +1,5 @@
 # stdlib modules
 import math
-from typing import List
 
 # third-party modules
 import torch
@@ -112,7 +111,7 @@ class Sinerf(nn.Module):
             pos_dim: int = 3,
             dir_dim: int = 3,
             width: int = 256,
-            alpha: List[float] = [30., 1., 1., 1., 1., 1., 1., 1.],
+            alpha: list[float] = [30., 1., 1., 1., 1., 1., 1., 1.],
     ) -> None:
         """
         Constructor method. Builds a SIREN MLP model for NeRF.
@@ -121,7 +120,7 @@ class Sinerf(nn.Module):
             pos_dim: int. Dimension of the position input
             dir_dim: int. Dimension of the direction input
             width: int. Base width of the hidden layers
-            alpha: List[float]. List of alpha values for each layer
+            alpha: list[float]. List of alpha values for each layer
         """
         super(Sinerf, self).__init__()
         self.pos_dim = pos_dim

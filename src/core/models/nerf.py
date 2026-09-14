@@ -1,6 +1,3 @@
-# stdlib modules
-from typing import Tuple
-
 # third-party modules
 import torch
 from torch import nn
@@ -59,7 +56,7 @@ class Nerf(nn.Module):
             d_dir: int = 3,
             n_layers: int = 8,
             d_hidden: int = 256,
-            skip: Tuple[int] = (4,),
+            skip: tuple[int] = (4,),
             **kwargs: dict
     ) -> None:
         """Constructor method. Builds a fully connected network as that of
@@ -70,7 +67,7 @@ class Nerf(nn.Module):
             d_dir: int. Dimension of viewing directions
             n_layers: int. Number of hidden layers before applying bottleneck
             d_hidden: int. Width of hidden layers
-            skip: Tuple[int]. Layer positions at where to concatenate input
+            skip: tuple[int]. Layer positions at where to concatenate input
             **kwargs: dict. Positional encoding keyword arguments. Accepts
                 'pos_fn' and 'dir_fn' dicts, each with 'n_freqs' and
                 'log_space' entries. Defaults are used for missing entries

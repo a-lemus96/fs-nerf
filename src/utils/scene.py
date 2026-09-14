@@ -129,7 +129,7 @@ def postprocess_poses(
         recenter (bool): if True, expresses poses relative to the average pose
     Returns:
         poses (ndarray): [N, 3, 4]. Rescaled and re-centered camera poses
-        hwf (Tuple[int, int, float]): image height, width and focal length
+        hwf (tuple[int, int, float]): image height, width and focal length
         min_bound (float): minimum value across the poses
         max_bound (float): maximum value across the poses
     """
@@ -168,7 +168,7 @@ def load_scene(
     Returns:
         img_paths (ndarray): [N,]. Absolute paths to the scene images
         poses (ndarray): [N, 3, 4]. Camera poses
-        hwf (Tuple[int, int, float]): image height, width and focal length
+        hwf (tuple[int, int, float]): image height, width and focal length
         min_bound (float): minimum value across the poses
         max_bound (float): maximum value across the poses
     """
