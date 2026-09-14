@@ -1,4 +1,5 @@
 import os
+from argparse import Namespace
 from dataclasses import dataclass
 
 import wandb
@@ -107,26 +108,36 @@ class ModelTrainer:
     batches are sampled directly via torch.randint — no DataLoader or worker
     processes are used. This is efficient and correct for the small ray
     datasets typical in few-shot NeRF (a few tens of images).
+
+    Owns its TrainingConfig (built here, from the parsed CLI args, the
+    dataset's bounding box, and the training YAML config file) so callers
+    deal with a single, project-level interface instead of TrainingConfig
+    directly.
     """
 
     def __init__(
         self,
         training_device: Device,
-        settings: TrainingConfig,
+        aabb: list[float],
         monitor_data: Dataset | None = None,
-        debug: bool = False,
+        *,
+        args: Namespace,
     ):
         """
         Args:
             training_device (Device): device to run training on
-            settings (TrainingConfig): full training configuration
+            aabb (list[float]): dataset axis-aligned bounding box, passed
+                through to the occupancy estimator
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
-            debug (bool): if True, disables all wandb logging
+            args (Namespace): parsed command-line arguments; n_iters, lr,
+                and debug are unpacked from it — n_iters/lr fall back to
+                the training YAML config file when None
         """
+        settings = TrainingConfig(args.n_iters, args.lr, aabb)
         self.training_device = training_device
         self.monitor_data = monitor_data
-        self.configure(settings, debug)
+        self.configure(settings, args.debug)
 
     def configure(self, settings: TrainingConfig, debug: bool = False):
         """

@@ -15,7 +15,7 @@ from core import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
 from utils import create_split_file, load_split
-from playground.trainer import ModelTrainer, TrainingConfig
+from playground.trainer import ModelTrainer
 from playground.evaluator import ModelEvaluator
 
 logging.basicConfig(level=logging.INFO)
@@ -56,14 +56,7 @@ def main():
     if not args.render_only:
         model = init_model()
 
-        # build training settings, fully applied at construction time
-        training_settings = TrainingConfig(
-            args.n_iters,
-            args.lr,
-            aabb=train_data.aabb,
-        )
-
-        model_trainer = ModelTrainer(device, training_settings, monitor_data, args.debug)
+        model_trainer = ModelTrainer(device, train_data.aabb, monitor_data, args=args)
 
         model_evaluator = ModelEvaluator(device, debug=args.debug)
 
