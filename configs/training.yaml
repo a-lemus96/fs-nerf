@@ -1,0 +1,9 @@
+n_iters: 50000
+warmup_iters: 512
+warmup_mult: 0.01
+batch_size: 1024
+lr: 0.0005
+decay_rate: 0.1
+optimizer: adam
+betas: [0.9, 0.999]
+eps: 1.0e-08
