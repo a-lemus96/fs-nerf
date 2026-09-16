@@ -9,7 +9,7 @@ from torch.nn import Module
 from nerfacc.estimators.occ_grid import OccGridEstimator
 
 # custom modules
-from utils import load_or_create_config
+from utils import load_or_create_config, use_generator
 
 DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/estimator.yaml"
 
@@ -71,11 +71,17 @@ class OccupancyEstimator:
     """
 
     def __init__(
-        self, aabb: list[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
+        self,
+        aabb: list[float],
+        seed: int,
+        config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH,
     ) -> None:
         """
         Args:
             aabb (list[float]): axis-aligned bounding box for the grid
+            seed (int): seeds a dedicated generator driving sampling
+                stratification and grid-update jitter, independent of other
+                RNG streams.
             config_path (str): path to the estimator YAML config file,
                 created with default values if it doesn't exist
         """
@@ -87,6 +93,8 @@ class OccupancyEstimator:
         self.warmup_steps = settings.warmup_steps
         self.update_period = settings.update_period
         self.__estimator = self.__create_occupancy_estimator(settings)
+        self.__seed = seed
+        self.__generator = torch.Generator().manual_seed(seed)
 
     def __create_occupancy_estimator(
         self, settings: EstimatorConfig
@@ -109,10 +117,15 @@ class OccupancyEstimator:
         """
         Moves the underlying estimator to the given device.
 
+        Also rebuilds the sampling/update generator on that device. A
+        CPU-only generator would silently go unused once training runs on
+        CUDA and viceversa.
+
         Args:
             device (torch.device): target device
         """
         self.__estimator.to(device)
+        self.__generator = torch.Generator(device=device).manual_seed(self.__seed)
 
     def train(self) -> None:
         """Switches the underlying estimator to training mode."""
@@ -139,7 +152,7 @@ class OccupancyEstimator:
         def occ_eval_fn(x):
             return model(x) * self.render_step_size
 
-        with torch.cuda.amp.autocast():
+        with use_generator(self.__generator), torch.cuda.amp.autocast():
             self.__estimator.update_every_n_steps(
                 step=step,
                 occ_eval_fn=occ_eval_fn,
@@ -175,13 +188,14 @@ class OccupancyEstimator:
         Returns:
             ray_indices, t_starts, t_ends: packed per-sample outputs
         """
-        return self.__estimator.sampling(
-            rays_o,
-            rays_d,
-            sigma_fn=sigma_fn,
-            render_step_size=render_step_size,
-            early_stop_eps=early_stop_eps,
-            stratified=stratified,
-            near_plane=near_plane,
-            far_plane=far_plane,
-        )
+        with use_generator(self.__generator):
+            return self.__estimator.sampling(
+                rays_o,
+                rays_d,
+                sigma_fn=sigma_fn,
+                render_step_size=render_step_size,
+                early_stop_eps=early_stop_eps,
+                stratified=stratified,
+                near_plane=near_plane,
+                far_plane=far_plane,
+            )

@@ -122,6 +122,7 @@ class ModelTrainer:
         monitor_data: Dataset | None = None,
         *,
         args: Namespace,
+        seed: int,
     ):
         """
         Args:
@@ -133,13 +134,15 @@ class ModelTrainer:
             args (Namespace): parsed command-line arguments; n_iters, lr,
                 and debug are unpacked from it — n_iters/lr fall back to
                 the training YAML config file when None
+            seed (int): seeds the occupancy estimator's dedicated generator,
+                independent of the model's own RNG stream
         """
         settings = TrainingConfig(args.n_iters, args.lr, aabb)
         self.training_device = training_device
         self.monitor_data = monitor_data
-        self.configure(settings, args.debug)
+        self.configure(settings, seed, args.debug)
 
-    def configure(self, settings: TrainingConfig, debug: bool = False):
+    def configure(self, settings: TrainingConfig, seed: int, debug: bool = False):
         """
         Applies a TrainingConfig to the trainer, setting up the
         occupancy grid estimator and storing all training hyperparameters.
@@ -147,10 +150,11 @@ class ModelTrainer:
 
         Args:
             settings (TrainingConfig): full training configuration
+            seed (int): seeds the occupancy estimator's dedicated generator
             debug (bool): if True, disables all wandb logging
         """
         self.__apply_training_config(settings)
-        self.estimator = OccupancyEstimator(settings.aabb)
+        self.estimator = OccupancyEstimator(settings.aabb, seed)
         self.render_step_size = self.estimator.render_step_size
         self.early_stop_eps = self.estimator.early_stop_eps
         self.debug_mode = debug

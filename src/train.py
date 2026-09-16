@@ -14,7 +14,7 @@ import wandb
 from core import Nerf, Sinerf
 from llff import LLFFDataset
 import utils.parser as P
-from utils import create_split_file, load_split
+from utils import create_split_file, load_split, use_generator
 from playground.trainer import ModelTrainer
 from playground.evaluator import ModelEvaluator
 
@@ -32,6 +32,7 @@ args = P.config_parser()  # parse command line arguments
 
 def main():
     device = get_computing_device()
+    model_init_generator = torch.Generator().manual_seed(seed)
     if not args.debug:
         run = init_wandb()
 
@@ -54,10 +55,11 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
 
     if not args.render_only:
-        model = init_model()
+        model = init_model(model_init_generator)
 
-        model_trainer = ModelTrainer(device, train_data.aabb, monitor_data, args=args)
-
+        model_trainer = ModelTrainer(
+            device, train_data.aabb, monitor_data, args=args, seed=seed
+        )
         model_evaluator = ModelEvaluator(device, debug=args.debug)
 
         # trains model using the trainer's configuration
@@ -115,23 +117,26 @@ def init_wandb():
     return run
 
 
-def init_model() -> nn.Module:
+def init_model(generator: torch.Generator) -> nn.Module:
     """
     Initialize NeRF-like model.
     ----------------------------------------------------------------------------
     Args:
-        None
+        generator (torch.Generator): dedicated RNG stream for model weight
+            init, kept independent of other random draws so switching
+            architectures doesn't perturb them
     Returns:
         nn.Module: model
     """
     # instantiate model
-    match args.model:
-        case "nerf":
-            model = Nerf()
-        case "sinerf":
-            model = Sinerf()
-        case _:
-            raise ValueError(f"Model {args.model} not supported")
+    with use_generator(generator):
+        match args.model:
+            case "nerf":
+                model = Nerf()
+            case "sinerf":
+                model = Sinerf()
+            case _:
+                raise ValueError(f"Model {args.model} not supported")
 
     return model
 
