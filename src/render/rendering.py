@@ -55,8 +55,6 @@ def render_rays(
     estimator: OccupancyEstimator,
     model: nn.Module,
     train: bool = False,
-    render_step_size: float = 5e-3,
-    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> RenderingResult:
     """
@@ -80,8 +78,6 @@ def render_rays(
         model (nn.Module):         NeRF-like model returning (rgb, sigma) or sigma
         train (bool):              if True, enables stratified sampling and
                                    sets render_bkgd to require gradients
-        render_step_size (float):  step size used during occupancy grid sampling
-        early_stop_eps (float):    transmittance threshold for ray early-stopping
         device (torch.device):     device to move rays to before rendering
     Returns:
         RenderingResult:
@@ -108,11 +104,7 @@ def render_rays(
         rays_o,
         rays_d,
         sigma_fn=sigma_fn,
-        render_step_size=render_step_size,
-        early_stop_eps=early_stop_eps,
         stratified=train,
-        near_plane=0.0,
-        far_plane=1e10,
     )
 
     def rgb_sigma_fn(t_starts, t_ends, ray_indices):
@@ -171,8 +163,6 @@ def render_frame_from_rays(
     estimator: OccupancyEstimator,
     model: nn.Module,
     train: bool = False,
-    render_step_size: float = 5e-3,
-    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -197,8 +187,6 @@ def render_frame_from_rays(
         estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
         model (nn.Module):            NeRF-like model
         train (bool):                 passed through to render_rays
-        render_step_size (float):     step size used during occupancy grid sampling
-        early_stop_eps (float):       transmittance threshold for ray early-stopping
         device (torch.device):        device to run rendering on
     Returns:
         img (Tensor):       (H, W, 3) rendered RGB image
@@ -218,8 +206,6 @@ def render_frame_from_rays(
             estimator=estimator,
             model=model,
             train=train,
-            render_step_size=render_step_size,
-            early_stop_eps=early_stop_eps,
             device=device,
         )
         img.append(out.rgb)
@@ -241,8 +227,6 @@ def render_frame(
     model: nn.Module,
     train: bool = False,
     ndc: bool = False,
-    render_step_size: float = 5e-3,
-    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -262,8 +246,6 @@ def render_frame(
         model (nn.Module):            NeRF-like model
         train (bool):                 passed through to render_rays
         ndc (bool):                   if True, converts rays to NDC before rendering
-        render_step_size (float):     step size used during occupancy grid sampling
-        early_stop_eps (float):       transmittance threshold for ray early-stopping
         device (torch.device):        device to run rendering on
     Returns:
         img (Tensor):       (H, W, 3) rendered RGB image
@@ -285,8 +267,6 @@ def render_frame(
         estimator,
         model,
         train=train,
-        render_step_size=render_step_size,
-        early_stop_eps=early_stop_eps,
         device=device,
     )
 
@@ -301,8 +281,6 @@ def render_path(
     estimator: OccupancyEstimator,
     ndc: bool = False,
     train: bool = False,
-    render_step_size: float = 5e-3,
-    early_stop_eps: float = 1e-4,
     device: torch.device = torch.device("cpu"),
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -323,9 +301,7 @@ def render_path(
         estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
         ndc (bool):                   if True, converts rays to NDC before rendering
         train (bool):                 passed through to render_frame
-        render_step_size (float):     step size used during occupancy grid sampling
-        early_stop_eps (float):       transmittance threshold for ray early-stopping
-        device (torch.device):        device to run rendering ongi
+        device (torch.device):        device to run rendering on
     Returns:
         frames (ndarray):   (N, H, W, 3) rendered RGB frames in float [0, 1]
         d_frames (ndarray): (N, H, W) rendered depth frames
@@ -346,8 +322,6 @@ def render_path(
                 model,
                 train=train,
                 ndc=ndc,
-                render_step_size=render_step_size,
-                early_stop_eps=early_stop_eps,
                 device=device,
             )
             rgb   = rgb.reshape([H, W, 3]).detach().cpu().numpy()

@@ -23,6 +23,8 @@ _DEFAULTS = {
     "warmup_steps": 256,
     "update_period": 16,
     "early_stop_eps": 1e-4,
+    "near_plane": 0.0,
+    "far_plane": 1e10,
 }
 
 
@@ -37,6 +39,8 @@ class EstimatorConfig:
     warmup_steps: int        # steps before grid updates start thresholding
     update_period: int       # grid is refreshed every this many steps
     early_stop_eps: float    # transmittance threshold for ray early-stopping
+    near_plane: float        # near plane distance for ray sampling
+    far_plane: float         # far plane distance for ray sampling
 
     def __init__(
         self, aabb: list[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
@@ -58,6 +62,8 @@ class EstimatorConfig:
         self.warmup_steps = cfg["warmup_steps"]
         self.update_period = cfg["update_period"]
         self.early_stop_eps = cfg["early_stop_eps"]
+        self.near_plane = cfg["near_plane"]
+        self.far_plane = cfg["far_plane"]
 
 
 class OccupancyEstimator:
@@ -92,6 +98,8 @@ class OccupancyEstimator:
         self.ema_decay = settings.ema_decay
         self.warmup_steps = settings.warmup_steps
         self.update_period = settings.update_period
+        self.near_plane = settings.near_plane
+        self.far_plane = settings.far_plane
         self.__estimator = self.__create_occupancy_estimator(settings)
         self.__seed = seed
         self.__generator = torch.Generator().manual_seed(seed)
@@ -167,24 +175,19 @@ class OccupancyEstimator:
         rays_o: Tensor,
         rays_d: Tensor,
         sigma_fn: Callable,
-        render_step_size: float,
-        early_stop_eps: float,
         stratified: bool = False,
-        near_plane: float = 0.0,
-        far_plane: float = 1e10,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """
         Samples points along rays using the occupancy grid.
+
+        Callers toggle between stratified (training) and
+        deterministic (eval) sampling.
 
         Args:
             rays_o (Tensor):        (n_rays, 3) ray origins
             rays_d (Tensor):        (n_rays, 3) ray directions
             sigma_fn (Callable):    density query function
-            render_step_size (float): step size used during grid sampling
-            early_stop_eps (float): transmittance threshold for early-stopping
             stratified (bool):      if True, enables stratified sampling
-            near_plane (float):     near plane distance
-            far_plane (float):      far plane distance
         Returns:
             ray_indices, t_starts, t_ends: packed per-sample outputs
         """
@@ -193,9 +196,9 @@ class OccupancyEstimator:
                 rays_o,
                 rays_d,
                 sigma_fn=sigma_fn,
-                render_step_size=render_step_size,
-                early_stop_eps=early_stop_eps,
+                render_step_size=self.render_step_size,
+                early_stop_eps=self.early_stop_eps,
                 stratified=stratified,
-                near_plane=near_plane,
-                far_plane=far_plane,
+                near_plane=self.near_plane,
+                far_plane=self.far_plane,
             )

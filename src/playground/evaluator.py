@@ -171,8 +171,6 @@ class ModelEvaluator:
                     estimator,
                     model,
                     train=False,
-                    render_step_size=estimator.render_step_size,
-                    early_stop_eps=estimator.early_stop_eps,
                     device=self.training_device,
                 )
                 rgbs_predicted.append(rgb_predicted)

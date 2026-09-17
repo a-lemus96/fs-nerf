@@ -159,8 +159,6 @@ class ModelTrainer:
         self.data_generator = torch.Generator(
             device=self.training_device
         ).manual_seed(seed)
-        self.render_step_size = self.estimator.render_step_size
-        self.early_stop_eps = self.estimator.early_stop_eps
         self.debug_mode = debug
 
     def __apply_training_config(self, settings: TrainingConfig):
@@ -263,8 +261,6 @@ class ModelTrainer:
                 estimator=self.estimator,
                 model=model,
                 train=True,
-                render_step_size=self.render_step_size,
-                early_stop_eps=self.early_stop_eps,
                 device=self.training_device,
             )
 
