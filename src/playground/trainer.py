@@ -150,11 +150,15 @@ class ModelTrainer:
 
         Args:
             settings (TrainingConfig): full training configuration
-            seed (int): seeds the occupancy estimator's dedicated generator
+            seed (int): seeds the occupancy estimator's dedicated generator,
+                as well as this trainer's own generator for batch sampling
             debug (bool): if True, disables all wandb logging
         """
         self.__apply_training_config(settings)
         self.estimator = OccupancyEstimator(settings.aabb, seed)
+        self.data_generator = torch.Generator(
+            device=self.training_device
+        ).manual_seed(seed)
         self.render_step_size = self.estimator.render_step_size
         self.early_stop_eps = self.estimator.early_stop_eps
         self.debug_mode = debug
@@ -235,12 +239,14 @@ class ModelTrainer:
 
             # Sample a random image, then a random batch of rays from it
             image_idx = torch.randint(
-                0, n_images, (1,), device=self.training_device
+                0, n_images, (1,), generator=self.data_generator,
+                device=self.training_device,
             ).item()
             (ray_origins, ray_dirs, rgb_gts) = dataset[image_idx]
 
             pixel_idxs = torch.randint(
-                0, n_pixels, (self.batch_size,), device=self.training_device
+                0, n_pixels, (self.batch_size,), generator=self.data_generator,
+                device=self.training_device,
             )
             ray_origins = ray_origins[pixel_idxs]
             ray_dirs = ray_dirs[pixel_idxs]
