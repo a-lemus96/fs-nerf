@@ -10,15 +10,13 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
-import render.rendering as R
-from playground.estimator import OccupancyEstimator
+from render.renderer import Renderer
 from utils import load_or_create_config
 
 
 DEFAULT_EVALUATION_CONFIG_PATH = "../configs/evaluation.yaml"
 
 _DEFAULTS = {
-    "chunk_size": 1024,  # rays per rendering chunk during validation/evaluation
     "val_every": 1000,
 }
 
@@ -29,16 +27,14 @@ class EvaluationConfig:
     Holds all hyperparameters required to configure a ModelEvaluator.
 
     val_every may be overridden from the CLI; when not given (None), it
-    falls back to the evaluation YAML config file, as does chunk_size.
+    falls back to the evaluation YAML config file.
 
     Fields:
         - training_device (torch.device):   device to run evaluation on
-        - chunk_size (int):                 number of rays per rendering chunk
         - val_every (int):                  number of training iterations
                                             between validation steps
     """
     training_device: Device
-    chunk_size: int
     val_every: int
 
     def __init__(
@@ -61,7 +57,6 @@ class EvaluationConfig:
         """
         cfg = load_or_create_config(config_path, _DEFAULTS)
         self.training_device = training_device
-        self.chunk_size = cfg["chunk_size"]
         self.val_every = val_every if val_every is not None else cfg["val_every"]
 
 
@@ -120,7 +115,6 @@ class ModelEvaluator:
             settings (EvaluationConfig): full evaluation configuration
         """
         self.training_device = settings.training_device
-        self.chunk_size = settings.chunk_size
         self.val_every = settings.val_every
 
     def set_hwf(self, hwf: tuple) -> None:
@@ -136,18 +130,20 @@ class ModelEvaluator:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
         return LPIPS(net="vgg")
 
-    def evaluate(self, model: nn.Module, estimator: OccupancyEstimator,
+    def evaluate(self, model: nn.Module, renderer: Renderer,
                  dataset: Dataset) -> tuple[float, float, float, float]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM,
         LPIPS, and their geometric-mean average.
 
         The dataset should already be on CPU or GPU. No device transfer is
-        performed here.
+        performed here. The renderer is expected to already be on the
+        training device and in the correct train/eval mode — the caller
+        (ModelTrainer.fit()) manages both around this call.
 
         Args:
             model (nn.Module): trained NeRF-like model
-            estimator (OccupancyEstimator): occupancy grid estimator
+            renderer (Renderer): renderer used to accelerate evaluation
             dataset (Dataset): evaluation dataset
         Returns:
             tuple[float, float, float, float]: (psnr, ssim, lpips, average)
@@ -161,17 +157,13 @@ class ModelEvaluator:
                 rgb_gt = dataset.rgb[i].reshape(H, W, 3)
 
                 rgbs_gt.append(rgb_gt)
-                rgb_predicted, _ = R.render_frame_from_rays(
+                rgb_predicted, _ = renderer.render_frame_from_rays(
                     dataset.rays_o[i],
                     dataset.rays_d[i],
                     self.hwf,
                     dataset.near,
                     dataset.far,
-                    self.chunk_size,
-                    estimator,
                     model,
-                    train=False,
-                    device=self.training_device,
                 )
                 rgbs_predicted.append(rgb_predicted)
 

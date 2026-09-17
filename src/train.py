@@ -70,11 +70,11 @@ def main():
         )
 
         # final evaluation on test set
-        estimator = model_trainer.estimator
+        renderer = model_trainer.renderer
         model.eval()
-        estimator.eval()
+        renderer.eval()
         final_psnr, final_ssim, final_lpips, final_average = model_evaluator.evaluate(
-            model, estimator, eval_data
+            model, renderer, eval_data
         )
 
         if not args.debug:
@@ -97,7 +97,7 @@ def main():
             # Save and log the final-iteration checkpoint (model + occupancy grid)
             checkpoint_path = os.path.join(out_dir, "checkpoint_final.pt")
             torch.save(
-                {"model": model.state_dict(), "estimator": estimator.state_dict()},
+                {"model": model.state_dict(), "estimator": renderer.state_dict()},
                 checkpoint_path,
             )
             wandb.log_model(checkpoint_path)

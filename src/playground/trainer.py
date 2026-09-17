@@ -11,10 +11,9 @@ from torch import nn
 from torch.utils.data import Dataset
 
 # custom modules
-import render.rendering as R
+from render.renderer import Renderer
 from core import LrScheduler
 from playground.evaluator import ModelEvaluator
-from playground.estimator import OccupancyEstimator
 from utils import load_or_create_config
 
 DEFAULT_TRAINING_CONFIG_PATH = "../configs/training.yaml"
@@ -54,7 +53,7 @@ class TrainingConfig:
         - betas (tuple[float, float]):      Adam optimizer beta coefficients
         - eps (float):                      Adam optimizer epsilon
         - aabb (list[float]):               axis-aligned bounding box, passed
-                                            through to the occupancy estimator
+                                            through to the renderer
     """
 
     num_iterations: int
@@ -128,14 +127,14 @@ class ModelTrainer:
         Args:
             training_device (Device): device to run training on
             aabb (list[float]): dataset axis-aligned bounding box, passed
-                through to the occupancy estimator
+                through to the renderer
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
             args (Namespace): parsed command-line arguments; n_iters, lr,
                 and debug are unpacked from it — n_iters/lr fall back to
                 the training YAML config file when None
-            seed (int): seeds the occupancy estimator's dedicated generator,
-                independent of the model's own RNG stream
+            seed (int): seeds the renderer's occupancy estimator's dedicated
+                generator, independent of the model's own RNG stream
         """
         settings = TrainingConfig(args.n_iters, args.lr, aabb)
         self.training_device = training_device
@@ -144,18 +143,19 @@ class ModelTrainer:
 
     def configure(self, settings: TrainingConfig, seed: int, debug: bool = False):
         """
-        Applies a TrainingConfig to the trainer, setting up the
-        occupancy grid estimator and storing all training hyperparameters.
-        Called at construction and can be called again to reconfigure.
+        Applies a TrainingConfig to the trainer, setting up the renderer
+        (and the occupancy grid estimator it owns) and storing all training
+        hyperparameters. Called at construction and can be called again to
+        reconfigure.
 
         Args:
             settings (TrainingConfig): full training configuration
-            seed (int): seeds the occupancy estimator's dedicated generator,
+            seed (int): seeds the renderer's occupancy estimator generator,
                 as well as this trainer's own generator for batch sampling
             debug (bool): if True, disables all wandb logging
         """
         self.__apply_training_config(settings)
-        self.estimator = OccupancyEstimator(settings.aabb, seed)
+        self.renderer = Renderer(settings.aabb, seed)
         self.data_generator = torch.Generator(
             device=self.training_device
         ).manual_seed(seed)
@@ -191,11 +191,11 @@ class ModelTrainer:
         iteration a random image is drawn and a random batch of pixels is
         sampled from it. At each iteration:
             1. Samples a random image, then a random batch of rays from it.
-            2. Renders the batch using the current model and occupancy estimator.
+            2. Renders the batch using the current model and renderer.
             3. Computes the total loss as a sum of active loss terms.
             4. Zeroes gradients, performs a backward pass, and steps the optimizer
                and learning rate scheduler.
-            5. Updates the occupancy estimator.
+            5. Updates the occupancy estimator via the renderer.
             6. Optionally evaluates on monitor_data every evaluator.val_every
                iterations, if monitor_data was given at construction.
                Validation is diagnostic only — it never affects checkpoint
@@ -220,7 +220,7 @@ class ModelTrainer:
         self.lr_scheduler = self.__create_lr_scheduler()
 
         model.to(self.training_device)
-        self.estimator.to(self.training_device)
+        self.renderer.to(self.training_device)
 
         # Dataset is expected to already be on the training device.
         # Call dataset.to(device) in train.py before fit() is called.
@@ -238,7 +238,7 @@ class ModelTrainer:
         )
         for k in progress_bar:
             model.train()
-            self.estimator.train()
+            self.renderer.train()
 
             # Sample a random image, then a random batch of rays from it
             image_idx = torch.randint(
@@ -255,14 +255,7 @@ class ModelTrainer:
             ray_dirs = ray_dirs[pixel_idxs]
             rgb_gts = rgb_gts[pixel_idxs]
 
-            result = R.render_rays(
-                rays_o=ray_origins,
-                rays_d=ray_dirs,
-                estimator=self.estimator,
-                model=model,
-                train=True,
-                device=self.training_device,
-            )
+            result = self.renderer.render_rays(ray_origins, ray_dirs, model)
 
             # photometric loss
             loss = F.mse_loss(result.rgb, rgb_gts)
@@ -280,9 +273,9 @@ class ModelTrainer:
             # periodic validation
             if run_validation and (k + 1) % evaluator.val_every == 0:
                 model.eval()
-                self.estimator.eval()
+                self.renderer.eval()
                 val_psnr, val_ssim, val_lpips, val_average = evaluator.evaluate(
-                    model, self.estimator, self.monitor_data
+                    model, self.renderer, self.monitor_data
                 )
                 metrics.update(
                     {
@@ -293,7 +286,7 @@ class ModelTrainer:
                     }
                 )
                 model.train()
-                self.estimator.train()
+                self.renderer.train()
 
             if not self.debug_mode:
                 wandb.log(metrics)
@@ -305,7 +298,7 @@ class ModelTrainer:
     ):
         """
         Performs a single gradient update step and updates the occupancy
-        estimator.
+        estimator via the renderer.
 
         Args:
             current_iteration (int): current training iteration index
@@ -316,7 +309,7 @@ class ModelTrainer:
         loss.backward()
         self.optimizer.step()
         self.lr_scheduler.step()
-        self.estimator.step(current_iteration, model)
+        self.renderer.step(current_iteration, model)
 
     def __setup_progress_bar(self, num_iterations: int, bar_description: str):
         """

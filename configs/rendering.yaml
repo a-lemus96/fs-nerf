@@ -8,3 +8,4 @@ update_period: 16
 early_stop_eps: 0.0001
 near_plane: 0.0
 far_plane: 1.0e+10
+chunk_size: 1024

@@ -11,7 +11,7 @@ from nerfacc.estimators.occ_grid import OccGridEstimator
 # custom modules
 from utils import load_or_create_config, use_generator
 
-DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/estimator.yaml"
+DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/rendering.yaml"
 
 _DEFAULTS = {
     "grid_resolution": 128,
