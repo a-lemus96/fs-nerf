@@ -86,12 +86,7 @@ class LLFFDataset(Dataset):
 
     def to(self, device: torch.device) -> "LLFFDataset":
         """
-        Moves dataset tensors to the given device in-place, loading only what
-        is needed for the current mode to avoid duplicating data on the GPU.
-
-        In ray mode (img_mode=False): moves rays_o, rays_d, and rgb.
-        In image mode (img_mode=True): moves imgs only.
-        poses is always moved as it is small (N x 3 x 4).
+        Moves dataset tensors to the given device in-place.
         ------------------------------------------------------------------------
         Args:
             device (torch.device): target device
