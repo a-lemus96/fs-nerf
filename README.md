@@ -28,23 +28,25 @@ pip install -r requirements.txt
 ## Training
 ```bash
 python train.py \
-  --data_dir <path_to_llff_scene> \
-  --alpha <freq_reg_weight> \
-  --beta <occlusion_reg_weight> \
-  --reg [l1|l2]
+  --scene <llff_scene> \
+  --n_imgs [3|6|9] \
+  --n_iters <num_iterations> \
+  --lr <learning_rate>
 ```
 
 Key arguments:
 
 | Argument | Description |
 |---|---|
-| `--alpha` | Initial weight for frequency regularization |
-| `--reg_ratio` | Fraction of iterations over which alpha is scheduled |
-| `--reg` | Norm for frequency penalty (`l1` or `l2`) |
-| `--beta` | Weight for occlusion regularization |
-| `--depth_thres` | Depth threshold for sigma penalization |
-| `--val` | Enable validation during training |
-| `--val_rate` | Iterations between validation steps |
+| `--model` | Model to be used for training (`nerf` or `sinerf`) |
+| `--scene` | LLFF scene to be used for training |
+| `--n_imgs` | Number of training views (`3`, `6`, or `9`) |
+| `--n_iters` | Number of training iterations; falls back to `training.yaml` if not set |
+| `--lr` | Initial learning rate for the optimizer; falls back to `training.yaml` if not set |
+| `--val_every` | Number of iterations between validation steps; falls back to `evaluation.yaml` if not set |
+| `--out_dir` | Base directory for storing results |
+| `--debug` | If set, run in debug mode (disables wandb logging) |
+| `--render_only` | If set, load a pretrained model to render a video instead of training |
 
 ## Evaluation
 

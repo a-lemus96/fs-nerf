@@ -1,3 +1,4 @@
+from argparse import Namespace
 from dataclasses import dataclass
 import math
 
@@ -18,6 +19,7 @@ DEFAULT_EVALUATION_CONFIG_PATH = "../configs/evaluation.yaml"
 
 _DEFAULTS = {
     "chunk_size": 1024,  # rays per rendering chunk during validation/evaluation
+    "val_every": 1000,
 }
 
 
@@ -26,26 +28,41 @@ class EvaluationConfig:
     """
     Holds all hyperparameters required to configure a ModelEvaluator.
 
+    val_every may be overridden from the CLI; when not given (None), it
+    falls back to the evaluation YAML config file, as does chunk_size.
+
     Fields:
         - training_device (torch.device):   device to run evaluation on
         - chunk_size (int):                 number of rays per rendering chunk
+        - val_every (int):                  number of training iterations
+                                            between validation steps
     """
     training_device: Device
     chunk_size: int
+    val_every: int
 
     def __init__(
         self,
         training_device: Device,
+        val_every: int | None = None,
         config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
     ):
         """
-        Builds an EvaluationConfig from a torch.device instance and the
-        evaluation YAML config file (created with default values if it
-        doesn't exist).
+        Builds an EvaluationConfig from a torch.device instance, a
+        CLI-provided validation rate, and the evaluation YAML config file.
+
+        Args:
+            training_device (Device): device to run evaluation on
+            val_every (int | None): number of training iterations between
+                validation steps; CLI-driven, falls back to the YAML config
+                file if None
+            config_path (str): path to the evaluation YAML config file,
+                created with default values if it doesn't exist
         """
         cfg = load_or_create_config(config_path, _DEFAULTS)
         self.training_device = training_device
         self.chunk_size = cfg["chunk_size"]
+        self.val_every = val_every if val_every is not None else cfg["val_every"]
 
 
 class ModelEvaluator:
@@ -56,28 +73,30 @@ class ModelEvaluator:
     Computes PSNR, SSIM, and LPIPS metrics over a full evaluation dataset.
     Iterates directly over dataset tensors — no DataLoader or worker processes.
 
-    Owns its EvaluationConfig (built here, from the YAML config file, and
-    never exposed to callers). Camera intrinsics (hwf) are dataset-dependent
-    and aren't known at construction time — the caller (ModelTrainer.fit())
-    provides them afterward via set_hwf().
+    Owns its EvaluationConfig (built here, from CLI-provided overrides and
+    the YAML config file, and never exposed to callers). Camera intrinsics
+    (hwf) are dataset-dependent and aren't known at construction time — the
+    caller (ModelTrainer.fit()) provides them afterward via set_hwf().
     """
 
     def __init__(
         self,
         training_device: Device,
-        debug: bool = False,
+        args: Namespace,
         config_path: str = DEFAULT_EVALUATION_CONFIG_PATH,
     ):
         """
         Args:
             training_device (Device): device to run evaluation on
-            debug (bool): if True, disables all wandb logging
+            args (Namespace): parsed command-line arguments; debug and
+                val_every are unpacked from it — val_every falls back to
+                the evaluation YAML config file when None
             config_path (str): path to the evaluation YAML config file,
                 created with default values if it doesn't exist
         """
-        settings = EvaluationConfig(training_device, config_path)
+        settings = EvaluationConfig(training_device, args.val_every, config_path)
         self.hwf = None
-        self.configure(settings, debug)
+        self.configure(settings, args.debug)
 
     def configure(self, settings: EvaluationConfig, debug: bool = False):
         """
@@ -102,6 +121,7 @@ class ModelEvaluator:
         """
         self.training_device = settings.training_device
         self.chunk_size = settings.chunk_size
+        self.val_every = settings.val_every
 
     def set_hwf(self, hwf: tuple) -> None:
         """

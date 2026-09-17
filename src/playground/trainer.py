@@ -183,7 +183,6 @@ class ModelTrainer:
         model: nn.Module,
         dataset: Dataset,
         evaluator: ModelEvaluator | None = None,
-        val_every: int = 500,
     ):
         """
         Runs the training loop for a given model and dataset.
@@ -199,10 +198,11 @@ class ModelTrainer:
             4. Zeroes gradients, performs a backward pass, and steps the optimizer
                and learning rate scheduler.
             5. Updates the occupancy estimator.
-            6. Optionally evaluates on monitor_data every val_every iterations,
-               if monitor_data was given at construction. Validation is
-               diagnostic only — it never affects checkpoint selection; the
-               model at the final iteration is what gets saved and evaluated.
+            6. Optionally evaluates on monitor_data every evaluator.val_every
+               iterations, if monitor_data was given at construction.
+               Validation is diagnostic only — it never affects checkpoint
+               selection; the model at the final iteration is what gets
+               saved and evaluated.
 
         Logs train PSNR and learning rate to wandb at every iteration unless
         debug mode is active.
@@ -211,8 +211,9 @@ class ModelTrainer:
             model (nn.Module): NeRF-like model to train
             dataset (Dataset): ray-based training dataset
             evaluator (ModelEvaluator | None): evaluator instance to use for
-                validation. If None, validation is skipped.
-            val_every (int): number of iterations between validation steps
+                validation. If None, validation is skipped. Its own
+                val_every controls the cadence of validation steps;
+                a val_every below 1 disables validation entirely.
         """
         if evaluator is not None:
             evaluator.set_hwf(dataset.hwf)
@@ -232,7 +233,11 @@ class ModelTrainer:
             self.num_iterations, bar_description="[fit]"
         )
 
-        run_validation = evaluator is not None and self.monitor_data is not None
+        run_validation = (
+            evaluator is not None
+            and self.monitor_data is not None
+            and evaluator.val_every >= 1
+        )
         for k in progress_bar:
             model.train()
             self.estimator.train()
@@ -277,7 +282,7 @@ class ModelTrainer:
             self.__training_step(k, model, loss)
 
             # periodic validation
-            if run_validation and (k + 1) % val_every == 0:
+            if run_validation and (k + 1) % evaluator.val_every == 0:
                 model.eval()
                 self.estimator.eval()
                 val_psnr, val_ssim, val_lpips, val_average = evaluator.evaluate(

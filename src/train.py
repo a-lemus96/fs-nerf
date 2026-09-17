@@ -60,7 +60,7 @@ def main():
         model_trainer = ModelTrainer(
             device, train_data.aabb, monitor_data, args=args, seed=seed
         )
-        model_evaluator = ModelEvaluator(device, debug=args.debug)
+        model_evaluator = ModelEvaluator(device, args=args)
 
         # trains model using the trainer's configuration
         model_trainer.fit(

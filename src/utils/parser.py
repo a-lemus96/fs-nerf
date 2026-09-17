@@ -43,14 +43,12 @@ def config_parser() -> argparse.Namespace:
 
     evaluation = parser.add_argument_group("Evaluation")
     evaluation.add_argument(
-        "--val", action="store_true", help="If set, perform validation during training"
-    )
-    evaluation.add_argument(
-        "--val_rate",
-        default=500,
+        "--val_every",
+        default=None,
         type=int,
-        help="Number of iterations between validation steps",
+        help="Number of iterations between validation steps; falls back to evaluation.yaml if not set",
     )
+
     logging = parser.add_argument_group("Logging")
     logging.add_argument(
         "--out_dir",
