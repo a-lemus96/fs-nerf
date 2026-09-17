@@ -142,36 +142,35 @@ class ModelEvaluator:
         Evaluates the model over the full dataset and returns PSNR, SSIM,
         LPIPS, and their geometric-mean average.
 
-        Iterates directly over dataset.imgs and dataset.poses tensors, avoiding
-        DataLoader and worker process overhead. The dataset should already be on
-        CPU or GPU — no device transfer is performed here.
+        The dataset should already be on CPU or GPU. No device transfer is
+        performed here.
 
         Args:
             model (nn.Module): trained NeRF-like model
             estimator (OccupancyEstimator): occupancy grid estimator
-            dataset (Dataset): evaluation dataset (img_mode=True)
+            dataset (Dataset): evaluation dataset
         Returns:
             tuple[float, float, float, float]: (psnr, ssim, lpips, average)
         """
+        H, W, _ = self.hwf
         rgbs_gt = []
         rgbs_predicted = []
 
         with torch.no_grad():
-            for i in range(len(dataset.imgs)):
-                rgb_gt = dataset.imgs[i]       # (H, W, 3)
-                pose = dataset.poses[i]        # (3, 4)
+            for i in range(len(dataset)):
+                rgb_gt = dataset.rgb[i].reshape(H, W, 3)
 
                 rgbs_gt.append(rgb_gt)
-                rgb_predicted, _ = R.render_frame(
+                rgb_predicted, _ = R.render_frame_from_rays(
+                    dataset.rays_o[i],
+                    dataset.rays_d[i],
                     self.hwf,
                     dataset.near,
                     dataset.far,
-                    pose,
                     self.chunk_size,
                     estimator,
                     model,
                     train=False,
-                    ndc=dataset.ndc,
                     render_step_size=estimator.render_step_size,
                     early_stop_eps=estimator.early_stop_eps,
                     device=self.training_device,

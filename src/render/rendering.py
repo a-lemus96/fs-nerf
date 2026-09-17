@@ -161,6 +161,76 @@ def render_rays(
     )
 
 
+def render_frame_from_rays(
+    rays_o: torch.Tensor,
+    rays_d: torch.Tensor,
+    hwf: tuple[int, int, float],
+    near: float,
+    far: float,
+    chunksize: int,
+    estimator: OccupancyEstimator,
+    model: nn.Module,
+    train: bool = False,
+    render_step_size: float = 5e-3,
+    early_stop_eps: float = 1e-4,
+    device: torch.device = torch.device("cpu"),
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Renders a single image from a flattened, already-cast set of rays by
+    chunkifying them to avoid memory issues.
+
+    Rays are split into chunks of size chunksize and rendered independently.
+    The resulting RGB and depth chunks are concatenated and reshaped into
+    image dimensions. Unlike render_frame, rays are used as given — no
+    per-pose ray casting or NDC conversion is performed, so callers that
+    already have flattened rays (e.g. a precomputed dataset) can skip
+    recomputing them.
+    ----------------------------------------------------------------------------
+    Args:
+        rays_o (Tensor):               (H*W, 3) flattened ray origins
+        rays_d (Tensor):               (H*W, 3) flattened ray directions
+        hwf (tuple[int, int, float]): camera intrinsics (height, width, focal),
+                                       used only to reshape the output
+        near (float):                 near depth bound for depth clamping
+        far (float):                  far depth bound for depth clamping
+        chunksize (int):              number of rays rendered per chunk
+        estimator (OccupancyEstimator): occupancy grid estimator for fast sampling
+        model (nn.Module):            NeRF-like model
+        train (bool):                 passed through to render_rays
+        render_step_size (float):     step size used during occupancy grid sampling
+        early_stop_eps (float):       transmittance threshold for ray early-stopping
+        device (torch.device):        device to run rendering on
+    Returns:
+        img (Tensor):       (H, W, 3) rendered RGB image
+        depth_map (Tensor): (H, W) rendered depth map, clamped to [near, far]
+    ----------------------------------------------------------------------------
+    """
+    H, W, _ = hwf
+    chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
+    chunked_rays_d = U.get_chunks(rays_d, chunksize=chunksize)
+
+    img = []
+    depth_map = []
+    for chunk_rays_o, chunk_rays_d in zip(chunked_rays_o, chunked_rays_d):
+        out = render_rays(
+            rays_o=chunk_rays_o,
+            rays_d=chunk_rays_d,
+            estimator=estimator,
+            model=model,
+            train=train,
+            render_step_size=render_step_size,
+            early_stop_eps=early_stop_eps,
+            device=device,
+        )
+        img.append(out.rgb)
+        depth_map.append(out.depth)
+
+    img = torch.cat(img, dim=0)
+    depth = torch.cat(depth_map, dim=0).clamp(near, far)
+
+    return img.reshape(H, W, 3), depth.reshape(H, W)
+
+
 def render_frame(
     hwf: tuple[int, int, float],
     near: float,
@@ -176,12 +246,11 @@ def render_frame(
     device: torch.device = torch.device("cpu"),
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Renders a single image from a given camera pose by chunkifying rays to
-    avoid memory issues.
+    Renders a single image from a given camera pose by casting its rays and
+    delegating to render_frame_from_rays.
 
-    Rays are cast from the pose, optionally converted to NDC, split into
-    chunks of size chunksize, and rendered independently. The resulting
-    RGB and depth chunks are concatenated and reshaped into image dimensions.
+    Rays are cast from the pose and optionally converted to NDC before
+    chunked rendering.
     ----------------------------------------------------------------------------
     Args:
         hwf (tuple[int, int, float]): camera intrinsics (height, width, focal)
@@ -201,35 +270,25 @@ def render_frame(
         depth_map (Tensor): (H, W) rendered depth map, clamped to [near, far]
     ----------------------------------------------------------------------------
     """
-    H, W, _ = hwf
     rays_o, rays_d = U.get_rays(pose, hwf, device)
     rays_o, rays_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3)
     if ndc:
         rays_o, rays_d = U.to_ndc(rays_o, rays_d, hwf, 1.0)
 
-    chunked_rays_o = U.get_chunks(rays_o, chunksize=chunksize)
-    chunked_rays_d = U.get_chunks(rays_d, chunksize=chunksize)
-
-    img = []
-    depth_map = []
-    for rays_o, rays_d in zip(chunked_rays_o, chunked_rays_d):
-        out = render_rays(
-            rays_o=rays_o,
-            rays_d=rays_d,
-            estimator=estimator,
-            model=model,
-            train=train,
-            render_step_size=render_step_size,
-            early_stop_eps=early_stop_eps,
-            device=device,
-        )
-        img.append(out.rgb)
-        depth_map.append(out.depth)
-
-    img = torch.cat(img, dim=0)
-    depth = torch.cat(depth_map, dim=0).clamp(near, far)
-
-    return img.reshape(H, W, 3), depth.reshape(H, W)
+    return render_frame_from_rays(
+        rays_o,
+        rays_d,
+        hwf,
+        near,
+        far,
+        chunksize,
+        estimator,
+        model,
+        train=train,
+        render_step_size=render_step_size,
+        early_stop_eps=early_stop_eps,
+        device=device,
+    )
 
 
 def render_path(
