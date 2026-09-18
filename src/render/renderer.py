@@ -131,11 +131,16 @@ class Renderer:
         Updates the occupancy grid using the current model's density
         predictions. Called at every training iteration.
 
+        Runs under fp16 autocast.
+
         Args:
             step (int): current training iteration index
             model (nn.Module): model used to evaluate occupancy
         """
-        self.__estimator.step(step, model)
+        with torch.autocast(
+            device_type="cuda", dtype=torch.float16, enabled=self.device.type == "cuda"
+        ):
+            self.__estimator.step(step, model)
 
     def state_dict(self) -> dict:
         """Returns the underlying occupancy grid estimator's state dict."""
