@@ -160,7 +160,7 @@ class OccupancyEstimator:
         def occ_eval_fn(x):
             return model(x) * self.render_step_size
 
-        with use_generator(self.__generator), torch.cuda.amp.autocast():
+        with use_generator(self.__generator):
             self.__estimator.update_every_n_steps(
                 step=step,
                 occ_eval_fn=occ_eval_fn,

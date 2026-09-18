@@ -218,11 +218,7 @@ class Renderer:
                 rgb_sigma_fn=rgb_sigma_fn,
                 render_bkgd=render_bkgd,
             )
-            with torch.cuda.amp.autocast():
-                _, sigmas = rgb_sigma_fn(t_starts, t_ends, ray_indices)
-                weights, *_ = render_weight_from_density(
-                    t_starts, t_ends, sigmas, ray_indices=ray_indices, n_rays=n_rays
-                )
+            weights = extras["weights"]
 
         except AssertionError:
             # occupancy estimator found no samples; return background fallback
