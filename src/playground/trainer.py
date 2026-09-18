@@ -236,10 +236,11 @@ class ModelTrainer:
             and self.monitor_data is not None
             and evaluator.val_every >= 1
         )
-        for k in progress_bar:
-            model.train()
-            self.renderer.train()
 
+        model.train()
+        self.renderer.train()
+
+        for k in progress_bar:
             # Sample a random image, then a random batch of rays from it
             image_idx = torch.randint(
                 0, n_images, (1,), generator=self.data_generator,
@@ -272,8 +273,6 @@ class ModelTrainer:
 
             # periodic validation
             if run_validation and (k + 1) % evaluator.val_every == 0:
-                model.eval()
-                self.renderer.eval()
                 val_psnr, val_ssim, val_lpips, val_average = evaluator.evaluate(
                     model, self.renderer, self.monitor_data
                 )
@@ -285,8 +284,6 @@ class ModelTrainer:
                         "val_average": val_average,
                     }
                 )
-                model.train()
-                self.renderer.train()
 
             if not self.debug_mode:
                 wandb.log(metrics)

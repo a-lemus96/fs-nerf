@@ -71,8 +71,6 @@ def main():
 
         # final evaluation on test set
         renderer = model_trainer.renderer
-        model.eval()
-        renderer.eval()
         final_psnr, final_ssim, final_lpips, final_average = model_evaluator.evaluate(
             model, renderer, eval_data
         )

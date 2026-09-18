@@ -138,8 +138,11 @@ class ModelEvaluator:
 
         The dataset should already be on CPU or GPU. No device transfer is
         performed here. The renderer is expected to already be on the
-        training device and in the correct train/eval mode — the caller
-        (ModelTrainer.fit()) manages both around this call.
+        training device — that part is still the caller's responsibility.
+        Train/eval mode is not: model and renderer are temporarily switched
+        to eval mode here if they aren't already, and restored to their
+        prior mode before returning, so callers don't need to manage this
+        around evaluate() calls.
 
         Args:
             model (nn.Module): trained NeRF-like model
@@ -148,6 +151,13 @@ class ModelEvaluator:
         Returns:
             tuple[float, float, float, float]: (psnr, ssim, lpips, average)
         """
+        was_model_training = model.training
+        was_renderer_training = renderer.training
+        if was_model_training:
+            model.eval()
+        if was_renderer_training:
+            renderer.eval()
+
         H, W, _ = self.hwf
         rgbs_gt = []
         rgbs_predicted = []
@@ -176,6 +186,11 @@ class ModelEvaluator:
         lpips = self._compute_lpips_metric(rgbs_predicted, rgbs_gt)
         ssim = self._compute_ssim_metric(rgbs_predicted, rgbs_gt)
         average = self._compute_average_metric(psnr, ssim, lpips)
+
+        if was_model_training:
+            model.train()
+        if was_renderer_training:
+            renderer.train()
 
         return psnr, ssim, lpips, average
 
