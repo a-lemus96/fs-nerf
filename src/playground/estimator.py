@@ -9,9 +9,12 @@ from torch.nn import Module
 from nerfacc.estimators.occ_grid import OccGridEstimator
 
 # custom modules
-from utils import load_or_create_config, use_generator
+from utils import load_or_create_config, use_generator, get_chunks
 
 DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/rendering.yaml"
+
+# grid cells evaluated per model forward pass during an occupancy update
+_OCC_EVAL_CHUNK_SIZE = 2**18
 
 _DEFAULTS = {
     "grid_resolution": 128,
@@ -157,8 +160,11 @@ class OccupancyEstimator:
             model (Module): model used to evaluate occupancy
         """
 
-        def occ_eval_fn(x):
-            return model(x) * self.render_step_size
+        def occ_eval_fn(x: Tensor) -> Tensor:
+            """Occupancy proxy (density * step size) for (N, 3) points -> (N,)."""
+            sigmas = [model(chunk) for chunk in get_chunks(x, _OCC_EVAL_CHUNK_SIZE)]
+
+            return torch.cat(sigmas).squeeze(-1) * self.render_step_size
 
         with use_generator(self.__generator):
             self.__estimator.update_every_n_steps(

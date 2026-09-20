@@ -1,6 +1,7 @@
 from .split import create_split_file, load_split
 from .config import load_or_create_config
 from .rng import use_generator
+from .utilities import get_chunks
 from .scene import (
     normalize,
     viewmatrix,
