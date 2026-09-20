@@ -203,7 +203,8 @@ class ModelTrainer:
                saved and evaluated.
 
         Logs train PSNR and learning rate to wandb at every iteration unless
-        debug mode is active.
+        debug mode is active. At each validation step it also logs the
+        monitor view's render as an image ("monitor_render").
 
         Args:
             model (nn.Module): NeRF-like model to train
@@ -273,9 +274,13 @@ class ModelTrainer:
 
             # periodic validation
             if run_validation and (k + 1) % evaluator.val_every == 0:
-                val_psnr, val_ssim, val_lpips, val_average = evaluator.evaluate(
-                    model, self.renderer, self.monitor_data
-                )
+                (
+                    val_psnr,
+                    val_ssim,
+                    val_lpips,
+                    val_average,
+                    val_render,
+                ) = evaluator.evaluate(model, self.renderer, self.monitor_data)
                 metrics.update(
                     {
                         "val_psnr": val_psnr,
@@ -284,6 +289,12 @@ class ModelTrainer:
                         "val_average": val_average,
                     }
                 )
+                if not self.debug_mode:
+                    monitor_frame = (val_render[0].clamp(0, 1) * 255).byte()
+                    metrics["monitor_image"] = wandb.Image(
+                        monitor_frame.permute(1, 2, 0).cpu().numpy(),
+                        caption=f"iter {k + 1} | val PSNR {val_psnr:.2f}",
+                    )
 
             if not self.debug_mode:
                 wandb.log(metrics)

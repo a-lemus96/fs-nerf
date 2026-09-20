@@ -130,11 +130,12 @@ class ModelEvaluator:
         """Creates an instance of the :class:`lpips.LPIPS` class. Uses 'vgg' as pretrained backbone model."""
         return LPIPS(net="vgg")
 
-    def evaluate(self, model: nn.Module, renderer: Renderer,
-                 dataset: Dataset) -> tuple[float, float, float, float]:
+    def evaluate(
+        self, model: nn.Module, renderer: Renderer, dataset: Dataset
+    ) -> tuple[float, float, float, float, torch.Tensor]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM,
-        LPIPS, and their geometric-mean average.
+        LPIPS, their geometric-mean average, and the rendered images.
 
         The dataset should already be on CPU or GPU. No device transfer is
         performed here. The renderer is expected to already be on the
@@ -149,7 +150,9 @@ class ModelEvaluator:
             renderer (Renderer): renderer used to accelerate evaluation
             dataset (Dataset): evaluation dataset
         Returns:
-            tuple[float, float, float, float]: (psnr, ssim, lpips, average)
+            tuple[float, float, float, float, Tensor]: (psnr, ssim, lpips,
+                average, rgbs_predicted), where rgbs_predicted holds the
+                (N, 3, H, W) renders in [0, 1] on the training device
         """
         was_model_training = model.training
         was_renderer_training = renderer.training
@@ -192,7 +195,7 @@ class ModelEvaluator:
         if was_renderer_training:
             renderer.train()
 
-        return psnr, ssim, lpips, average
+        return psnr, ssim, lpips, average, rgbs_predicted
 
     def _compute_psnr_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:

@@ -71,7 +71,7 @@ def main():
 
         # final evaluation on test set
         renderer = model_trainer.renderer
-        final_psnr, final_ssim, final_lpips, final_average = model_evaluator.evaluate(
+        final_psnr, final_ssim, final_lpips, final_average, _ = model_evaluator.evaluate(
             model, renderer, eval_data
         )
 
@@ -111,7 +111,7 @@ def init_wandb():
     wandb.login()
     # set up wandb run to track training
     name = f"{args.model}_{args.scene}_nimg{args.n_imgs}"
-    run = wandb.init(project="fs-nerf", name=name, config=args)
+    run = wandb.init(project="freq-reg-nerf", name=name, config=args)
     return run
 
 
