@@ -415,3 +415,45 @@ class Renderer:
             np.transpose(to8b(frames), (0, 3, 1, 2)),
             np.transpose(to8b(d_rgba[..., :3]), (0, 3, 1, 2)),
         )
+
+    @staticmethod
+    def colorize_depth(
+        depth: Tensor | np.ndarray, cmap: str = "plasma"
+    ) -> np.ndarray:
+        """
+        Maps a single depth map to a colorized uint8 image, min-max normalized
+        over the map itself. Uses the same default colormap as render_video.
+
+        Args:
+            depth (Tensor | ndarray): (H, W) depth map
+            cmap (str):               matplotlib colormap name
+        Returns:
+            ndarray: (H, W, 3) uint8 RGB image
+        """
+        if isinstance(depth, Tensor):
+            depth = depth.detach().cpu().numpy()
+
+        norm = matplotlib.colors.Normalize(vmin=depth.min(), vmax=depth.max())
+        rgba = cm.ScalarMappable(norm=norm, cmap=cmap).to_rgba(depth, bytes=True)
+
+        return rgba[..., :3]
+
+    @staticmethod
+    def to_uint8_image(image: Tensor | np.ndarray) -> np.ndarray:
+        """
+        Converts an image into a host-side uint8 array: a tensor is detached
+        and moved to the CPU, and a float image in [0, 1] is scaled to
+        [0, 255] (values outside [0, 1] are clipped). A uint8 array is
+        returned as is.
+
+        Args:
+            image (Tensor | ndarray): image, either float in [0, 1] or uint8
+        Returns:
+            ndarray: uint8 image, same shape as the input
+        """
+        if isinstance(image, Tensor):
+            image = image.detach().cpu().numpy()
+        if image.dtype != np.uint8:
+            image = to8b(image)
+
+        return image

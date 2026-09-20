@@ -71,8 +71,9 @@ def main():
 
         # final evaluation on test set
         renderer = model_trainer.renderer
-        final_psnr, final_ssim, final_lpips, final_average, _ = model_evaluator.evaluate(
-            model, renderer, eval_data
+        # (the evaluator logs the final_* metrics and images to wandb itself)
+        final_psnr, final_ssim, final_lpips, final_average = model_evaluator.evaluate(
+            model, renderer, eval_data, prefix="final"
         )
 
         if not args.debug:
@@ -82,7 +83,6 @@ def main():
                 "final_lpips": final_lpips,
                 "final_average": final_average,
             }
-            wandb.log(metrics)
 
             # Save metrics as JSON
             with open(os.path.join(out_dir, "metrics.json"), "w") as f:

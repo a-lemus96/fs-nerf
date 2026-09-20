@@ -202,9 +202,9 @@ class ModelTrainer:
                selection; the model at the final iteration is what gets
                saved and evaluated.
 
-        Logs train PSNR and learning rate to wandb at every iteration unless
-        debug mode is active. At each validation step it also logs the
-        monitor view's render as an image ("monitor_render").
+        Logs the photometric loss and learning rate to wandb at every
+        iteration unless debug mode is active. Validation metrics and images
+        are logged by the evaluator itself, into the same wandb step.
 
         Args:
             model (nn.Module): NeRF-like model to train
@@ -261,11 +261,8 @@ class ModelTrainer:
 
             # photometric loss
             loss = F.mse_loss(result.rgb, rgb_gts)
-            with torch.no_grad():
-                psnr = -10.0 * torch.log10(loss).item()
 
             metrics = {
-                "train_psnr": psnr,
                 "photo_loss": loss.item(),
                 "lr": self.lr_scheduler.lr,
             }
@@ -274,27 +271,8 @@ class ModelTrainer:
 
             # periodic validation
             if run_validation and (k + 1) % evaluator.val_every == 0:
-                (
-                    val_psnr,
-                    val_ssim,
-                    val_lpips,
-                    val_average,
-                    val_render,
-                ) = evaluator.evaluate(model, self.renderer, self.monitor_data)
-                metrics.update(
-                    {
-                        "val_psnr": val_psnr,
-                        "val_ssim": val_ssim,
-                        "val_lpips": val_lpips,
-                        "val_average": val_average,
-                    }
-                )
-                if not self.debug_mode:
-                    monitor_frame = (val_render[0].clamp(0, 1) * 255).byte()
-                    metrics["monitor_image"] = wandb.Image(
-                        monitor_frame.permute(1, 2, 0).cpu().numpy(),
-                        caption=f"iter {k + 1} | val PSNR {val_psnr:.2f}",
-                    )
+                # logs its own metrics/images into this iteration's wandb step
+                evaluator.evaluate(model, self.renderer, self.monitor_data)
 
             if not self.debug_mode:
                 wandb.log(metrics)

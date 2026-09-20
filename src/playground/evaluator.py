@@ -9,6 +9,7 @@ from torch import device as Device
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
+import wandb
 
 from render.renderer import Renderer
 from utils import load_or_create_config
@@ -131,11 +132,21 @@ class ModelEvaluator:
         return LPIPS(net="vgg")
 
     def evaluate(
-        self, model: nn.Module, renderer: Renderer, dataset: Dataset
-    ) -> tuple[float, float, float, float, torch.Tensor]:
+        self,
+        model: nn.Module,
+        renderer: Renderer,
+        dataset: Dataset,
+        prefix: str = "val",
+    ) -> tuple[float, float, float, float]:
         """
         Evaluates the model over the full dataset and returns PSNR, SSIM,
-        LPIPS, their geometric-mean average, and the rendered images.
+        LPIPS, and their geometric-mean average.
+
+        Unless debug mode is active, the metrics and the rendered RGB and
+        depth images are also logged to wandb under f"{prefix}_<name>" keys
+        (e.g. val_psnr, val_image, val_depth). They are logged with
+        commit=False, so they join the caller's next wandb.log call for the
+        current step, or are flushed when the run finishes.
 
         The dataset should already be on CPU or GPU. No device transfer is
         performed here. The renderer is expected to already be on the
@@ -149,10 +160,11 @@ class ModelEvaluator:
             model (nn.Module): trained NeRF-like model
             renderer (Renderer): renderer used to accelerate evaluation
             dataset (Dataset): evaluation dataset
+            prefix (str): prefix of the logged wandb keys, e.g. "val" for
+                periodic validation or "final" for the end-of-training
+                evaluation
         Returns:
-            tuple[float, float, float, float, Tensor]: (psnr, ssim, lpips,
-                average, rgbs_predicted), where rgbs_predicted holds the
-                (N, 3, H, W) renders in [0, 1] on the training device
+            tuple[float, float, float, float]: (psnr, ssim, lpips, average)
         """
         was_model_training = model.training
         was_renderer_training = renderer.training
@@ -164,13 +176,14 @@ class ModelEvaluator:
         H, W, _ = self.hwf
         rgbs_gt = []
         rgbs_predicted = []
+        depths_predicted = []
 
         with torch.no_grad():
             for i in range(len(dataset)):
                 rgb_gt = dataset.rgb[i].reshape(H, W, 3)
 
                 rgbs_gt.append(rgb_gt)
-                rgb_predicted, _ = renderer.render_frame_from_rays(
+                rgb_predicted, depth_predicted = renderer.render_frame_from_rays(
                     dataset.rays_o[i],
                     dataset.rays_d[i],
                     self.hwf,
@@ -179,9 +192,11 @@ class ModelEvaluator:
                     model,
                 )
                 rgbs_predicted.append(rgb_predicted)
+                depths_predicted.append(depth_predicted)
 
         # Stack and permute to (N, 3, H, W) for metric computation
         rgbs_predicted = torch.permute(torch.stack(rgbs_predicted, dim=0), (0, 3, 1, 2))
+        depths_predicted = torch.stack(depths_predicted, dim=0)
         rgbs_gt = torch.permute(torch.stack(rgbs_gt, dim=0), (0, 3, 1, 2))
         rgbs_gt = rgbs_gt.to(self.training_device)
 
@@ -195,7 +210,51 @@ class ModelEvaluator:
         if was_renderer_training:
             renderer.train()
 
-        return psnr, ssim, lpips, average, rgbs_predicted
+        if not self.debug_mode:
+            self._log_to_wandb(
+                prefix,
+                {"psnr": psnr, "ssim": ssim, "lpips": lpips, "average": average},
+                rgbs_predicted,
+                depths_predicted,
+            )
+
+        return psnr, ssim, lpips, average
+
+    def _log_to_wandb(
+        self,
+        prefix: str,
+        metrics: dict[str, float],
+        rgbs_predicted: torch.Tensor,
+        depths_predicted: torch.Tensor,
+    ) -> None:
+        """
+        Logs evaluation metrics and the rendered RGB / colorized depth images
+        under f"{prefix}_<name>" keys, with commit=False so the values join the
+        current wandb step instead of opening a step of their own.
+
+        Args:
+            prefix (str): prefix of every logged key
+            metrics (dict[str, float]): metric name -> value
+            rgbs_predicted (Tensor): (N, 3, H, W) renders in [0, 1]
+            depths_predicted (Tensor): (N, H, W) depth maps
+        """
+        payload = {f"{prefix}_{name}": value for name, value in metrics.items()}
+        payload[f"{prefix}_image"] = [
+            wandb.Image(
+                Renderer.to_uint8_image(rgb.permute(1, 2, 0)),
+                caption=f"{prefix} #{i}",
+            )
+            for i, rgb in enumerate(rgbs_predicted)
+        ]
+        # depth is normalized per frame, so the caption carries its range
+        payload[f"{prefix}_depth"] = [
+            wandb.Image(
+                Renderer.colorize_depth(depth),
+                caption=f"depth [{depth.min().item():.3f}, {depth.max().item():.3f}]",
+            )
+            for depth in depths_predicted
+        ]
+        wandb.log(payload, commit=False)
 
     def _compute_psnr_metric(self, rgbs_predicted: torch.Tensor,
                               rgbs_gt: torch.Tensor) -> float:
