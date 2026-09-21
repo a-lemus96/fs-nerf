@@ -52,7 +52,7 @@ class LLFFDataset(Dataset):
         # build rays and get aabb
         images = torch.tensor(LLFFDataset.load_img_files(img_paths), dtype=torch.float32)
         poses = torch.tensor(poses, dtype=torch.float32)
-        self.rays_d, self.rays_o, self.aabb = self.__build_samples(images, poses)
+        self.rays_o, self.rays_d, self.aabb = self.__build_samples(images, poses)
 
     def __build_samples(self, images, poses) -> tuple[Tensor, Tensor, Tensor]:
         """
