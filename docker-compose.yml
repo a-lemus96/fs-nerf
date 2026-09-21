@@ -12,8 +12,9 @@ services:
               capabilities: [gpu]
     volumes:
       - ./src:/workspace/src
-      - ./datasets:/workspace/datasets:ro
-      - ./output:/workspace/output
+      - ./configs:/workspace/configs
+      - ./data:/workspace/datasets:ro
+      - ./output:/workspace/out
     working_dir: /workspace/src
     stdin_open: true
     tty: true
