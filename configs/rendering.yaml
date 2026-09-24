@@ -1,5 +1,5 @@
 grid_resolution: 128
-grid_num_levels: 4
+grid_num_levels: 1
 render_step_size: 0.005
 occ_thre: 0.01
 ema_decay: 0.95
@@ -7,5 +7,5 @@ warmup_steps: 256
 update_period: 16
 early_stop_eps: 0.0001
 near_plane: 0.0
-far_plane: 1.0e+10
+far_plane: 1.0
 chunk_size: 1024

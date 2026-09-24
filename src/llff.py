@@ -54,7 +54,7 @@ class LLFFDataset(Dataset):
         poses = torch.tensor(poses, dtype=torch.float32)
         self.rays_o, self.rays_d, self.aabb = self.__build_samples(images, poses)
 
-    def __build_samples(self, images, poses) -> tuple[Tensor, Tensor, Tensor]:
+    def __build_samples(self, images, poses) -> tuple[Tensor, Tensor, list[float]]:
         """
         Builds rays and samples.
         ------------------------------------------------------------------------
@@ -72,15 +72,11 @@ class LLFFDataset(Dataset):
 
         # map to ndc
         rays_o, rays_d = U.to_ndc(rays_o, rays_d, self.hwf, 1.0)
-        flat_o, flat_d = rays_o.reshape(-1, 3), rays_d.reshape(-1, 3)
-        min_roi = torch.vstack(
-            [flat_o.min(dim=0)[0], (flat_o + flat_d).min(dim=0)[0]]
-        ).min(dim=0)[0]
-        max_roi = torch.vstack(
-            [flat_o.max(dim=0)[0], (flat_o + flat_d).max(dim=0)[0]]
-        ).max(dim=0)[0]
-        aabb = torch.hstack([min_roi, max_roi])
-        aabb = aabb / 2 ** (4 - 1)
+
+        # NDC maps the view frustum to the cube [-1, 1]^3 (z: near plane ->
+        # infinity), so a single grid level over it spans every ray point
+        # o + t * d with t in [0, 1]
+        aabb = [-1., -1., -1., 1., 1., 1.]
 
         return rays_o, rays_d, aabb
 

@@ -18,8 +18,7 @@ _OCC_EVAL_CHUNK_SIZE = 2**18
 
 _DEFAULTS = {
     "grid_resolution": 128,
-    # TODO: This works for LLFF only, for Blender dataset set to 1
-    "grid_num_levels": 4,
+    "grid_num_levels": 1,
     "render_step_size": 5e-3,
     "occ_thre": 1e-2,
     "ema_decay": 0.95,
@@ -27,7 +26,8 @@ _DEFAULTS = {
     "update_period": 16,
     "early_stop_eps": 1e-4,
     "near_plane": 0.0,
-    "far_plane": 1e10,
+    # NDC rays end at t=1, the z=+1 infinity wall
+    "far_plane": 1.0,
 }
 
 
