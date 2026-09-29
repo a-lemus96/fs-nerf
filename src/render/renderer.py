@@ -88,21 +88,18 @@ class Renderer:
 
     def __init__(
         self,
-        aabb: list[float],
         seed: int,
         config_path: str = DEFAULT_RENDERING_CONFIG_PATH,
     ) -> None:
         """
         Args:
-            aabb (list[float]): axis-aligned bounding box, passed through to
-                the occupancy estimator
             seed (int): seeds the occupancy estimator's dedicated generator
             config_path (str): path to the shared rendering YAML config file,
                 created with default values if it doesn't exist
         """
         settings = RenderingConfig(config_path)
         self.chunk_size = settings.chunk_size
-        self.__estimator = OccupancyEstimator(aabb, seed, config_path)
+        self.__estimator = OccupancyEstimator(seed, config_path)
         self.device = torch.device("cpu")
         self.training = False
 

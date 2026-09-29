@@ -1,3 +1,4 @@
+aabb: [-1.5, -1.5, -1.0, 1.5, 1.5, 1.0]
 grid_resolution: 128
 grid_num_levels: 1
 render_step_size: 0.005

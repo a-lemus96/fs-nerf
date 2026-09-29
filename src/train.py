@@ -58,7 +58,7 @@ def main():
         model = init_model(model_init_generator)
 
         model_trainer = ModelTrainer(
-            device, train_data.aabb, monitor_data, args=args, seed=seed
+            device, monitor_data, args=args, seed=seed
         )
         model_evaluator = ModelEvaluator(device, args=args)
 

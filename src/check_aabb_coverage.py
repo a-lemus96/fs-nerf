@@ -127,7 +127,7 @@ def main():
         "--aabb",
         nargs=6,
         type=float,
-        default=[-1.2, -1.2, -1.0, 1.2, 1.2, 1.0],
+        default=[-1.5, -1.5, -1.0, 1.5, 1.5, 1.0],
         metavar=("XMIN", "YMIN", "ZMIN", "XMAX", "YMAX", "ZMAX"),
         help="Axis-aligned bounding box to test against.",
     )

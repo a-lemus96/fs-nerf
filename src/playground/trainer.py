@@ -52,8 +52,6 @@ class TrainingConfig:
                                             ModelTrainer.__create_optimizer
         - betas (tuple[float, float]):      Adam optimizer beta coefficients
         - eps (float):                      Adam optimizer epsilon
-        - aabb (list[float]):               axis-aligned bounding box, passed
-                                            through to the renderer
     """
 
     num_iterations: int
@@ -63,26 +61,22 @@ class TrainingConfig:
     optimizer: str
     betas: tuple[float, float]
     eps: float
-    aabb: list[float]
 
     def __init__(
         self,
         n_iters: int | None,
         lr: float | None,
-        aabb: list[float],
         config_path: str = DEFAULT_TRAINING_CONFIG_PATH,
     ):
         """
-        Builds a TrainingConfig from CLI-provided hyperparameters, the
-        dataset's bounding box, and the training YAML config file.
+        Builds a TrainingConfig from CLI-provided hyperparameters and the
+        training YAML config file.
 
         Args:
             n_iters (int | None): total number of training iterations;
                 CLI-driven, falls back to the YAML config file if None
             lr (float | None): initial learning rate; CLI-driven, falls
                 back to the YAML config file if None
-            aabb (list[float]): dataset axis-aligned bounding box; dataset-dependent,
-                so it isn't part of the YAML config file
             config_path (str): path to the training YAML config file,
                 created with default values if it doesn't exist
         """
@@ -96,7 +90,6 @@ class TrainingConfig:
         self.optimizer = cfg["optimizer"]
         self.betas = tuple(cfg["betas"])
         self.eps = cfg["eps"]
-        self.aabb = aabb
 
 
 class ModelTrainer:
@@ -108,16 +101,14 @@ class ModelTrainer:
     processes are used. This is efficient and correct for the small ray
     datasets typical in few-shot NeRF (a few tens of images).
 
-    Owns its TrainingConfig (built here, from the parsed CLI args, the
-    dataset's bounding box, and the training YAML config file) so callers
-    deal with a single, project-level interface instead of TrainingConfig
-    directly.
+    Owns its TrainingConfig (built here, from the parsed CLI args and the
+    training YAML config file) so callers deal with a single, project-level
+    interface instead of TrainingConfig directly.
     """
 
     def __init__(
         self,
         training_device: Device,
-        aabb: list[float],
         monitor_data: Dataset | None = None,
         *,
         args: Namespace,
@@ -126,8 +117,6 @@ class ModelTrainer:
         """
         Args:
             training_device (Device): device to run training on
-            aabb (list[float]): dataset axis-aligned bounding box, passed
-                through to the renderer
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
             args (Namespace): parsed command-line arguments; n_iters, lr,
@@ -136,7 +125,7 @@ class ModelTrainer:
             seed (int): seeds the renderer's occupancy estimator's dedicated
                 generator, independent of the model's own RNG stream
         """
-        settings = TrainingConfig(args.n_iters, args.lr, aabb)
+        settings = TrainingConfig(args.n_iters, args.lr)
         self.training_device = training_device
         self.monitor_data = monitor_data
         self.configure(settings, seed, args.debug)
@@ -155,7 +144,7 @@ class ModelTrainer:
             debug (bool): if True, disables all wandb logging
         """
         self.__apply_training_config(settings)
-        self.renderer = Renderer(settings.aabb, seed)
+        self.renderer = Renderer(seed)
         self.data_generator = torch.Generator(
             device=self.training_device
         ).manual_seed(seed)

@@ -17,6 +17,7 @@ DEFAULT_ESTIMATOR_CONFIG_PATH = "../configs/rendering.yaml"
 _OCC_EVAL_CHUNK_SIZE = 2**18
 
 _DEFAULTS = {
+    "aabb": [-1.5, -1.5, -1.0, 1.5, 1.5, 1.0],
     "grid_resolution": 128,
     "grid_num_levels": 1,
     "render_step_size": 5e-3,
@@ -45,18 +46,14 @@ class EstimatorConfig:
     near_plane: float        # near plane distance for ray sampling
     far_plane: float         # far plane distance for ray sampling
 
-    def __init__(
-        self, aabb: list[float], config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH
-    ):
+    def __init__(self, config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH):
         """
         Args:
-            aabb (list[float]): axis-aligned bounding box; dataset-dependent,
-                so it isn't part of the YAML config file
             config_path (str): path to the estimator YAML config file,
                 created with default values if it doesn't exist
         """
         cfg = load_or_create_config(config_path, _DEFAULTS)
-        self.aabb = aabb
+        self.aabb = cfg["aabb"]
         self.grid_resolution = cfg["grid_resolution"]
         self.grid_num_levels = cfg["grid_num_levels"]
         self.render_step_size = cfg["render_step_size"]
@@ -81,20 +78,18 @@ class OccupancyEstimator:
 
     def __init__(
         self,
-        aabb: list[float],
         seed: int,
         config_path: str = DEFAULT_ESTIMATOR_CONFIG_PATH,
     ) -> None:
         """
         Args:
-            aabb (list[float]): axis-aligned bounding box for the grid
             seed (int): seeds a dedicated generator driving sampling
                 stratification and grid-update jitter, independent of other
                 RNG streams.
             config_path (str): path to the estimator YAML config file,
                 created with default values if it doesn't exist
         """
-        settings = EstimatorConfig(aabb, config_path)
+        settings = EstimatorConfig(config_path)
         self.render_step_size = settings.render_step_size
         self.early_stop_eps = settings.early_stop_eps
         self.occ_thre = settings.occ_thre
