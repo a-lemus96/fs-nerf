@@ -1,5 +1,5 @@
 program: train.py
-project: fs-nerf
+project: freq-reg-nerf
 method: grid
 name: lr-fern
 description:
