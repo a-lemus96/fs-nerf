@@ -1,0 +1,27 @@
+program: train.py
+project: fs-nerf
+method: grid
+name: lr-fern
+description:
+  Learning rate sweep with a constant scheduler for NeRF and SiNeRF on the dev scene
+  (LLFF fern, 3 views), trained for 100k iterations.
+parameters:
+  scene:
+    value: fern
+  model:
+    values: [sinerf, nerf]
+  n_imgs:
+    value: 3
+  lr_scheduler_type:
+    value: constant
+  lr:
+    values: [0.002, 0.001, 0.0005, 0.00025, 0.0001, 0.00005]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 100000
+  - --out_dir
+  - ../output/lr-fern/
+  - ${args}
