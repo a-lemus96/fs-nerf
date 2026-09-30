@@ -4,6 +4,6 @@ from .freq_regularizer import (
     LinearScheduler,
     FrequencyRegularizer,
 )
-from .lr_scheduler import LrScheduler
+from .lr_scheduler import LrScheduler, ConstantLrScheduler, ExponentialLrScheduler
 from .occlusion import OcclusionRegularizer, WeightSumSquaredRegularizer
 from .models import Nerf, Sinerf

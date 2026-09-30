@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 
 # custom modules
 from render.renderer import Renderer
-from core import LrScheduler
+from core import LrScheduler, ConstantLrScheduler, ExponentialLrScheduler
 from playground.evaluator import ModelEvaluator
 from utils import load_or_create_config
 
@@ -25,10 +25,14 @@ _DEFAULTS = {
     "batch_size": 1024,
     "lr": 5e-4,
     "decay_rate": 0.1,
+    "lr_scheduler_type": "exp",
     "optimizer": "adam",
     "betas": [0.9, 0.999],
     "eps": 1e-8,
 }
+
+_LR_SCHEDULERS = ("exp", "constant")
+
 
 @dataclass
 class TrainingConfig:
@@ -46,6 +50,9 @@ class TrainingConfig:
         - learning_rate (float):            initial learning rate
         - decay_rate (float):               exponential decay rate for the
                                             learning rate scheduler
+        - lr_scheduler_type (str):          learning rate scheduler type, one
+                                            of _LR_SCHEDULERS ("exp" or
+                                            "constant")
         - optimizer (str):                  name of the optimizer in use, purely
                                             descriptive — the implementation is
                                             hardcoded to torch.optim.Adam in
@@ -58,28 +65,32 @@ class TrainingConfig:
     batch_size: int
     learning_rate: float
     decay_rate: float
+    lr_scheduler_type: str
     optimizer: str
     betas: tuple[float, float]
     eps: float
 
     def __init__(
         self,
-        n_iters: int | None,
-        lr: float | None,
+        args: Namespace,
         config_path: str = DEFAULT_TRAINING_CONFIG_PATH,
     ):
         """
-        Builds a TrainingConfig from CLI-provided hyperparameters and the
+        Builds a TrainingConfig from the parsed CLI arguments and the
         training YAML config file.
 
         Args:
-            n_iters (int | None): total number of training iterations;
-                CLI-driven, falls back to the YAML config file if None
-            lr (float | None): initial learning rate; CLI-driven, falls
-                back to the YAML config file if None
+            args (Namespace): parsed command-line arguments; n_iters, lr,
+                and lr_scheduler_type are unpacked from it and fall back
+                to the YAML config file when None
             config_path (str): path to the training YAML config file,
                 created with default values if it doesn't exist
         """
+        n_iters, lr, lr_scheduler_type = (
+            args.n_iters,
+            args.lr,
+            args.lr_scheduler_type,
+        )
         cfg = load_or_create_config(config_path, _DEFAULTS)
         self.num_iterations = n_iters if n_iters is not None else cfg["n_iters"]
         self.warmup_iters = cfg["warmup_iters"]
@@ -87,6 +98,16 @@ class TrainingConfig:
         self.batch_size = cfg["batch_size"]
         self.learning_rate = lr if lr is not None else cfg["lr"]
         self.decay_rate = cfg["decay_rate"]
+        self.lr_scheduler_type = (
+            lr_scheduler_type
+            if lr_scheduler_type is not None
+            else cfg.get("lr_scheduler_type", _DEFAULTS["lr_scheduler_type"])
+        )
+        if self.lr_scheduler_type not in _LR_SCHEDULERS:
+            raise ValueError(
+                f"Unknown lr_scheduler_type '{self.lr_scheduler_type}'; "
+                f"expected one of {_LR_SCHEDULERS}."
+            )
         self.optimizer = cfg["optimizer"]
         self.betas = tuple(cfg["betas"])
         self.eps = cfg["eps"]
@@ -120,12 +141,13 @@ class ModelTrainer:
             monitor_data (Dataset | None): single-view dataset used to
                 monitor training progress
             args (Namespace): parsed command-line arguments; n_iters, lr,
-                and debug are unpacked from it — n_iters/lr fall back to
-                the training YAML config file when None
+                lr_scheduler_type, and debug are unpacked from it —
+                n_iters/lr/lr_scheduler_type fall back to the training
+                YAML config file when None
             seed (int): seeds the renderer's occupancy estimator's dedicated
                 generator, independent of the model's own RNG stream
         """
-        settings = TrainingConfig(args.n_iters, args.lr)
+        settings = TrainingConfig(args)
         self.training_device = training_device
         self.monitor_data = monitor_data
         self.configure(settings, seed, args.debug)
@@ -160,6 +182,7 @@ class ModelTrainer:
         """
         self.learning_rate = settings.learning_rate
         self.decay_rate = settings.decay_rate
+        self.lr_scheduler_type = settings.lr_scheduler_type
         self.betas = settings.betas
         self.eps = settings.eps
         self.batch_size = settings.batch_size
@@ -318,11 +341,19 @@ class ModelTrainer:
 
     def __create_lr_scheduler(self) -> LrScheduler:
         """
-        Instantiates the exponential-decay learning rate scheduler.
+        Instantiates the learning rate scheduler selected by
+        lr_scheduler_type ("exp" or "constant").
 
         Returns:
             LrScheduler: configured learning rate scheduler
         """
-        return LrScheduler(
-            self.optimizer, self.num_iterations, self.learning_rate, self.decay_rate
-        )
+        if self.lr_scheduler_type == "exp":
+            return ExponentialLrScheduler(
+                self.optimizer,
+                self.num_iterations,
+                self.learning_rate,
+                self.decay_rate,
+            )
+        if self.lr_scheduler_type == "constant":
+            return ConstantLrScheduler(self.optimizer, self.learning_rate)
+        raise ValueError(f"Unknown lr_scheduler_type '{self.lr_scheduler_type}'.")

@@ -40,6 +40,12 @@ def config_parser() -> argparse.Namespace:
         type=float,
         help="Initial learning rate for optimizer; falls back to training.yaml if not set",
     )
+    train.add_argument(
+        "--lr_scheduler_type",
+        default=None,
+        type=str,
+        help="Learning rate scheduler type (exp or constant); falls back to training.yaml if not set",
+    )
 
     evaluation = parser.add_argument_group("Evaluation")
     evaluation.add_argument(
