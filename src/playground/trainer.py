@@ -192,6 +192,8 @@ class ModelTrainer:
                 raise ValueError(f"Model type '{args.model}' has no default lr value.") from None
         self.decay_rate = settings.decay_rate
         self.lr_scheduler_type = settings.lr_scheduler_type
+        self.warmup_iters = settings.warmup_iters
+        self.warmup_mult = settings.warmup_mult
         self.betas = settings.betas
         self.eps = settings.eps
         self.batch_size = settings.batch_size
@@ -362,6 +364,8 @@ class ModelTrainer:
                 self.num_iterations,
                 self.learning_rate,
                 self.decay_rate,
+                self.warmup_iters,
+                self.warmup_mult,
             )
         if self.lr_scheduler_type == "constant":
             return ConstantLrScheduler(self.optimizer, self.learning_rate)
