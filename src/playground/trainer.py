@@ -1,4 +1,3 @@
-import os
 from argparse import Namespace
 from dataclasses import dataclass
 
@@ -23,7 +22,7 @@ _DEFAULTS = {
     "warmup_iters": 512,
     "warmup_mult": 0.01,
     "batch_size": 1024,
-    "lr": 5e-4,
+    "lr": {"sinerf": 0.001, "nerf": 0.0005},
     "decay_rate": 0.1,
     "lr_scheduler_type": "exp",
     "optimizer": "adam",
@@ -40,14 +39,16 @@ class TrainingConfig:
     Holds all hyperparameters and components required to configure a
     ModelTrainer.
 
-    num_iterations and learning_rate may be overridden from the CLI; when
-    not given (None), they fall back to the training YAML config file, as
-    do the remaining fields.
+    num_iterations and lr_scheduler_type may be overridden from the CLI;
+    when not given (None), they fall back to the training YAML config file,
+    as do the remaining fields. The learning rate is stored as per-model
+    defaults (lr_values); ModelTrainer selects the entry for the chosen
+    model, unless --lr overrides it.
 
     Fields:
         - num_iterations (int):             total number of training iterations
         - batch_size (int):                 number of rays per gradient step
-        - learning_rate (float):            initial learning rate
+        - lr_values (dict[str, float]):     default initial learning rate values
         - decay_rate (float):               exponential decay rate for the
                                             learning rate scheduler
         - lr_scheduler_type (str):          learning rate scheduler type, one
@@ -63,7 +64,7 @@ class TrainingConfig:
 
     num_iterations: int
     batch_size: int
-    learning_rate: float
+    lr_values: dict[str, float]
     decay_rate: float
     lr_scheduler_type: str
     optimizer: str
@@ -80,23 +81,20 @@ class TrainingConfig:
         training YAML config file.
 
         Args:
-            args (Namespace): parsed command-line arguments; n_iters, lr,
-                and lr_scheduler_type are unpacked from it and fall back
-                to the YAML config file when None
+            args (Namespace): parsed command-line arguments; n_iters and
+                lr_scheduler_type are unpacked from it and fall back
+                to the YAML config file when None (lr is resolved per
+                model in ModelTrainer)
             config_path (str): path to the training YAML config file,
                 created with default values if it doesn't exist
         """
-        n_iters, lr, lr_scheduler_type = (
-            args.n_iters,
-            args.lr,
-            args.lr_scheduler_type,
-        )
+        n_iters, lr_scheduler_type = (args.n_iters, args.lr_scheduler_type)
         cfg = load_or_create_config(config_path, _DEFAULTS)
         self.num_iterations = n_iters if n_iters is not None else cfg["n_iters"]
         self.warmup_iters = cfg["warmup_iters"]
         self.warmup_mult = cfg["warmup_mult"]
         self.batch_size = cfg["batch_size"]
-        self.learning_rate = lr if lr is not None else cfg["lr"]
+        self.lr_values = cfg["lr"]
         self.decay_rate = cfg["decay_rate"]
         self.lr_scheduler_type = (
             lr_scheduler_type
@@ -150,9 +148,10 @@ class ModelTrainer:
         settings = TrainingConfig(args)
         self.training_device = training_device
         self.monitor_data = monitor_data
-        self.configure(settings, seed, args.debug)
+        self.configure(settings, seed, args)
+        
 
-    def configure(self, settings: TrainingConfig, seed: int, debug: bool = False):
+    def configure(self, settings: TrainingConfig, seed: int, args: Namespace):
         """
         Applies a TrainingConfig to the trainer, setting up the renderer
         (and the occupancy grid estimator it owns) and storing all training
@@ -163,24 +162,34 @@ class ModelTrainer:
             settings (TrainingConfig): full training configuration
             seed (int): seeds the renderer's occupancy estimator generator,
                 as well as this trainer's own generator for batch sampling
-            debug (bool): if True, disables all wandb logging
+            args (Namespace): parsed command-line arguments; model and lr
+                select the initial learning rate, and debug, if True,
+                disables all wandb logging
         """
-        self.__apply_training_config(settings)
+        self.__apply_training_config(settings, args)
         self.renderer = Renderer(seed)
         self.data_generator = torch.Generator(
             device=self.training_device
         ).manual_seed(seed)
-        self.debug_mode = debug
+        self.debug_mode = args.debug
 
-    def __apply_training_config(self, settings: TrainingConfig):
+    def __apply_training_config(self, settings: TrainingConfig, args: Namespace):
         """
         Unpacks scalar hyperparameters from a TrainingConfig onto the
         trainer instance.
 
         Args:
             settings (TrainingConfig): full training configuration
+            args (Namespace): parsed command-line arguments; model and lr
+                determine the initial learning rate
         """
-        self.learning_rate = settings.learning_rate
+        if args.lr is not None:
+            self.learning_rate = args.lr
+        else:
+            try:
+                self.learning_rate = settings.lr_values[args.model]
+            except KeyError:
+                raise ValueError(f"Model type '{args.model}' has no default lr value.") from None
         self.decay_rate = settings.decay_rate
         self.lr_scheduler_type = settings.lr_scheduler_type
         self.betas = settings.betas

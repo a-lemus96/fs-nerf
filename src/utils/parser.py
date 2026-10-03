@@ -38,7 +38,7 @@ def config_parser() -> argparse.Namespace:
         "--lr",
         default=None,
         type=float,
-        help="Initial learning rate for optimizer; falls back to training.yaml if not set",
+        help="Initial learning rate for optimizer; overrides the per-model default in training.yaml if set",
     )
     train.add_argument(
         "--lr_scheduler_type",

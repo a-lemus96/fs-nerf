@@ -2,7 +2,9 @@ n_iters: 50000
 warmup_iters: 512
 warmup_mult: 0.01
 batch_size: 1024
-lr: 0.0005
+lr:
+  sinerf: 0.001
+  nerf: 0.0005
 decay_rate: 0.1
 lr_scheduler_type: exp
 optimizer: adam

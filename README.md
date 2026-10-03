@@ -42,7 +42,7 @@ Key arguments:
 | `--scene` | LLFF scene to be used for training |
 | `--n_imgs` | Number of training views (`3`, `6`, or `9`) |
 | `--n_iters` | Number of training iterations; falls back to `training.yaml` if not set |
-| `--lr` | Initial learning rate for the optimizer; falls back to `training.yaml` if not set |
+| `--lr` | Initial learning rate for the optimizer; overrides the per-model default under `lr` in `training.yaml` (`nerf`, `sinerf`) if set |
 | `--val_every` | Number of iterations between validation steps; falls back to `evaluation.yaml` if not set |
 | `--out_dir` | Base directory for storing results |
 | `--debug` | If set, run in debug mode (disables wandb logging) |
