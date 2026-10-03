@@ -18,7 +18,7 @@ from utils import load_or_create_config
 DEFAULT_TRAINING_CONFIG_PATH = "../configs/training.yaml"
 
 _DEFAULTS = {
-    "n_iters": 50000,
+    "n_iters": 100000,
     "warmup_iters": 512,
     "warmup_mult": 0.01,
     "batch_size": 1024,
