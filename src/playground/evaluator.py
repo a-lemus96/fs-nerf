@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 import wandb
 
-from render.renderer import Renderer
+from playground.renderer import Renderer
 from utils import load_or_create_config
 
 

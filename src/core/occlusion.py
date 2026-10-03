@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import Tensor
 
-from render.renderer import RenderingResult
+from playground.renderer import RenderingResult
 
 class OcclusionRegularizer(ABC):
     """

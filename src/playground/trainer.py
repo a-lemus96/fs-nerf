@@ -10,7 +10,7 @@ from torch import nn
 from torch.utils.data import Dataset
 
 # custom modules
-from render.renderer import Renderer
+from playground.renderer import Renderer
 from core import LrScheduler, ConstantLrScheduler, ExponentialLrScheduler
 from playground.evaluator import ModelEvaluator
 from utils import load_or_create_config
