@@ -111,7 +111,8 @@ class Sinerf(nn.Module):
             pos_dim: int = 3,
             dir_dim: int = 3,
             width: int = 256,
-            alpha: list[float] = [30., 1., 1., 1., 1., 1., 1., 1.],
+            depth: int = 8,
+            omega: float = 30.,
     ) -> None:
         """
         Constructor method. Builds a SIREN MLP model for NeRF.
@@ -120,17 +121,18 @@ class Sinerf(nn.Module):
             pos_dim: int. Dimension of the position input
             dir_dim: int. Dimension of the direction input
             width: int. Base width of the hidden layers
-            alpha: list[float]. List of alpha values for each layer
+            depth: int. Base depth of the hidden layers
+            omega: float. w_0 hyperparameter from the original SIREN paper.
         """
         super(Sinerf, self).__init__()
         self.pos_dim = pos_dim
         self.dir_dim = dir_dim
-        self.alpha = alpha
+        self.omega = omega
 
-        hidden = [SirenLinear(width, width, True, a) for a in alpha[1:]]
+        hidden = [SirenLinear(width, width, True) for _ in range(depth - 1)]
 
         self.first_layers = nn.Sequential(
-                SirenLinear(pos_dim, width, True, alpha[0], True),
+                SirenLinear(pos_dim, width, True, self.omega, True),
                 *hidden
         )
         self.sigma_layers = nn.Sequential(
