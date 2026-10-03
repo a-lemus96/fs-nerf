@@ -103,6 +103,16 @@ class Renderer:
         self.device = torch.device("cpu")
         self.training = False
 
+    @property
+    def near_plane(self) -> float:
+        """Near plane distance configured on the occupancy estimator."""
+        return self.__estimator.near_plane
+
+    @property
+    def far_plane(self) -> float:
+        """Far plane distance configured on the occupancy estimator."""
+        return self.__estimator.far_plane
+
     def to(self, device: torch.device) -> None:
         """
         Moves the renderer (and its occupancy estimator) to the given device.
@@ -415,14 +425,17 @@ class Renderer:
 
     @staticmethod
     def colorize_depth(
-        depth: Tensor | np.ndarray, cmap: str = "plasma"
+        depth: Tensor | np.ndarray, near_plane: float, far_plane: float, cmap: str = "plasma",
     ) -> np.ndarray:
         """
-        Maps a single depth map to a colorized uint8 image, min-max normalized
-        over the map itself. Uses the same default colormap as render_video.
+        Maps a single depth map to a colorized uint8 image, normalized between
+        the given near and far planes. Uses the same default colormap as
+        render_video.
 
         Args:
             depth (Tensor | ndarray): (H, W) depth map
+            near_plane (float):       depth mapped to the low end of the colormap
+            far_plane (float):        depth mapped to the high end of the colormap
             cmap (str):               matplotlib colormap name
         Returns:
             ndarray: (H, W, 3) uint8 RGB image
@@ -430,7 +443,7 @@ class Renderer:
         if isinstance(depth, Tensor):
             depth = depth.detach().cpu().numpy()
 
-        norm = matplotlib.colors.Normalize(vmin=depth.min(), vmax=depth.max())
+        norm = matplotlib.colors.Normalize(vmin=near_plane, vmax=far_plane)
         rgba = cm.ScalarMappable(norm=norm, cmap=cmap).to_rgba(depth, bytes=True)
 
         return rgba[..., :3]

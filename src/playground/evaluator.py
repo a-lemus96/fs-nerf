@@ -216,6 +216,8 @@ class ModelEvaluator:
                 {"psnr": psnr, "ssim": ssim, "lpips": lpips, "average": average},
                 rgbs_predicted,
                 depths_predicted,
+                renderer.near_plane,
+                renderer.far_plane,
             )
 
         return psnr, ssim, lpips, average
@@ -226,6 +228,8 @@ class ModelEvaluator:
         metrics: dict[str, float],
         rgbs_predicted: torch.Tensor,
         depths_predicted: torch.Tensor,
+        near_plane: float,
+        far_plane: float,
     ) -> None:
         """
         Logs evaluation metrics and the rendered RGB / colorized depth images
@@ -237,6 +241,8 @@ class ModelEvaluator:
             metrics (dict[str, float]): metric name -> value
             rgbs_predicted (Tensor): (N, 3, H, W) renders in [0, 1]
             depths_predicted (Tensor): (N, H, W) depth maps
+            near_plane (float): depth mapped to the low end of the colormap
+            far_plane (float): depth mapped to the high end of the colormap
         """
         payload = {f"{prefix}_{name}": value for name, value in metrics.items()}
         payload[f"{prefix}_image"] = [
@@ -246,10 +252,11 @@ class ModelEvaluator:
             )
             for i, rgb in enumerate(rgbs_predicted)
         ]
-        # depth is normalized per frame, so the caption carries its range
+        # colors span the estimator's near/far planes; the caption carries the
+        # frame's actual depth range
         payload[f"{prefix}_depth"] = [
             wandb.Image(
-                Renderer.colorize_depth(depth),
+                Renderer.colorize_depth(depth, near_plane, far_plane),
                 caption=f"depth [{depth.min().item():.3f}, {depth.max().item():.3f}]",
             )
             for depth in depths_predicted
