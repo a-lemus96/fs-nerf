@@ -81,9 +81,9 @@ class TrainingConfig:
         training YAML config file.
 
         Args:
-            args (Namespace): parsed command-line arguments; n_iters and
-                lr_scheduler_type are unpacked from it and fall back
-                to the YAML config file when None (lr is resolved per
+            args (Namespace): parsed command-line arguments; n_iters,
+                lr_scheduler_type and decay_rate are unpacked from it and
+                fall back to the YAML config file when None (lr is resolved per
                 model in ModelTrainer)
             config_path (str): path to the training YAML config file,
                 created with default values if it doesn't exist
@@ -95,7 +95,9 @@ class TrainingConfig:
         self.warmup_mult = cfg["warmup_mult"]
         self.batch_size = cfg["batch_size"]
         self.lr_values = cfg["lr"]
-        self.decay_rate = cfg["decay_rate"]
+        self.decay_rate = (
+            args.decay_rate if args.decay_rate is not None else cfg["decay_rate"]
+        )
         self.lr_scheduler_type = (
             lr_scheduler_type
             if lr_scheduler_type is not None

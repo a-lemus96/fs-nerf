@@ -46,6 +46,12 @@ def config_parser() -> argparse.Namespace:
         type=str,
         help="Learning rate scheduler type (exp or constant); falls back to training.yaml if not set",
     )
+    train.add_argument(
+        "--decay_rate",
+        default=None,
+        type=float,
+        help="Exponential decay rate for the lr scheduler; falls back to training.yaml if not set",
+    )
 
     evaluation = parser.add_argument_group("Evaluation")
     evaluation.add_argument(
