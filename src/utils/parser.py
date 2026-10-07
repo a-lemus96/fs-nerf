@@ -53,6 +53,13 @@ def config_parser() -> argparse.Namespace:
         help="Exponential decay rate for the lr scheduler; falls back to training.yaml if not set",
     )
 
+    train.add_argument(
+        "--seed",
+        default=42,
+        type=int,
+        help="Random seed for torch, numpy, random and the dedicated generators",
+    )
+
     evaluation = parser.add_argument_group("Evaluation")
     evaluation.add_argument(
         "--val_every",

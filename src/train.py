@@ -21,13 +21,13 @@ from playground.evaluator import ModelEvaluator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+args = P.config_parser()  # parse command line arguments
+
 # RANDOM SEED
-seed = 42
+seed = args.seed
 torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
-
-args = P.config_parser()  # parse command line arguments
 
 
 def main():
