@@ -15,6 +15,13 @@ def config_parser() -> argparse.Namespace:
         help="Model to be used for training",
     )
 
+    model.add_argument(
+        "--omega",
+        default=30.0,
+        type=float,
+        help="SIREN omega (w_0) of the first layer; only used by sinerf",
+    )
+
     data = parser.add_argument_group("Data")
     data.add_argument(
         "--scene", default="flower", type=str, help="LLFF scene to be used for training"

@@ -1,0 +1,25 @@
+program: train.py
+project: freq-reg-nerf
+method: grid
+name: omega-fern
+description:
+  SIREN omega sweep for SiNeRF on the dev scene (LLFF fern, 3 views), trained for
+  100k iterations with the default exp scheduler and learning rate.
+parameters:
+  scene:
+    value: fern
+  model:
+    value: sinerf
+  n_imgs:
+    value: 3
+  omega:
+    values: [1, 5, 10, 20, 30, 45, 60, 90]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 100000
+  - --out_dir
+  - ../output/omega-fern/
+  - ${args}

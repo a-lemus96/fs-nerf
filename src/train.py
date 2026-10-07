@@ -132,7 +132,7 @@ def init_model(generator: torch.Generator) -> nn.Module:
             case "nerf":
                 model = Nerf()
             case "sinerf":
-                model = Sinerf()
+                model = Sinerf(omega=args.omega)
             case _:
                 raise ValueError(f"Model {args.model} not supported")
 
