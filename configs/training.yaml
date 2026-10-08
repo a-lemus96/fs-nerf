@@ -3,7 +3,7 @@ warmup_iters: 512
 warmup_mult: 0.01
 batch_size: 1024
 lr:
-  sinerf: 0.001
+  sinerf: 0.002
   nerf: 0.0005
 decay_rate: 0.1
 lr_scheduler_type: exp
