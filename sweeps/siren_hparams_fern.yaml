@@ -1,0 +1,39 @@
+program: train.py
+project: freq-reg-nerf
+method: bayes
+name: siren-hparams-fern
+description:
+  Bayesian search over omega (around 5), lr and decay_rate for SiNeRF on the dev
+  scene (LLFF fern, 3 views), trained for 100k iterations with the exp scheduler.
+metric:
+  name: final_psnr
+  goal: maximize
+run_cap: 25
+parameters:
+  scene:
+    value: fern
+  model:
+    value: sinerf
+  n_imgs:
+    value: 3
+  lr_scheduler_type:
+    value: exp
+  omega:
+    distribution: log_uniform_values
+    min: 2
+    max: 10
+  lr:
+    values: [0.002, 0.001, 0.0005]
+  decay_rate:
+    distribution: log_uniform_values
+    min: 0.025
+    max: 0.4
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 100000
+  - --out_dir
+  - ../output/siren-hparams-fern/
+  - ${args}
