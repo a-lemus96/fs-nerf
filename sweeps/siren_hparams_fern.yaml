@@ -6,8 +6,8 @@ description:
   Bayesian search over omega (around 5), lr and decay_rate for SiNeRF on the dev
   scene (LLFF fern, 3 views), trained for 100k iterations with the exp scheduler.
 metric:
-  name: final_psnr
-  goal: maximize
+  name: final_average
+  goal: minimize
 run_cap: 25
 parameters:
   scene:
