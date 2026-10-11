@@ -21,11 +21,47 @@ L = L_reconstruction + α · L_frequency + β · L_occlusion
 - `β` controls the occlusion regularization weight
 
 ## Setup
+
+### Data
+
+Place the LLFF scenes under `data/llff/` (e.g. `data/llff/fern/`). The folder is git-ignored.
+
+### Weights & Biases
+
+Create a `.env` file in the repository root (git-ignored) with your API key:
+```
+WANDB_API_KEY=<your-key>
+```
+Without it, run with `--debug` to disable wandb logging.
+
+### Docker (recommended)
+
+Requires the NVIDIA Container Toolkit.
+```bash
+docker image build -t fs-nerf . && docker image prune -f
+docker compose up -d
+docker compose exec fs-nerf bash
+```
+
+The container mounts the following:
+
+| Host | Container | Notes |
+|---|---|---|
+| `./src` | `/workspace/src` | read-only, working directory |
+| `./configs` | `/workspace/configs` | |
+| `./data` | `/workspace/data` | read-only |
+| `./output` | `/workspace/output` | results and wandb run files |
+| `models` volume | `/models` | cached torch hub weights (e.g. VGG), kept across containers |
+
+### Local
 ```bash
 pip install -r requirements.txt
+pip install nerfacc -f https://nerfacc-bucket.s3.us-west-2.amazonaws.com/whl/torch-2.0.0_cu118.html
 ```
 
 ## Training
+
+Run from `src/`:
 ```bash
 python train.py \
   --scene <llff_scene> \
@@ -44,7 +80,7 @@ Key arguments:
 | `--n_iters` | Number of training iterations; falls back to `training.yaml` if not set |
 | `--lr` | Initial learning rate for the optimizer; overrides the per-model default under `lr` in `training.yaml` (`nerf`, `sinerf`) if set |
 | `--val_every` | Number of iterations between validation steps; falls back to `evaluation.yaml` if not set |
-| `--out_dir` | Base directory for storing results |
+| `--out_dir` | Base directory for storing results (default `../output/`) |
 | `--debug` | If set, run in debug mode (disables wandb logging) |
 | `--render_only` | If set, load a pretrained model to render a video instead of training |
 
