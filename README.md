@@ -24,7 +24,10 @@ L = L_reconstruction + α · L_frequency + β · L_occlusion
 
 ### Data
 
-Place the LLFF scenes under `data/llff/` (e.g. `data/llff/fern/`). The folder is git-ignored.
+Download the LLFF scenes into `data/llff/` (~1.8 GB, git-ignored):
+```bash
+./scripts/download_llff.sh
+```
 
 ### Weights & Biases
 
