@@ -1,8 +1,15 @@
 services:
   fs-nerf:
     image: fs-nerf:latest
+    container_name: core
+    env_file:
+      - path: .env
+        required: false
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - TORCH_HOME=/models/torch
+      - WANDB_DIR=/workspace/output/
+    
     deploy:
       resources:
         reservations:
@@ -10,11 +17,27 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    volumes:
-      - ./src:/workspace/src
-      - ./configs:/workspace/configs
-      - ./data:/workspace/datasets:ro
-      - ./output:/workspace/out
+    
     working_dir: /workspace/src
     stdin_open: true
     tty: true
+    
+    volumes:
+      - type: bind
+        source: ./src
+        target: /workspace/src
+        read_only: true
+      - type: bind
+        source: ./configs
+        target: /workspace/configs
+      - type: bind
+        source: ./data
+        target: /workspace/data
+        read_only: true
+      - type: bind
+        source: ./output
+        target: /workspace/output
+      - models:/models
+
+volumes:
+  models:

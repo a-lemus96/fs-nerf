@@ -27,7 +27,7 @@ class LLFFDataset(Dataset):
         rays to normalized device coordinates.
         ------------------------------------------------------------------------
         Args:
-            scene (str): scene folder name under ../datasets/llff/
+            scene (str): scene folder name under ../data/llff/
             img_ids (list[int]): if given, restricts the dataset to these
                 image indices (computed over the full, unfiltered scene) after
                 the full scene has been loaded and its poses normalized

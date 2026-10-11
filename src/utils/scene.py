@@ -23,7 +23,7 @@ _DEFAULTS = {
 @dataclass
 class LLFFConfig:
     bd_factor: float  # shrinks the scene so the nearest bound sits at 1 / bd_factor
-    recenter: bool    # if True, expresses poses relative to the average pose
+    recenter: bool  # if True, expresses poses relative to the average pose
     downsample_factor: int  # LLFF images_{downsample_factor}/ folder to load
 
     def __init__(self, config_path: str = DEFAULT_DATASET_CONFIG_PATH):
@@ -162,7 +162,7 @@ def load_scene(
         images_{downsample_factor}/  -> contains image files
         poses_bounds.npy             -> poses file
     Args:
-        scene (str): scene folder name under ../datasets/llff/
+        scene (str): scene folder name under ../data/llff/
         config_path (str): path to the LLFF dataset YAML config file,
             created with default values if it doesn't exist
     Returns:
@@ -174,7 +174,7 @@ def load_scene(
     """
     settings = LLFFConfig(config_path)
 
-    base_folder_path = os.path.normpath("../datasets/llff/")
+    base_folder_path = os.path.normpath("../data/llff/")
     assert os.path.isdir(
         base_folder_path
     ), f"LLFF dataset folder {os.path.abspath(base_folder_path)} not found."
@@ -218,7 +218,7 @@ def load_scene(
     poses = np.moveaxis(poses, -1, 0).astype(np.float32)
     bounds = np.moveaxis(bounds, -1, 0).astype(np.float32)
 
-    (poses, hwf, min_bound, max_bound) = postprocess_poses(
+    poses, hwf, min_bound, max_bound = postprocess_poses(
         poses, bounds, settings.bd_factor, settings.recenter
     )
 
@@ -269,11 +269,7 @@ def build_path(
             np.array([np.cos(theta), -np.sin(theta), -np.sin(theta * zrate), 1.0])
             * rads,
         )
-        z = normalize(
-            c - np.dot(c2w[:3, :4], np.array([0, 0, -focal, 1.0]))
-        )
-        path_poses.append(
-            np.concatenate([viewmatrix(z, up, c), hwf], 1)
-        )
+        z = normalize(c - np.dot(c2w[:3, :4], np.array([0, 0, -focal, 1.0])))
+        path_poses.append(np.concatenate([viewmatrix(z, up, c), hwf], 1))
     # cast to tensor
     return path_poses

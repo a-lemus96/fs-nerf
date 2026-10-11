@@ -13,15 +13,10 @@ WORKDIR /workspace
 
 # Copy and install python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && rm requirements.txt
 
 # Install nerfacc from python wheel
 RUN pip install nerfacc -f https://nerfacc-bucket.s3.us-west-2.amazonaws.com/whl/torch-2.0.0_cu118.html
-
-# Source code, datasets and outputs are bind-mounted at runtime via docker-compose
-VOLUME ["/workspace/src"]
-VOLUME [ "/workspace/datasets" ]
-VOLUME [ "/workspace/output" ]
 
 WORKDIR /workspace/src
 

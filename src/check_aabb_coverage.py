@@ -16,7 +16,7 @@ from utils import get_chunks
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-LLFF_BASE_PATH = os.path.normpath("../datasets/llff")
+LLFF_BASE_PATH = os.path.normpath("../data/llff")
 RENDERING_CONFIG_PATH = "../configs/rendering.yaml"
 
 
@@ -26,7 +26,8 @@ def discover_scenes(dataset_path: str = LLFF_BASE_PATH) -> list[str]:
         dataset_path
     ), f"LLFF dataset folder {os.path.abspath(dataset_path)} not found."
     return sorted(
-        d for d in os.listdir(dataset_path)
+        d
+        for d in os.listdir(dataset_path)
         if os.path.isdir(os.path.join(dataset_path, d))
     )
 
@@ -44,7 +45,9 @@ def default_num_samples(near: float, far: float) -> int:
     return max(2, round((far - near) / render_step_size))
 
 
-def sample_points(rays_o: Tensor, rays_d: Tensor, near: float, far: float, M: int) -> Tensor:
+def sample_points(
+    rays_o: Tensor, rays_d: Tensor, near: float, far: float, M: int
+) -> Tensor:
     """
     Computes M evenly-spaced sample points per ray along t in [near, far],
     the same x = o + t * d parametrization used by Renderer.render_rays's
@@ -147,7 +150,7 @@ def main():
     parser.add_argument(
         "--out",
         type=str,
-        default="../out/aabb_coverage.csv",
+        default="../output/aabb_coverage.csv",
         help="Output CSV path.",
     )
     parser.add_argument(
@@ -182,7 +185,9 @@ def main():
             rows.append(result)
             logger.info(
                 "%s: %.4f%% of %d samples outside aabb",
-                scene, result["pct_outside_aabb"], result["total_samples"],
+                scene,
+                result["pct_outside_aabb"],
+                result["total_samples"],
             )
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)

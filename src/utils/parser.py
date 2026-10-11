@@ -1,6 +1,7 @@
 # stdlib imports
 import argparse
 
+
 def config_parser() -> argparse.Namespace:
     """Creates a parser for command-line arguments.
     ----------------------------------------------------------------------------
@@ -78,7 +79,7 @@ def config_parser() -> argparse.Namespace:
     logging = parser.add_argument_group("Logging")
     logging.add_argument(
         "--out_dir",
-        default="../out/",
+        default="../output/",
         type=str,
         help="Base directory for storing results",
     )

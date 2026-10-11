@@ -24,7 +24,7 @@ _FlowListDumper.add_representer(
     ),
 )
 
-LLFF_BASE_PATH = os.path.normpath("../datasets/llff")
+LLFF_BASE_PATH = os.path.normpath("../data/llff")
 POSES_FILE = "poses_bounds.npy"
 LLFF_HOLD = 8  # standard NeRF LLFF split: every 8th image is held out for eval
 N_IMGS_CHOICES = (3, 6, 9)  # few-shot LLFF settings
