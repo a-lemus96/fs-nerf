@@ -31,6 +31,8 @@ class Sine(nn.Module):
         Returns:
             (N, d)-shape torch.Tensor. Output tensor
         """
+        if self.w == 1.:
+            return torch.sin(x)  # skip the no-op scaling (hidden layers)
         return torch.sin(self.w * x)
 
 class SirenLinear(nn.Module):
