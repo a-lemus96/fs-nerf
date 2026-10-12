@@ -22,7 +22,7 @@ _DEFAULTS = {
     "ema_decay": 0.95,
     "warmup_steps": 256,
     "update_period": 16,
-    "early_stop_eps": 1e-4,
+    "early_stop_eps": 0.0,
     "near_plane": 0.0,
     # NDC rays end at t=1, the z=+1 infinity wall
     "far_plane": 1.0,
