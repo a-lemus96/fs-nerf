@@ -68,6 +68,12 @@ def config_parser() -> argparse.Namespace:
         help="Random seed for torch, numpy, random and the dedicated generators",
     )
 
+    train.add_argument(
+        "--tf32",
+        action="store_true",
+        help="If set, allow TF32 tensor-core matmuls (Ampere/Ada GPUs only)",
+    )
+
     evaluation = parser.add_argument_group("Evaluation")
     evaluation.add_argument(
         "--val_every",

@@ -29,6 +29,10 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
+# TF32 (tensor-core matmuls on Ampere/Ada; no effect on older GPUs)
+torch.backends.cuda.matmul.allow_tf32 = args.tf32
+torch.backends.cudnn.allow_tf32 = args.tf32
+
 
 def main():
     device = get_computing_device()
@@ -57,9 +61,7 @@ def main():
     if not args.render_only:
         model = init_model(model_init_generator)
 
-        model_trainer = ModelTrainer(
-            device, monitor_data, args=args, seed=seed
-        )
+        model_trainer = ModelTrainer(device, monitor_data, args=args, seed=seed)
         model_evaluator = ModelEvaluator(device, args=args)
 
         # trains model using the trainer's configuration
@@ -104,6 +106,10 @@ def main():
 def get_computing_device() -> torch.device:
     computing_device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
     print(f"Computing device: {torch.cuda.get_device_name(computing_device)}")
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability(computing_device)
+        supported = major >= 8  # TF32 needs Ampere (8.0) or newer
+        print(f"TF32 requested: {args.tf32} | GPU supports TF32: {supported}")
     return computing_device
 
 
