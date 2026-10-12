@@ -25,7 +25,7 @@ def config_parser() -> argparse.Namespace:
 
     data = parser.add_argument_group("Data")
     data.add_argument(
-        "--scene", default="flower", type=str, help="LLFF scene to be used for training"
+        "--scene", default="fern", type=str, help="LLFF scene to be used for training"
     )
     data.add_argument(
         "--n_imgs",
