@@ -96,6 +96,19 @@ def config_parser() -> argparse.Namespace:
         type=float,
         help="Exponential decay rate for the lr scheduler; falls back to training.yaml if not set",
     )
+    train.add_argument(
+        "--warmup_iters",
+        default=None,
+        type=int,
+        help="Lr warmup length in iterations for the exp scheduler; 0 disables "
+        "warmup; falls back to training.yaml if not set",
+    )
+    train.add_argument(
+        "--warmup_mult",
+        default=None,
+        type=float,
+        help="Lr multiplier at the start of warmup; falls back to training.yaml if not set",
+    )
 
     train.add_argument(
         "--seed",

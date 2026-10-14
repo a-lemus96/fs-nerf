@@ -1,0 +1,34 @@
+program: train.py
+project: freq-reg-nerf
+method: grid
+name: warmup-fern
+description:
+  Lr warmup ablation for SiNeRF on the dev scene (LLFF fern, 3 views), with the
+  best fixed setting so far (omega 5, exp scheduler, TF32). warmup_iters 0
+  disables warmup; 512 is the training.yaml default (sine ramp from 0.01x lr).
+  Two seeds to compare the gap against the seed-to-seed noise floor.
+parameters:
+  scene:
+    value: fern
+  model:
+    value: sinerf
+  n_imgs:
+    value: 3
+  omega:
+    value: 5
+  lr_scheduler_type:
+    value: exp
+  warmup_iters:
+    values: [0, 512]
+  seed:
+    values: [42, 0]
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 100000
+  - --tf32
+  - --out_dir
+  - ../output/warmup-fern/
+  - ${args}
