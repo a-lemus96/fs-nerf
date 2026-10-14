@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 # custom modules
 from playground.renderer import Renderer
 from core import LrScheduler, ConstantLrScheduler, ExponentialLrScheduler
+from core import Sinerf, FrequencySchedule, FrequencyCurriculum, OmegaAnnealer, BandwidthCap
 from playground.evaluator import ModelEvaluator
 from utils import load_or_create_config
 
@@ -200,6 +201,11 @@ class ModelTrainer:
         self.eps = settings.eps
         self.batch_size = settings.batch_size
         self.num_iterations = settings.num_iterations
+        self.freq_curriculum_type = args.freq_curriculum
+        self.freq_start = args.freq_start
+        self.freq_end = args.freq_end
+        self.freq_ramp = args.freq_ramp
+        self.freq_schedule = args.freq_schedule
 
     def fit(
         self,
@@ -247,6 +253,7 @@ class ModelTrainer:
 
         model.to(self.training_device)
         self.renderer.to(self.training_device)
+        self.freq_curriculum = self.__create_freq_curriculum(model)
 
         # Dataset is expected to already be on the training device.
         # Call dataset.to(device) in train.py before fit() is called.
@@ -291,6 +298,9 @@ class ModelTrainer:
                 "photo_loss": loss.item(),
                 "lr": self.lr_scheduler.lr,
             }
+            if self.freq_curriculum is not None:
+                metrics["freq_value"] = self.freq_curriculum.value
+                metrics["max_freq"] = self.freq_curriculum.max_frequency
 
             self.__training_step(k, model, loss)
 
@@ -320,6 +330,8 @@ class ModelTrainer:
         loss.backward()
         self.optimizer.step()
         self.lr_scheduler.step()
+        if self.freq_curriculum is not None:
+            self.freq_curriculum.step()
         self.renderer.step(current_iteration, model)
 
     def __setup_progress_bar(self, num_iterations: int, bar_description: str):
@@ -372,3 +384,42 @@ class ModelTrainer:
         if self.lr_scheduler_type == "constant":
             return ConstantLrScheduler(self.optimizer, self.learning_rate)
         raise ValueError(f"Unknown lr_scheduler_type '{self.lr_scheduler_type}'.")
+
+    def __create_freq_curriculum(
+        self, model: nn.Module
+    ) -> FrequencyCurriculum | None:
+        """
+        Instantiates the frequency curriculum selected by freq_curriculum_type
+        ("none", "omega" or "cap"). Must be called once the model is on the
+        training device, since the cap projects the model weights right away.
+
+        Args:
+            model (nn.Module): model being trained; must be a Sinerf unless
+                freq_curriculum_type is "none"
+        Returns:
+            FrequencyCurriculum | None: configured curriculum, or None if
+                disabled
+        """
+        if self.freq_curriculum_type == "none":
+            return None
+        if not isinstance(model, Sinerf):
+            raise ValueError("Frequency curricula are only supported by sinerf.")
+        if self.freq_start is None:
+            raise ValueError("--freq_start is required when a curriculum is set.")
+
+        T = max(1, round(self.freq_ramp * self.num_iterations))
+        end = self.freq_end
+        if self.freq_curriculum_type == "omega":
+            end = end if end is not None else model.omega
+            schedule = FrequencySchedule(self.freq_start, end, T, self.freq_schedule)
+            return OmegaAnnealer(model, schedule)
+        if self.freq_curriculum_type == "cap":
+            if end is None:
+                with torch.no_grad():
+                    W = model.first_layer.fc_layer.weight
+                    end = (model.omega * W.norm(dim=1).max()).item()
+            schedule = FrequencySchedule(self.freq_start, end, T, self.freq_schedule)
+            return BandwidthCap(model, schedule)
+        raise ValueError(
+            f"Unknown freq_curriculum '{self.freq_curriculum_type}'."
+        )

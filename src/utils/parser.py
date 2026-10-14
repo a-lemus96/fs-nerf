@@ -23,6 +23,42 @@ def config_parser() -> argparse.Namespace:
         help="SIREN omega (w_0) of the first layer; only used by sinerf",
     )
 
+    freq = parser.add_argument_group("Frequency curriculum")
+    freq.add_argument(
+        "--freq_curriculum",
+        choices=["none", "omega", "cap"],
+        default="none",
+        help="Frequency curriculum over the first SIREN layer: anneal omega, "
+        "or cap each neuron's frequency omega * ||w_i||; only used by sinerf",
+    )
+    freq.add_argument(
+        "--freq_start",
+        default=None,
+        type=float,
+        help="Initial omega (omega) or frequency cutoff in rad/unit (cap); "
+        "required when a curriculum is set",
+    )
+    freq.add_argument(
+        "--freq_end",
+        default=None,
+        type=float,
+        help="Final omega (omega) or cutoff (cap); defaults to --omega (omega) "
+        "or the initial max neuron frequency (cap)",
+    )
+    freq.add_argument(
+        "--freq_ramp",
+        default=0.9,
+        type=float,
+        help="Fraction of training iterations over which the curriculum ramps; "
+        "the cap is released afterwards",
+    )
+    freq.add_argument(
+        "--freq_schedule",
+        choices=["linear", "log"],
+        default="log",
+        help="Interpolation from start to end: linear or geometric",
+    )
+
     data = parser.add_argument_group("Data")
     data.add_argument(
         "--scene", default="fern", type=str, help="LLFF scene to be used for training"

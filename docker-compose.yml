@@ -37,6 +37,10 @@ services:
       - type: bind
         source: ./output
         target: /workspace/output
+      - type: bind
+        source: ./sweeps
+        target: /workspace/sweeps
+        read_only: true
       - models:/models
 
 volumes:

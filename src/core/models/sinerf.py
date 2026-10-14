@@ -149,6 +149,24 @@ class Sinerf(nn.Module):
                 nn.Sigmoid()
         )
 
+    @property
+    def first_layer(self) -> SirenLinear:
+        """
+        First SIREN layer, whose rows set the input frequencies of the model.
+        """
+        return self.first_layers[0]
+
+    def set_omega(self, omega: float) -> None:
+        """
+        Sets the w_0 hyperparameter of the first layer at runtime.
+        ------------------------------------------------------------------------
+        Args:
+            omega: float. New w_0 value
+        """
+        self.omega = omega
+        self.first_layer.w = omega
+        self.first_layer.activation.w = omega
+
     def forward(
             self,
             x: torch.Tensor,
