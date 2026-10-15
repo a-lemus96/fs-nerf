@@ -1,0 +1,33 @@
+program: train.py
+project: freq-reg-nerf
+method: grid
+name: views-fern
+description:
+  SiNeRF on the dev scene (LLFF fern) with more training views, using the best
+  fixed setting so far (omega 5, exp scheduler, TF32) without lr warmup.
+  Compare against the 3-view warmup_iters 0 runs of warmup-fern.
+parameters:
+  scene:
+    value: fern
+  model:
+    value: sinerf
+  n_imgs:
+    values: [6, 9]
+  omega:
+    value: 5
+  lr_scheduler_type:
+    value: exp
+  warmup_iters:
+    value: 0
+  seed:
+    value: 42
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - --n_iters
+  - 100000
+  - --tf32
+  - --out_dir
+  - ../output/views-fern/
+  - ${args}
